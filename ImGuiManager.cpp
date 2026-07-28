@@ -1,0 +1,1472 @@
+#include "Main.h"
+#include "RenderManager.h"
+#include "ImGUI/imgui_impl_dx12.h"
+#include "ImGUI/imgui.h"
+#include "ImGuiManager.h"
+#include "GameManager.h"
+#include "Camera.h"
+#include "CameraComponent.h"
+#include "Polygon2D.h"
+#include "Field.h"
+#include "Cat.h"
+#include "StaticMeshComponent.h"
+#include "PostProcessVolume.h"
+#include "SceneRenderer.h"
+#include "ShadowRendering.h"
+#include "LightGridInjection.h"
+#include "ColorGradingLUTBaker.h"
+#include "AutoExposure.h"
+#include "World.h"
+#include "Light.h"
+#include "LightComponent.h"
+#include "SettingsManager.h"
+
+#include <filesystem>
+#include <cctype>
+
+using namespace ImGui;
+
+// ---- 大文字小文字を無視した部分一致 (Outliner フィルタ用) ----
+static bool ContainsCaseInsensitive(const std::string& Haystack, const char* Needle)
+{
+	if (Needle == nullptr || Needle[0] == '\0')
+		return true;
+
+	std::string h = Haystack;
+	std::string n = Needle;
+	for (auto& c : h) c = (char)tolower((unsigned char)c);
+	for (auto& c : n) c = (char)tolower((unsigned char)c);
+
+	return h.find(n) != std::string::npos;
+}
+
+ImGuiManager::ImGuiManager()
+{
+
+}
+
+void ImGuiManager::Start()
+{
+	m_RenderManager = RenderManager::GetInstance();
+	m_SceneRenderer = GameManager::GetInstance()->GetSceneRenderer();
+
+	// ワールドからアクターを検索する
+	UWorld* world = GameManager::GetInstance()->GetWorld();
+	m_World = world;
+	m_PostProcess = world->GetActorOfClass<APostProcessVolume>();
+	m_LUTBaker = m_SceneRenderer->GetColorGradingLUTBaker();
+	m_AutoExposure = m_SceneRenderer->GetAutoExposure();
+	m_Settings = GameManager::GetInstance()->GetSettingsManager();
+}
+
+
+void ImGuiManager::Draw()
+{
+	//CurveWindow();
+
+	OutlinerWindow();
+
+	DetailsWindow();
+
+	BufferWindow();
+
+	LightGridWindow();
+
+	CullingWindow();
+	TranslucencyWindow();
+}
+
+
+void ImGuiManager::CurveWindow()
+{
+	ImGui::Begin("Curve Editor");
+
+	ImVec2 canvas_pos = ImGui::GetCursorScreenPos();
+	ImVec2 canvas_size = ImVec2(400, 200);
+
+	ImDrawList* draw_list = ImGui::GetWindowDrawList();
+
+	// 背景
+	draw_list->AddRectFilled(canvas_pos,
+		ImVec2(canvas_pos.x + canvas_size.x, canvas_pos.y + canvas_size.y),
+		IM_COL32(50, 50, 50, 255));
+
+	// ベジェカーブ描画
+	ImVec2 p0 = ImVec2(canvas_pos.x, canvas_pos.y + canvas_size.y);
+	ImVec2 p1 = ImVec2(canvas_pos.x + canvas_size.x * 0.3f, canvas_pos.y);
+	ImVec2 p2 = ImVec2(canvas_pos.x + canvas_size.x * 0.7f, canvas_pos.y + canvas_size.y);
+	ImVec2 p3 = ImVec2(canvas_pos.x + canvas_size.x, canvas_pos.y);
+
+	draw_list->AddBezierCurve(p0, p1, p2, p3,
+		IM_COL32(255, 200, 0, 255), 2.0f);
+
+	// ダミーでマウス入力を受け取る領域確保
+	ImGui::InvisibleButton("canvas", canvas_size);
+
+	ImGui::End();
+}
+
+void ImGuiManager::BufferWindow()
+{
+	ImGui::Begin("G-Buffer");
+
+	ImGui::Text("GBufferC (BaseColor)");
+	ImGui::Image((void*)m_SceneRenderer->GetSceneTextures()->GBufferC->SRVHandle.ptr, ImVec2(200.0f, 100.0f));
+
+	ImGui::Text("GBufferA (Normal)");
+	ImGui::Image((void*)m_SceneRenderer->GetSceneTextures()->GBufferA->SRVHandle.ptr, ImVec2(200.0f, 100.0f));
+
+	ImGui::Text("GBufferB (MSR/AO)");
+	ImGui::Image((void*)m_SceneRenderer->GetSceneTextures()->GBufferB->SRVHandle.ptr, ImVec2(200.0f, 100.0f));
+
+	ImGui::Text("LinearDepth");
+	ImGui::Image((void*)m_SceneRenderer->GetSceneTextures()->LinearDepthDisplaySRVHandle.ptr, ImVec2(200.0f, 100.0f));
+
+	ImGui::End();
+}
+
+// ============================================================
+//  ライトグリッド (タイルドライトカリング) デバッグウィンドウ
+// ============================================================
+void ImGuiManager::LightGridWindow()
+{
+	ImGui::Begin("Light Grid");
+
+	FLightGridInjection* grid = m_SceneRenderer ? m_SceneRenderer->GetLightGrid() : nullptr;
+	if (grid == nullptr)
+	{
+		ImGui::TextUnformatted("Light grid is not available.");
+		ImGui::End();
+		return;
+	}
+
+	// ---- 統計 ----
+	ImGui::Text("Grid Size : %u x %u x %u (%u cells)",
+		grid->GetGridSizeX(), grid->GetGridSizeY(), grid->GetGridSizeZ(), grid->GetNumCells());
+	ImGui::Text("Tile      : %u px / Max %u lights per cell",
+		LIGHT_GRID_PIXEL_SIZE, MAX_CULLED_LIGHTS_PER_CELL);
+
+	ImGui::Separator();
+
+	// ---- 制御 ----
+	FLightGridInjection::Params& params = grid->GetParams();
+
+	ImGui::Checkbox("Use Light Grid", &params.bUseLightGrid);
+	if (!params.bUseLightGrid)
+	{
+		ImGui::SameLine();
+		ImGui::TextDisabled("(fallback: all-lights loop)");
+	}
+
+	const char* debugModes[] = { "Off", "Light Complexity", "Z Slices" };
+	int debugMode = (int)params.DebugMode;
+	if (ImGui::Combo("Debug View", &debugMode, debugModes, 3))
+	{
+		params.DebugMode = (unsigned int)debugMode;
+	}
+
+	ImGui::End();
+}
+
+// ============================================================
+//  フラスタムカリング デバッグウィンドウ
+//  (stat InitViews のカリング統計 + r.FreezeRendering 相当)
+// ============================================================
+// ============================================================
+//  Translucency ウィンドウ
+//  ETranslucentSortPolicy (プロジェクト設定 Translucent Sort
+//  Policy 相当) をランタイムで切り替える。プリミティブ個別の
+//  Translucency Sort Priority は Details -> Rendering にある。
+// ============================================================
+void ImGuiManager::TranslucencyWindow()
+{
+	ImGui::Begin("Translucency");
+
+	if (m_SceneRenderer == nullptr)
+	{
+		ImGui::TextUnformatted("Scene renderer is not available.");
+		ImGui::End();
+		return;
+	}
+
+	FSceneRenderer::FTranslucencyParams& params = m_SceneRenderer->GetTranslucencyParams();
+
+	// ---- ソートポリシー (ETranslucentSortPolicy と 1:1) ----
+	static const char* policyNames[] =
+	{
+		"Sort By Distance", "Sort By Projected Z", "Sort Along Axis",
+	};
+	int policy = (int)params.SortPolicy;
+	if (ImGui::Combo("Sort Policy", &policy, policyNames, IM_ARRAYSIZE(policyNames)))
+	{
+		params.SortPolicy = (FSceneRenderer::ETranslucentSortPolicy)policy;
+	}
+
+	switch (params.SortPolicy)
+	{
+	case FSceneRenderer::ETranslucentSortPolicy::SortByProjectedZ:
+		ImGui::TextDisabled("View-space depth. Robust when a large surface\n"
+			"(e.g. ground plane) and small objects invert with\n"
+			"origin-distance sorting.");
+		break;
+
+	case FSceneRenderer::ETranslucentSortPolicy::SortAlongAxis:
+		ImGui::DragFloat3("Sort Axis", &params.SortAxis.x, 0.01f, -1.0f, 1.0f);
+		ImGui::TextDisabled("Projection onto a fixed axis (2D / top-down).");
+		break;
+
+	case FSceneRenderer::ETranslucentSortPolicy::SortByDistance:
+	default:
+		ImGui::TextDisabled("Distance to bounds origin (default).");
+		break;
+	}
+
+	ImGui::Separator();
+	ImGui::TextDisabled("Sorting is per-primitive (bounds origin), same as\n"
+		"UE. Use per-primitive 'Translucency Sort Priority'\n"
+		"(Details -> Rendering) to pin a fixed order.");
+
+	ImGui::End();
+}
+
+
+void ImGuiManager::CullingWindow()
+{
+	ImGui::Begin("Culling");
+
+	if (m_SceneRenderer == nullptr)
+	{
+		ImGui::TextUnformatted("Scene renderer is not available.");
+		ImGui::End();
+		return;
+	}
+
+	// ---- 制御 ----
+	FSceneRenderer::FCullingParams& params = m_SceneRenderer->GetCullingParams();
+
+	ImGui::Checkbox("Frustum Culling", &params.bEnableFrustumCulling);
+	if (!params.bEnableFrustumCulling)
+	{
+		ImGui::SameLine();
+		ImGui::TextDisabled("(disabled: draw everything)");
+	}
+
+	ImGui::Checkbox("Freeze Frustum", &params.bFreezeFrustum);
+	ImGui::SameLine();
+	ImGui::TextDisabled(params.bFreezeFrustum
+		? "(frozen: fly the camera to inspect culling)"
+		: "(r.FreezeRendering)");
+
+	ImGui::Separator();
+
+	// ---- ビュー統計 (ComputeViewVisibility が毎フレーム更新) ----
+	const FSceneRenderer::FCullingStats& stats = m_SceneRenderer->GetCullingStats();
+	ImGui::Text("Primitives Processed : %d", stats.NumProcessed);
+	ImGui::Text("  Visible            : %d", stats.NumVisible);
+	ImGui::Text("  Frustum Culled     : %d", stats.NumFrustumCulled);
+	ImGui::Text("  Distance Culled    : %d", stats.NumDistanceCulled);
+
+	// ---- シャドウ統計 (全シャドウビュー累積) ----
+	if (FShadowSceneRenderer* shadowRenderer = m_SceneRenderer->GetShadowRenderer())
+	{
+		const FShadowSceneRenderer::FShadowCullingStats& shadowStats =
+			shadowRenderer->GetCullingStats();
+
+		ImGui::Separator();
+		ImGui::Text("Shadow Views         : %d", shadowStats.NumViews);
+		ImGui::Text("  Casters Processed  : %d", shadowStats.NumProcessed);
+		ImGui::Text("  Casters Drawn      : %d", shadowStats.NumDrawn);
+		ImGui::Text("  Casters Culled     : %d", shadowStats.NumCulled);
+	}
+
+	ImGui::End();
+}
+
+
+// ============================================================
+//  ライト共通プロパティ (Lights ウィンドウ / Details 共用)
+// ============================================================
+void ImGuiManager::DrawLightComponentSection(ULightComponent* Light)
+{
+	if (!Light)
+		return;
+
+	ULightComponent* light = Light;
+
+	// ---- 共通プロパティ ----
+	bool affectsWorld = light->GetAffectsWorld();
+	if (Checkbox("Affects World", &affectsWorld))
+	{
+		light->SetAffectsWorld(affectsWorld);
+	}
+
+	// ---- シャドウ (全ライト共通) ----
+	bool castShadows = light->GetCastShadows();
+	if (Checkbox("Cast Shadows", &castShadows))
+	{
+		light->SetCastShadows(castShadows);
+	}
+	if (castShadows)
+	{
+		float shadowBias = light->GetShadowBias();
+		if (DragFloat("Shadow Bias", &shadowBias, 0.01f, 0.0f, 10.0f))
+		{
+			light->SetShadowBias(shadowBias);
+		}
+
+		float shadowSlopeBias = light->GetShadowSlopeBias();
+		if (DragFloat("Shadow Slope Bias", &shadowSlopeBias, 0.01f, 0.0f, 10.0f))
+		{
+			light->SetShadowSlopeBias(shadowSlopeBias);
+		}
+
+		bool dfShadows = light->GetUseRayTracedDistanceFieldShadows();
+		if (Checkbox("RayTraced DF Shadows", &dfShadows))
+		{
+			light->SetUseRayTracedDistanceFieldShadows(dfShadows);
+		}
+	}
+
+	// ---- Directional (CSM) ----
+	if (auto* directional = dynamic_cast<UDirectionalLightComponent*>(light))
+	{
+		if (directional->GetCastShadows())
+		{
+			float shadowDistance = directional->GetDynamicShadowDistance();
+			if (DragFloat("Dynamic Shadow Distance (m)", &shadowDistance, 1.0f, 5.0f, 500.0f))
+			{
+				directional->SetDynamicShadowDistance(shadowDistance);
+			}
+
+			int cascades = directional->GetDynamicShadowCascades();
+			if (SliderInt("Shadow Cascades", &cascades, 1, 4))
+			{
+				directional->SetDynamicShadowCascades(cascades);
+			}
+
+			float exponent = directional->GetCascadeDistributionExponent();
+			if (DragFloat("Cascade Distribution Exponent", &exponent, 0.05f, 1.0f, 5.0f))
+			{
+				directional->SetCascadeDistributionExponent(exponent);
+			}
+
+			float fade = directional->GetShadowDistanceFadeoutFraction();
+			if (SliderFloat("Shadow Fade Fraction", &fade, 0.0f, 0.5f))
+			{
+				directional->SetShadowDistanceFadeoutFraction(fade);
+			}
+
+			if (directional->GetUseRayTracedDistanceFieldShadows())
+			{
+				float dfDistance = directional->GetDistanceFieldShadowDistance();
+				if (DragFloat("DF Shadow Distance (m)", &dfDistance, 1.0f, 10.0f, 2000.0f))
+				{
+					directional->SetDistanceFieldShadowDistance(dfDistance);
+				}
+
+				float dfTrace = directional->GetDistanceFieldTraceDistance();
+				if (DragFloat("DF Trace Distance (m)", &dfTrace, 1.0f, 1.0f, 1000.0f))
+				{
+					directional->SetDistanceFieldTraceDistance(dfTrace);
+				}
+
+				float srcAngle = directional->GetLightSourceAngle();
+				if (DragFloat("Light Source Angle (deg)", &srcAngle, 0.05f, 0.05f, 20.0f))
+				{
+					directional->SetLightSourceAngle(srcAngle);
+				}
+			}
+		}
+	}
+
+	float intensity = light->GetIntensity();
+	if (DragFloat("Intensity", &intensity, 10.0f, 0.0f, 1000000.0f))
+	{
+		light->SetIntensity(intensity);
+	}
+
+	XMFLOAT4 color = light->GetLightColor();
+	if (ColorEdit3("Light Color", &color.x))
+	{
+		light->SetLightColor(color);
+	}
+
+	bool useTemperature = light->GetUseTemperature();
+	if (Checkbox("Use Temperature", &useTemperature))
+	{
+		light->SetUseTemperature(useTemperature);
+	}
+	if (useTemperature)
+	{
+		float temperature = light->GetTemperature();
+		if (SliderFloat("Temperature (K)", &temperature, 1500.0f, 15000.0f))
+		{
+			light->SetTemperature(temperature);
+		}
+	}
+
+	float specularScale = light->GetSpecularScale();
+	if (SliderFloat("Specular Scale", &specularScale, 0.0f, 1.0f))
+	{
+		light->SetSpecularScale(specularScale);
+	}
+
+	// ---- ローカルライト共通 (Point / Spot / Rect) ----
+	if (auto* local = dynamic_cast<ULocalLightComponent*>(light))
+	{
+		Separator();
+
+		float radius = local->GetAttenuationRadius();
+		if (DragFloat("Attenuation Radius (m)", &radius, 0.1f, 0.01f, 1000.0f))
+		{
+			local->SetAttenuationRadius(radius);
+		}
+
+		const char* unitNames[] = { "Unitless", "Candelas", "Lumens", "EV" };
+		int units = (int)local->GetIntensityUnits();
+		if (Combo("Intensity Units", &units, unitNames, 4))
+		{
+			local->SetIntensityUnits((ELightUnits)units);
+		}
+	}
+
+	// ---- Point / Spot ----
+	if (auto* point = dynamic_cast<UPointLightComponent*>(light))
+	{
+		float sourceRadius = point->GetSourceRadius();
+		if (DragFloat("Source Radius (m)", &sourceRadius, 0.01f, 0.0f, 10.0f))
+		{
+			point->SetSourceRadius(sourceRadius);
+		}
+
+		float softRadius = point->GetSoftSourceRadius();
+		if (DragFloat("Soft Source Radius (m)", &softRadius, 0.01f, 0.0f, 10.0f))
+		{
+			point->SetSoftSourceRadius(softRadius);
+		}
+
+		float sourceLength = point->GetSourceLength();
+		if (DragFloat("Source Length (m)", &sourceLength, 0.01f, 0.0f, 10.0f))
+		{
+			point->SetSourceLength(sourceLength);
+		}
+
+		bool inverseSquared = point->GetUseInverseSquaredFalloff();
+		if (Checkbox("Use Inverse Squared Falloff", &inverseSquared))
+		{
+			point->SetUseInverseSquaredFalloff(inverseSquared);
+		}
+		if (!inverseSquared)
+		{
+			float exponent = point->GetLightFalloffExponent();
+			if (DragFloat("Light Falloff Exponent", &exponent, 0.1f, 1.0f, 16.0f))
+			{
+				point->SetLightFalloffExponent(exponent);
+			}
+		}
+	}
+
+	// ---- Spot ----
+	if (auto* spot = dynamic_cast<USpotLightComponent*>(light))
+	{
+		float inner = spot->GetInnerConeAngle();
+		if (SliderFloat("Inner Cone Angle", &inner, 0.0f, 80.0f))
+		{
+			spot->SetInnerConeAngle(inner);
+		}
+
+		float outer = spot->GetOuterConeAngle();
+		if (SliderFloat("Outer Cone Angle", &outer, 1.0f, 80.0f))
+		{
+			spot->SetOuterConeAngle(outer);
+		}
+	}
+
+	// ---- Rect ----
+	if (auto* rect = dynamic_cast<URectLightComponent*>(light))
+	{
+		float width = rect->GetSourceWidth();
+		if (DragFloat("Source Width (m)", &width, 0.01f, 0.01f, 20.0f))
+		{
+			rect->SetSourceWidth(width);
+		}
+
+		float height = rect->GetSourceHeight();
+		if (DragFloat("Source Height (m)", &height, 0.01f, 0.01f, 20.0f))
+		{
+			rect->SetSourceHeight(height);
+		}
+
+		float barnAngle = rect->GetBarnDoorAngle();
+		if (SliderFloat("Barn Door Angle", &barnAngle, 0.0f, 88.0f))
+		{
+			rect->SetBarnDoorAngle(barnAngle);
+		}
+
+		float barnLength = rect->GetBarnDoorLength();
+		if (DragFloat("Barn Door Length (m)", &barnLength, 0.01f, 0.0f, 10.0f))
+		{
+			rect->SetBarnDoorLength(barnLength);
+		}
+	}
+}
+
+// ============================================================
+//  Outliner
+//  ワールド内の全アクターをスポーン順に列挙する
+//  (World Outliner 相当)。行クリックで Details の対象を選択。
+//  チェックボックスはアクター配下の全プリミティブの可視性。
+// ============================================================
+void ImGuiManager::OutlinerWindow()
+{
+	if (!m_World)
+		return;
+
+	ValidateSelection();
+
+	Begin("Outliner");
+
+	// ---- 検索フィルタ (ラベル / クラス名の部分一致) ----
+	static char filter[64] = {};
+	PushItemWidth(-60);
+	InputText("Filter", filter, sizeof(filter));
+	PopItemWidth();
+
+	Separator();
+
+	const auto& actors = m_World->GetActors();
+	int index = 0;
+	for (const auto& actorPtr : actors)
+	{
+		AActor* actor = actorPtr.get();
+		if (actor->IsPendingKill())
+		{
+			++index;
+			continue;
+		}
+
+		const std::string& label = actor->GetActorLabel();
+		std::string typeName = UWorld::GetClassDisplayName(actor);
+
+		if (!ContainsCaseInsensitive(label, filter) &&
+			!ContainsCaseInsensitive(typeName, filter))
+		{
+			++index;
+			continue;
+		}
+
+		PushID(index);
+
+		// ---- 可視性トグル (プリミティブを持つアクターのみ) ----
+		//bool hasPrimitive = false;
+		//bool visible = false;
+		//for (const auto& component : actor->GetComponents())
+		//{
+		//	if (auto* primitive = dynamic_cast<UPrimitiveComponent*>(component.get()))
+		//	{
+		//		hasPrimitive = true;
+		//		visible |= primitive->IsVisible();
+		//	}
+		//}
+
+		//if (hasPrimitive)
+		//{
+		//	if (Checkbox("##Visible", &visible))
+		//	{
+		//		for (const auto& component : actor->GetComponents())
+		//		{
+		//			if (auto* primitive = dynamic_cast<UPrimitiveComponent*>(component.get()))
+		//			{
+		//				primitive->SetVisibility(visible);
+		//			}
+		//		}
+		//	}
+		//	SameLine();
+		//}
+
+		// ---- 行本体 (ラベル + クラス名) ----
+		char row[256];
+		sprintf_s(row, "%s  (%s)", label.c_str(), typeName.c_str());
+
+		bool selected = (actor == m_SelectedActor);
+		if (Selectable(row, selected))
+		{
+			SelectActor(actor);
+		}
+
+		PopID();
+		++index;
+	}
+
+	End();
+}
+
+// ============================================================
+//  Details
+//  選択アクターのラベル / コンポーネントツリー / 選択
+//  コンポーネントのプロパティを編集する (Details パネル相当)。
+//  編集は全て公開セッター経由 (マテリアルのみ直接編集 +
+//  MarkRenderStateDirty) なので次フレームのプロキシへ反映される。
+// ============================================================
+void ImGuiManager::DetailsWindow()
+{
+	ValidateSelection();
+
+	Begin("Details");
+
+	if (!m_SelectedActor)
+	{
+		TextDisabled("Select an actor in the Outliner.");
+		End();
+		return;
+	}
+
+	AActor* actor = m_SelectedActor;
+
+	// ---- アクターヘッダ ----
+	Text("Class : %s", UWorld::GetClassDisplayName(actor).c_str());
+
+	if (InputText("Label", m_LabelBuffer, sizeof(m_LabelBuffer),
+			ImGuiInputTextFlags_EnterReturnsTrue) ||
+		IsItemDeactivatedAfterEdit())
+	{
+		if (m_LabelBuffer[0] != '\0')
+		{
+			actor->SetActorLabel(m_LabelBuffer);
+		}
+	}
+
+	if (m_Settings)
+	{
+		if (Button("Save Settings"))
+		{
+			m_Settings->SaveCurrent();
+		}
+		SameLine();
+		if (Button("Reset Actor"))
+		{
+			m_Settings->ResetActor(actor);
+			strncpy_s(m_LabelBuffer, actor->GetActorLabel().c_str(), _TRUNCATE);
+		}
+	}
+
+	Separator();
+
+	// ---- コンポーネントツリー ----
+	DrawComponentTree(actor);
+
+	Separator();
+
+	// ---- 選択コンポーネントのプロパティ ----
+	if (UActorComponent* component = m_SelectedComponent)
+	{
+		Text("%s", UWorld::GetClassDisplayName(component).c_str());
+		Separator();
+
+		if (auto* scene = dynamic_cast<USceneComponent*>(component))
+		{
+			DrawTransformSection(scene);
+		}
+
+		if (auto* light = dynamic_cast<ULightComponent*>(component))
+		{
+			if (CollapsingHeader("Light", ImGuiTreeNodeFlags_DefaultOpen))
+			{
+				DrawLightComponentSection(light);
+			}
+		}
+
+		if (auto* camera = dynamic_cast<UCameraComponent*>(component))
+		{
+			DrawCameraSection(camera);
+		}
+
+		if (auto* primitive = dynamic_cast<UPrimitiveComponent*>(component))
+		{
+			DrawPrimitiveSection(primitive);
+		}
+
+		if (auto* mesh = dynamic_cast<UStaticMeshComponent*>(component))
+		{
+			DrawStaticMeshSection(mesh);
+		}
+
+		if (auto* quad = dynamic_cast<UFieldQuadComponent*>(component))
+		{
+			DrawFieldQuadSection(quad);
+		}
+
+		if (auto* polygon = dynamic_cast<UPolygon2DComponent*>(component))
+		{
+			DrawPolygon2DSection(polygon);
+		}
+	}
+
+	// ---- アクター固有 (コンポーネントを持たないアクター) ----
+	if (auto* volume = dynamic_cast<APostProcessVolume*>(actor))
+	{
+		DrawPostProcessVolumeSection(volume);
+	}
+
+	End();
+}
+
+// ------------------------------------------------------------
+//  選択管理
+// ------------------------------------------------------------
+void ImGuiManager::SelectActor(AActor* Actor)
+{
+	m_SelectedActor = Actor;
+	m_SelectedComponent = nullptr;
+	m_LabelBuffer[0] = '\0';
+
+	if (Actor)
+	{
+		// 既定選択は Root。Root が無ければ先頭の所有コンポーネント。
+		m_SelectedComponent = Actor->GetRootComponent();
+		if (m_SelectedComponent == nullptr && !Actor->GetComponents().empty())
+		{
+			m_SelectedComponent = Actor->GetComponents().front().get();
+		}
+
+		strncpy_s(m_LabelBuffer, Actor->GetActorLabel().c_str(), _TRUNCATE);
+	}
+}
+
+void ImGuiManager::ValidateSelection()
+{
+	if (!m_SelectedActor)
+	{
+		m_SelectedComponent = nullptr;
+		return;
+	}
+
+	// アクターの生存確認 (Destroy 済み / ワールド外なら選択解除)
+	if (!m_World || !m_World->ContainsActor(m_SelectedActor) || m_SelectedActor->IsPendingKill())
+	{
+		SelectActor(nullptr);
+		return;
+	}
+
+	// 選択コンポーネントが選択アクターの所有物か確認
+	bool owned = false;
+	if (m_SelectedComponent)
+	{
+		for (const auto& component : m_SelectedActor->GetComponents())
+		{
+			if (component.get() == m_SelectedComponent)
+			{
+				owned = true;
+				break;
+			}
+		}
+	}
+
+	if (!owned)
+	{
+		m_SelectedComponent = m_SelectedActor->GetRootComponent();
+		if (m_SelectedComponent == nullptr && !m_SelectedActor->GetComponents().empty())
+		{
+			m_SelectedComponent = m_SelectedActor->GetComponents().front().get();
+		}
+	}
+}
+
+// ------------------------------------------------------------
+//  コンポーネントツリー
+//  Root 以下のアタッチ階層をツリー表示し、Root ツリーに
+//  属さないコンポーネント (未アタッチ Scene / 非 Scene) は
+//  フラットに並べる。
+// ------------------------------------------------------------
+void ImGuiManager::DrawComponentTree(AActor* Actor)
+{
+	TextDisabled("Components");
+
+	USceneComponent* root = Actor->GetRootComponent();
+	if (root)
+	{
+		DrawComponentTreeNode(root);
+	}
+
+	for (const auto& componentPtr : Actor->GetComponents())
+	{
+		UActorComponent* component = componentPtr.get();
+		auto* scene = dynamic_cast<USceneComponent*>(component);
+
+		// Root ツリーで描画済みのものはスキップ
+		if (scene && (scene == root || scene->GetAttachParent() != nullptr))
+		{
+			continue;
+		}
+
+		if (scene)
+		{
+			// 未アタッチの SceneComponent は独立ツリーとして描画
+			DrawComponentTreeNode(scene);
+		}
+		else
+		{
+			// 非 Scene コンポーネントは葉として描画
+			ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_Leaf;
+			if (component == m_SelectedComponent)
+			{
+				flags |= ImGuiTreeNodeFlags_Selected;
+			}
+
+			std::string name = UWorld::GetClassDisplayName(component);
+			bool open = TreeNodeEx((void*)component, flags, "%s", name.c_str());
+			if (IsItemClicked())
+			{
+				m_SelectedComponent = component;
+			}
+			if (open)
+			{
+				TreePop();
+			}
+		}
+	}
+
+	if (Actor->GetComponents().empty())
+	{
+		TextDisabled("(no components)");
+	}
+}
+
+void ImGuiManager::DrawComponentTreeNode(USceneComponent* Component)
+{
+	const auto& children = Component->GetAttachChildren();
+
+	ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_DefaultOpen;
+	if (children.empty())
+	{
+		flags |= ImGuiTreeNodeFlags_Leaf;
+	}
+	if (Component == m_SelectedComponent)
+	{
+		flags |= ImGuiTreeNodeFlags_Selected;
+	}
+
+	std::string name = UWorld::GetClassDisplayName(Component);
+	bool open = TreeNodeEx((void*)Component, flags, "%s", name.c_str());
+	if (IsItemClicked())
+	{
+		m_SelectedComponent = Component;
+	}
+
+	if (open)
+	{
+		for (USceneComponent* child : children)
+		{
+			DrawComponentTreeNode(child);
+		}
+		TreePop();
+	}
+}
+
+// ------------------------------------------------------------
+//  Details セクション描画
+// ------------------------------------------------------------
+void ImGuiManager::DrawTransformSection(USceneComponent* Component)
+{
+	if (!CollapsingHeader("Transform", ImGuiTreeNodeFlags_DefaultOpen))
+		return;
+
+	XMFLOAT3 location = Component->GetRelativeLocation();
+	if (DragFloat3("Location (m)", &location.x, 0.1f))
+	{
+		Component->SetRelativeLocation(location);
+	}
+
+	XMFLOAT3 rotation = Component->GetRelativeRotation();
+	XMFLOAT3 rotationDeg = {
+		XMConvertToDegrees(rotation.x),
+		XMConvertToDegrees(rotation.y),
+		XMConvertToDegrees(rotation.z) };
+	if (DragFloat3("Rotation (deg)", &rotationDeg.x, 1.0f))
+	{
+		Component->SetRelativeRotation({
+			XMConvertToRadians(rotationDeg.x),
+			XMConvertToRadians(rotationDeg.y),
+			XMConvertToRadians(rotationDeg.z) });
+	}
+
+	XMFLOAT3 scale = Component->GetRelativeScale3D();
+	if (DragFloat3("Scale", &scale.x, 0.01f))
+	{
+		Component->SetRelativeScale3D(scale);
+	}
+}
+
+void ImGuiManager::DrawPrimitiveSection(UPrimitiveComponent* Component)
+{
+	if (!CollapsingHeader("Rendering", ImGuiTreeNodeFlags_DefaultOpen))
+		return;
+
+	bool visible = Component->IsVisible();
+	if (Checkbox("Visible", &visible))
+	{
+		Component->SetVisibility(visible);
+	}
+
+	bool castShadow = Component->GetCastShadow();
+	if (Checkbox("Cast Shadow", &castShadow))
+	{
+		Component->SetCastShadow(castShadow);
+	}
+
+	bool affectDF = Component->GetAffectDistanceFieldLighting();
+	if (Checkbox("Affect Distance Field", &affectDF))
+	{
+		Component->SetAffectDistanceFieldLighting(affectDF);
+	}
+
+	// ---- 描画距離カリング (0 = 無制限) ----
+	float minDraw = Component->GetMinDrawDistance();
+	if (DragFloat("Min Draw Distance", &minDraw, 0.1f, 0.0f, 100000.0f, "%.1f m"))
+	{
+		Component->SetMinDrawDistance(fmaxf(minDraw, 0.0f));
+	}
+
+	float maxDraw = Component->GetCachedMaxDrawDistance();
+	if (DragFloat("Max Draw Distance", &maxDraw, 0.1f, 0.0f, 100000.0f, "%.1f m"))
+	{
+		Component->SetCachedMaxDrawDistance(fmaxf(maxDraw, 0.0f));
+	}
+
+	// ---- Translucency Sort Priority (UPrimitiveComponent 同名) ----
+	// 低い値が奥、高い値が手前。同値内は Translucency ウィンドウの
+	// ソートポリシーで後→前に並ぶ。不透明では無視される。既定 0。
+	int sortPriority = Component->GetTranslucentSortPriority();
+	if (DragInt("Translucency Sort Priority", &sortPriority, 0.1f))
+	{
+		Component->SetTranslucentSortPriority(sortPriority);
+	}
+
+	// ---- ワールド境界 (CalcBounds の結果。毎フレーム更新) ----
+	const FBoxSphereBounds& bounds = Component->GetBounds();
+	TextDisabled("Bounds Origin  (%.2f, %.2f, %.2f)",
+		bounds.Origin.x, bounds.Origin.y, bounds.Origin.z);
+	TextDisabled("Bounds Extent  (%.2f, %.2f, %.2f)",
+		bounds.BoxExtent.x, bounds.BoxExtent.y, bounds.BoxExtent.z);
+	TextDisabled("Sphere Radius  %.2f m", bounds.SphereRadius);
+}
+
+void ImGuiManager::DrawCameraSection(UCameraComponent* Component)
+{
+	if (!CollapsingHeader("Camera", ImGuiTreeNodeFlags_DefaultOpen))
+		return;
+
+	float fov = Component->GetFieldOfView();
+	if (SliderFloat("Field of View (deg)", &fov, 5.0f, 120.0f))
+	{
+		Component->SetFieldOfView(fov);
+	}
+
+	float nearClip = Component->GetNearClip();
+	if (DragFloat("Near Clip (m)", &nearClip, 0.01f, 0.001f, 10.0f))
+	{
+		Component->SetNearClip(nearClip);
+	}
+
+	float farClip = Component->GetFarClip();
+	if (DragFloat("Far Clip (m)", &farClip, 1.0f, 10.0f, 100000.0f))
+	{
+		Component->SetFarClip(farClip);
+	}
+}
+
+bool ImGuiManager::DrawMaterialEditor(Material& Mat)
+{
+	bool changed = false;
+
+	// ---- Blend Mode / Two Sided (UE5 マテリアル Details の Material カテゴリ相当) ----
+	// Opaque / Masked はベースパス (G-Buffer)、Translucent / Additive は
+	// トランスルーセンシーパス (SceneColor へフォワード合成) で描かれる。
+	static const char* blendModeNames[] = { "Opaque", "Masked", "Translucent", "Additive" };
+	int blendMode = (int)Mat.Params.BlendMode;
+	if (Combo("Blend Mode", &blendMode, blendModeNames, IM_ARRAYSIZE(blendModeNames)))
+	{
+		Mat.Params.BlendMode = (EBlendMode)blendMode;
+		changed = true;
+	}
+
+	bool twoSided = Mat.IsTwoSided();
+	if (Checkbox("Two Sided", &twoSided))
+	{
+		Mat.SetTwoSided(twoSided);
+		changed = true;
+	}
+
+	// Masked のみ: OpacityMask の clip しきい値
+	if (IsMaskedBlendMode(Mat.Params.BlendMode))
+	{
+		changed |= SliderFloat("Opacity Mask Clip Value", &Mat.Params.OpacityMaskClipValue, 0.0f, 1.0f);
+	}
+
+	// Translucent / Additive のみ: 不透明度
+	if (IsTranslucentBlendMode(Mat.Params.BlendMode))
+	{
+		changed |= SliderFloat("Opacity", &Mat.Params.Opacity, 0.0f, 1.0f);
+	}
+
+	changed |= ColorEdit4("Base Color", &Mat.Params.BaseColor.x, ImGuiColorEditFlags_Float);
+	changed |= ColorEdit4("Emission", &Mat.Params.EmissionColor.x, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR);
+	changed |= SliderFloat("Metallic", &Mat.Params.Metallic, 0.0f, 1.0f);
+	changed |= SliderFloat("Specular", &Mat.Params.Specular, 0.0f, 1.0f);
+	changed |= SliderFloat("Roughness", &Mat.Params.Roughness, 0.0f, 1.0f);
+	changed |= SliderFloat("Normal Weight", &Mat.Params.NormalWeight, 0.0f, 2.0f);
+
+	bool unlit = (Mat.Params.Unlit != FALSE);
+	if (Checkbox("Unlit", &unlit))
+	{
+		Mat.Params.Unlit = unlit ? TRUE : FALSE;
+		changed = true;
+	}
+
+	// ============================================================
+	//  Substrate Slab BSDF (UE5.8)
+	//  bUseSubstrate で Slab ワークフローに切り替える。レガシーの
+	//  Metallic / Specular は無視され、F0 / F90 が界面を定義する。
+	// ============================================================
+	if (CollapsingHeader("Substrate (UE5.8 Slab BSDF)"))
+	{
+		bool useSubstrate = Mat.IsSubstrateEnabled();
+		if (Checkbox("Use Substrate", &useSubstrate))
+		{
+			Mat.SetUseSubstrate(useSubstrate);
+			changed = true;
+		}
+
+		if (Mat.IsSubstrateEnabled())
+		{
+			changed |= ColorEdit3("Diffuse Albedo", &Mat.Params.SubstrateDiffuseAlbedo.x, ImGuiColorEditFlags_Float);
+			changed |= ColorEdit3("F0", &Mat.Params.SubstrateF0.x, ImGuiColorEditFlags_Float);
+			changed |= ColorEdit3("F90", &Mat.Params.SubstrateF90.x, ImGuiColorEditFlags_Float);
+			changed |= SliderFloat("Anisotropy", &Mat.Params.SubstrateAnisotropy, -1.0f, 1.0f);
+
+			// ---- Sub-Surface (SUBSTRATE_SSS_TYPE_* と 1:1) ----
+			// Diffusion / Diffusion Profile はスクリーン空間拡散パス
+			// 非対応環境のため非散乱にフォールバックする (UE5.8 仕様)。
+			static const char* sssTypeNames[] =
+			{
+				"None", "Wrap", "Two Sided Wrap",
+				"Diffusion", "Diffusion Profile", "Simple Volume",
+			};
+			int sssType = (int)Mat.Params.SubstrateSSSType;
+			if (Combo("Sub-Surface Type", &sssType, sssTypeNames, IM_ARRAYSIZE(sssTypeNames)))
+			{
+				Mat.SetSubstrateSSSType((ESubstrateSSSType)sssType);
+				changed = true;
+			}
+
+			if (Mat.Params.SubstrateSSSType != ESubstrateSSSType::None)
+			{
+				// MFP は Transmittance Color + Thickness から導出される
+				// (TransmittanceToMeanFreePath, Substrate.hlsl)
+				// Transmittance Color = 「参照厚 1cm を通過したときの透過率」。
+				// Thickness が濃度スケール: 1cm でこの色が厳密に実現され、
+				// 2cm で T^2 (濃い)、0.5cm で √T (透ける)
+				changed |= ColorEdit3("Transmittance Color", &Mat.Params.SubstrateTransmittanceColor.x, ImGuiColorEditFlags_Float);
+				changed |= SliderFloat("Phase Anisotropy (g)", &Mat.Params.SubstrateSSSPhaseAnisotropy, -0.99f, 0.99f);
+			}
+
+			// 下限 0.001cm はシェーダ側 SUBSTRATE_MIN_THICKNESS_CM と同値
+			changed |= DragFloat("Thickness (cm)", &Mat.Params.SubstrateThickness, 0.001f, 0.001f, 100.0f, "%.4f");
+
+			bool isThin = (Mat.Params.SubstrateIsThin != FALSE);
+			if (Checkbox("Is Thin Surface", &isThin))
+			{
+				Mat.Params.SubstrateIsThin = isThin ? TRUE : FALSE;
+				changed = true;
+			}
+
+			// ---- 第 2 スペキュラローブ ----
+			changed |= SliderFloat("Second Roughness", &Mat.Params.SubstrateSecondRoughness, 0.0f, 1.0f);
+			changed |= SliderFloat("Second Roughness Weight", &Mat.Params.SubstrateSecondRoughnessWeight, 0.0f, 1.0f);
+
+			// ---- ファズ (布・産毛) ----
+			changed |= SliderFloat("Fuzz Amount", &Mat.Params.SubstrateFuzzColor.w, 0.0f, 1.0f);
+			changed |= ColorEdit3("Fuzz Color", &Mat.Params.SubstrateFuzzColor.x, ImGuiColorEditFlags_Float);
+			changed |= SliderFloat("Fuzz Roughness", &Mat.Params.SubstrateFuzzRoughness, 0.01f, 1.0f);
+		}
+	}
+
+	// ============================================================
+	//  Refraction (UE5.8)
+	//  BLEND_Translucent のみ有効 (Additive は対象外)。
+	// ============================================================
+	if (CollapsingHeader("Refraction (UE5.8)"))
+	{
+		static const char* refractionNames[] =
+		{
+			"None", "Index Of Refraction", "Pixel Normal Offset", "2D Offset",
+		};
+		int refractionMethod = (int)Mat.Params.RefractionMethod;
+		if (Combo("Refraction Method", &refractionMethod, refractionNames, IM_ARRAYSIZE(refractionNames)))
+		{
+			Mat.SetRefractionMethod((ERefractionMethod)refractionMethod);
+			changed = true;
+		}
+
+		if (Mat.Params.RefractionMethod != ERefractionMethod::None)
+		{
+			if (Mat.Params.BlendMode != EBlendMode::BLEND_Translucent)
+			{
+				TextDisabled("(requires Blend Mode = Translucent)");
+			}
+
+			switch (Mat.Params.RefractionMethod)
+			{
+			case ERefractionMethod::IndexOfRefraction:
+			{
+				// ---- Index Of Refraction From F0 (UE5.8) ----
+				// Substrate では界面を F0 が定義するため、IOR も同じ F0
+				// から導出して整合させられる (誘電体逆変換)
+				bool useF0 = Mat.IsRefractionUseF0();
+				if (Checkbox("Index Of Refraction From F0", &useF0))
+				{
+					Mat.SetRefractionUseF0(useF0);
+					changed = true;
+				}
+
+				if (Mat.IsRefractionUseF0())
+				{
+					if (Mat.IsSubstrateEnabled())
+					{
+						// シェーダと同一式: DielectricF0ToIor(F0RGBToF0(F0))
+						const XMFLOAT4& f0 = Mat.Params.SubstrateF0;
+						float f0Avg = (f0.x + f0.y + f0.z) / 3.0f;
+						f0Avg = (f0Avg < 0.0f) ? 0.0f : ((f0Avg > 0.99f) ? 0.99f : f0Avg);
+						const float sqrtF0 = sqrtf(f0Avg);
+						const float derivedIOR = (1.0f + sqrtF0) / (1.0f - sqrtF0);
+						Text("Derived IOR: %.3f (from Substrate F0)", derivedIOR);
+					}
+					else
+					{
+						// レガシー経路は Slab F0 を持たないため手入力値のまま
+						TextDisabled("(requires Use Substrate; manual IOR is used)");
+						changed |= SliderFloat("Index Of Refraction", &Mat.Params.RefractionData.x, 1.0f, 3.0f);
+					}
+				}
+				else
+				{
+					// 1.0 = 空気 (無屈折), 1.33 = 水, 1.52 = ガラス
+					changed |= SliderFloat("Index Of Refraction", &Mat.Params.RefractionData.x, 1.0f, 3.0f);
+				}
+				break;
+			}
+			case ERefractionMethod::PixelNormalOffset:
+				changed |= SliderFloat("Refraction Strength", &Mat.Params.RefractionData.x, 0.0f, 3.0f);
+				break;
+			case ERefractionMethod::Offset2D:
+				changed |= DragFloat2("Screen Offset (pixel)", &Mat.Params.RefractionData.x, 0.1f, -128.0f, 128.0f);
+				break;
+			default:
+				break;
+			}
+
+			// 屈折先が「面の深度 + バイアス」より手前なら棄却する
+			changed |= DragFloat("Refraction Depth Bias (m)", &Mat.Params.RefractionDepthBias, 0.01f, 0.0f, 10.0f);
+		}
+	}
+
+	return changed;
+}
+
+void ImGuiManager::DrawStaticMeshSection(UStaticMeshComponent* Component)
+{
+	if (!CollapsingHeader("Materials", ImGuiTreeNodeFlags_DefaultOpen))
+		return;
+
+	const unsigned int num = Component->GetNumMaterialSlots();
+	bool changed = false;
+
+	for (unsigned int i = 0; i < num; ++i)
+	{
+		PushID((int)i);
+
+		char slotName[32];
+		sprintf_s(slotName, "Slot %u", i);
+		if (TreeNodeEx(slotName, i == 0 ? ImGuiTreeNodeFlags_DefaultOpen : 0))
+		{
+			changed |= DrawMaterialEditor(Component->GetMaterial(i));
+			TreePop();
+		}
+
+		PopID();
+	}
+
+	// GetMaterial() 経由の直接編集はプロキシに自動反映されないため、
+	// 変更があったらレンダーステートをダーティにして再生成させる
+	if (changed)
+	{
+		Component->MarkRenderStateDirty();
+	}
+}
+
+void ImGuiManager::DrawFieldQuadSection(UFieldQuadComponent* Component)
+{
+	if (!CollapsingHeader("Material", ImGuiTreeNodeFlags_DefaultOpen))
+		return;
+
+	if (DrawMaterialEditor(Component->GetMaterial()))
+	{
+		Component->MarkRenderStateDirty();
+	}
+}
+
+void ImGuiManager::DrawPolygon2DSection(UPolygon2DComponent* Component)
+{
+	if (!CollapsingHeader("Polygon 2D", ImGuiTreeNodeFlags_DefaultOpen))
+		return;
+
+	XMFLOAT4 color = Component->GetVertexColor();
+	if (ColorEdit4("Vertex Color", &color.x, ImGuiColorEditFlags_Float))
+	{
+		Component->SetVertexColor(color);
+	}
+}
+
+void ImGuiManager::DrawPostProcessVolumeSection(APostProcessVolume* Volume)
+{
+	if (!CollapsingHeader("Post Process Volume", ImGuiTreeNodeFlags_DefaultOpen))
+		return;
+
+	PP_SETTINGS& s = m_PostProcess->Settings();
+
+	// ---- 永続化 (Saved/Config/EngineSettings.ini) ----
+	// 値は終了時に自動保存され、次回起動時に復元される。
+	// Reset to Default はこのウィンドウの内容 (PP 設定 + EV +
+	// Artist LUT + AutoExposure) をコード初期値へ戻す。
+	if (m_Settings)
+	{
+		if (ImGui::Button("Save Settings"))
+		{
+			m_Settings->SaveCurrent();
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Reset to Default"))
+		{
+			m_Settings->ResetPostProcess();
+			m_Settings->ResetAutoExposure();
+		}
+		ImGui::TextDisabled("Auto-saved on exit -> %s", SettingsManager::GetConfigPath());
+		ImGui::Separator();
+	}
+
+	auto flagCheckbox = [&](const char* label, PP_FLAG flag)
+		{
+			bool on = m_PostProcess->HasFlag(flag);
+			if (ImGui::Checkbox(label, &on))
+				m_PostProcess->SetFlag(flag, on);
+		};
+
+	// ---- Exposure / Tonemapper ----
+	if (ImGui::CollapsingHeader("Exposure / Film", ImGuiTreeNodeFlags_DefaultOpen))
+	{
+		// Exposure
+		ImGui::SliderFloat("Exposure (EV)", &m_PostProcess->EV(), -8.0f, 8.0f);
+		ImGui::Text("Linear: %.3f", s.Exposure);
+
+		// Tonemapper
+		const char* modes[] = { "ACES (Narkowicz)", "ACES (Hill)", "None" };
+		int mode = (int)s.TonemapperMode;
+		if (ImGui::Combo("Tonemapper", &mode, modes, IM_ARRAYSIZE(modes)))
+			s.TonemapperMode = (unsigned int)mode;
+	}
+
+	// ---- Auto Exposure ----
+	if (ImGui::CollapsingHeader("Auto Exposure (Eye Adaptation)"))
+	{
+		flagCheckbox("Enable Auto Exposure", PP_FLAG_AUTO_EXPOSURE);
+		if (m_AutoExposure)
+		{
+			m_AutoExposure->UpdateReadback();
+			if (m_PostProcess && m_PostProcess->HasFlag(PP_FLAG_AUTO_EXPOSURE))
+			{
+				ImGui::Separator();
+				ImGui::Text("Current Exposure : %.4f  (%.2f EV)",
+					m_AutoExposure->GetCurrentExposure(),
+					m_AutoExposure->GetCurrentExposureEV());
+				ImGui::Text("Avg Luminance    : %.4f",
+					m_AutoExposure->GetCurrentAvgLuminance());
+				ImGui::Separator();
+			}
+			auto& p = m_AutoExposure->GetParams();
+			ImGui::SliderFloat("Min Log Luminance", &p.MinLogLuminance, -20.0f, 20.0f);
+			ImGui::SliderFloat("Max Log Luminance", &p.MaxLogLuminance, -20.0f, 20.0f);
+			ImGui::SliderFloat("Low Percent", &p.LowPercent, 0.0f, 1.0f);
+			ImGui::SliderFloat("High Percent", &p.HighPercent, 0.0f, 1.0f);
+			ImGui::SliderFloat("Min Brightness", &p.MinBrightness, 0.0f, 1.0f);
+			ImGui::SliderFloat("Max Brightness", &p.MaxBrightness, 0.1f, 1.0f);
+			ImGui::SliderFloat("Speed Up", &p.SpeedUp, 0.1f, 20.0f);
+			ImGui::SliderFloat("Speed Down", &p.SpeedDown, 0.1f, 20.0f);
+			ImGui::SliderFloat("Exposure Compensation", &p.ExposureCompensation, -10.0f, 10.0f);
+			ImGui::TextDisabled("Manual EV is bypassed while Auto Exposure is on.");
+			if (m_Settings && ImGui::Button("Reset Auto Exposure"))
+				m_Settings->ResetAutoExposure();
+		}
+	}
+
+	// ---- Bloom ----
+	if (ImGui::CollapsingHeader("Bloom", ImGuiTreeNodeFlags_DefaultOpen))
+	{
+		flagCheckbox("Enable Bloom", PP_FLAG_BLOOM);
+		ImGui::SliderFloat("Intensity", &s.BloomIntensity, 0.0f, 4.0f);
+		ImGui::SliderFloat("Threshold", &s.BloomThreshold, 0.0f, 8.0f);
+	}
+
+	// ---- White Balance ----
+	if (ImGui::CollapsingHeader("White Balance"))
+	{
+		flagCheckbox("Enable White Balance", PP_FLAG_WHITE_BALANCE);
+		ImGui::SliderFloat("Temp (K)", &s.WhiteTemp, 1500.0f, 15000.0f);
+		ImGui::SliderFloat("Tint", &s.WhiteTint, -1.0f, 1.0f);
+	}
+
+	// ---- Color Grading ----
+	if (ImGui::CollapsingHeader("Color Grading"))
+	{
+		flagCheckbox("Enable Color Grading", PP_FLAG_COLOR_GRADING);
+		ImGui::PushItemWidth(220);
+		ImGui::ColorEdit4("Saturation", &s.ColorSaturation.x, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR);
+		ImGui::ColorEdit4("Contrast", &s.ColorContrast.x, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR);
+		ImGui::ColorEdit4("Gamma", &s.ColorGamma.x, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR);
+		ImGui::ColorEdit4("Gain", &s.ColorGain.x, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR);
+		ImGui::ColorEdit4("Offset", &s.ColorOffset.x, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR);
+		ImGui::PopItemWidth();
+		if (ImGui::Button("Reset Grading"))
+		{
+			s.ColorSaturation = { 1,1,1,1 };
+			s.ColorContrast = { 1,1,1,1 };
+			s.ColorGamma = { 1,1,1,1 };
+			s.ColorGain = { 1,1,1,1 };
+			s.ColorOffset = { 0,0,0,1 };
+		}
+
+
+		// ---- Artist LUT ----
+		ImGui::Separator();
+		ImGui::TextUnformatted("LUT");
+		if (m_LUTBaker)
+		{
+			namespace fs = std::filesystem;
+			const char* lutDir = "Asset/Texture/LUTs";
+
+			// フォルダ内の .dds を毎フレーム列挙するのは無駄なので静的にキャッシュ。
+			// 「Refresh」ボタンで再スキャンできる。
+			static std::vector<std::string> lutFiles;
+			static bool scanned = false;
+			auto rescan = [&]()
+				{
+					lutFiles.clear();
+					std::error_code ec;
+					if (fs::exists(lutDir, ec))
+					{
+						for (auto& e : fs::directory_iterator(lutDir, ec))
+						{
+							if (!e.is_regular_file()) continue;
+							std::string ext = e.path().extension().string();
+							for (auto& c : ext) c = (char)tolower(c);
+							if (ext == ".dds")
+							{
+								// LUT らしきものだけに絞りたい場合はファイル名で
+								// フィルタしてもよい（例: 先頭が "LUT_"）。
+								lutFiles.push_back(e.path().string());
+							}
+						}
+					}
+					scanned = true;
+				};
+			if (!scanned) rescan();
+
+			// 現在の選択インデックスを求める。
+			const std::string& cur = m_LUTBaker->GetArtistLUTPath();
+			int curIdx = -1;
+			for (int i = 0; i < (int)lutFiles.size(); ++i)
+			{
+				// パス表記の差異を吸収するため weakly_canonical で比較。
+				std::error_code ec;
+				if (fs::weakly_canonical(lutFiles[i], ec) ==
+					fs::weakly_canonical(cur, ec))
+				{
+					curIdx = i;
+					break;
+				}
+			}
+
+			// プレビュー文字列（ファイル名のみ表示）。
+			auto fileName = [](const std::string& p)
+				{
+					return fs::path(p).filename().string();
+				};
+			std::string preview = (curIdx >= 0)
+				? fileName(lutFiles[curIdx])
+				: (cur.empty() ? "(none)" : fileName(cur));
+
+			if (ImGui::BeginCombo("LUT File", preview.c_str()))
+			{
+				// 「なし」を選べるようにする。
+				bool noneSel = cur.empty();
+				if (ImGui::Selectable("(none)", noneSel))
+					m_LUTBaker->ClearArtistLUT();
+				if (noneSel) ImGui::SetItemDefaultFocus();
+
+				for (int i = 0; i < (int)lutFiles.size(); ++i)
+				{
+					bool sel = (i == curIdx);
+					if (ImGui::Selectable(fileName(lutFiles[i]).c_str(), sel))
+					{
+						if (i != curIdx)
+							m_LUTBaker->LoadArtistLUT(lutFiles[i].c_str());
+					}
+					if (sel) ImGui::SetItemDefaultFocus();
+				}
+				ImGui::EndCombo();
+			}
+
+			ImGui::SameLine();
+			if (ImGui::Button("Refresh"))
+				rescan();
+
+			// ロード済みなら Weight を出す。
+			if (m_LUTBaker->HasArtistLUT())
+			{
+				ImGui::SliderFloat("LUT Weight",
+					&m_LUTBaker->ArtistLUTWeight(), 0.0f, 1.0f);
+			}
+			else
+			{
+				ImGui::TextDisabled("(no LUT loaded)");
+			}
+		}
+	}
+
+	// ---- Lens effects ----
+	if (ImGui::CollapsingHeader("Lens"))
+	{
+		flagCheckbox("Enable Vignette", PP_FLAG_VIGNETTE);
+		ImGui::SliderFloat("Vignette", &s.VignetteIntensity, 0.0f, 1.0f);
+
+		flagCheckbox("Enable Chromatic Aberration", PP_FLAG_CHROMATIC);
+		ImGui::SliderFloat("CA Strength", &s.ChromaticAberration, 0.0f, 2.0f);
+
+		flagCheckbox("Enable Film Grain", PP_FLAG_GRAIN);
+		ImGui::SliderFloat("Grain", &s.FilmGrainIntensity, 0.0f, 0.5f);
+	}
+
+	// ---- Depth of Field (Gaussian) ----
+	if (ImGui::CollapsingHeader("Depth of Field"))
+	{
+		flagCheckbox("Enable Depth of Field", PP_FLAG_DOF);
+		ImGui::SliderFloat("Focal Distance (m)", &s.FocalDistance, 0.1f, 200.0f);
+		ImGui::SliderFloat("Focal Region (m)", &s.FocalRegion, 0.0f, 100.0f);
+		ImGui::SliderFloat("Near Transition (m)", &s.NearTransitionRange, 0.1f, 200.0f);
+		ImGui::SliderFloat("Far Transition (m)", &s.FarTransitionRange, 0.1f, 400.0f);
+		ImGui::Separator();
+		ImGui::SliderFloat("Max Blur Size (px)", &s.MaxBlurSize, 1.0f, 16.0f);
+		ImGui::SliderFloat("Near Blur Scale", &s.NearBlurScale, 0.0f, 10.0f);
+		ImGui::SliderFloat("Far Blur Scale", &s.FarBlurScale, 0.0f, 10.0f);
+	}
+
+}

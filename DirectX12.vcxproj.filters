@@ -1,0 +1,594 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="ソース ファイル">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx;c++;cppm;ixx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    </Filter>
+    <Filter Include="リソース ファイル">
+      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
+      <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
+    </Filter>
+    <Filter Include="ImGUI">
+      <UniqueIdentifier>{3d6f2c07-986b-46fd-8148-c3ea834f1350}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Shader">
+      <UniqueIdentifier>{e5b5a0ec-ac99-4130-8480-86f15ab651ba}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ImGUI\Manager">
+      <UniqueIdentifier>{d97aacc9-29bf-4d19-ae5d-ec365bc2d89c}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Function">
+      <UniqueIdentifier>{dd29f691-19ba-40a2-9bc9-51ee1148080f}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ソース ファイル\Input">
+      <UniqueIdentifier>{1cf6c347-6df5-4ac7-81c3-9b61dfc0d6a6}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ソース ファイル\System">
+      <UniqueIdentifier>{79bf9aba-489c-4a4e-b2eb-a3794f63e365}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ソース ファイル\GameObject">
+      <UniqueIdentifier>{8e77e2ed-2ffc-4983-ba10-791687c2dc3a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ソース ファイル\GameObject\Base">
+      <UniqueIdentifier>{3d1b4a9a-d0f2-48f9-9679-6555c437647f}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ソース ファイル\Math">
+      <UniqueIdentifier>{e490a89b-c169-46d4-b529-beef4f4fe05a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ソース ファイル\GameObject\Lights">
+      <UniqueIdentifier>{f5d3b77a-7c45-4c3c-8393-57bb65b0a6cb}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ソース ファイル\Mesh">
+      <UniqueIdentifier>{c8fb4212-ce19-4a08-80b5-58ff1d82b60e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ソース ファイル\Texture">
+      <UniqueIdentifier>{b37d8b45-f2fe-4c70-90c4-68682280eab2}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Shader\IBLBaker">
+      <UniqueIdentifier>{fb1986ea-e57d-4b87-a142-1b1d2d81d1aa}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ソース ファイル\System\Render">
+      <UniqueIdentifier>{20b54cff-f8b3-4901-b621-d27d6474156f}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Shader\PostProcess">
+      <UniqueIdentifier>{b777bf42-0ac6-4449-b465-6bbf64359a51}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Shader\PostProcess\Bloom">
+      <UniqueIdentifier>{f8349be4-effb-4f36-b594-65a56d64a8dd}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ソース ファイル\System\Render\Baker">
+      <UniqueIdentifier>{4969162b-dba5-4dfc-88d2-763d81dd9a1f}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Shader\Header">
+      <UniqueIdentifier>{2f80bcae-02c8-459a-8962-ca52b407be7e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Shader\PostProcess\DOF">
+      <UniqueIdentifier>{d84c3dbe-53a3-4d85-89f1-7650c4ee095d}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Shader\PostProcess\AutoExposure">
+      <UniqueIdentifier>{76721a41-a5e2-4425-ac9c-7a5b0c1ba725}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ソース ファイル\GameObject\Camera">
+      <UniqueIdentifier>{9c9e98cd-dd50-4790-9134-326742e239a6}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ソース ファイル\GameObject\StaticObject">
+      <UniqueIdentifier>{1a7565d8-837d-4886-aaa7-7b65666a4a3d}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ソース ファイル\System\Render\PostProcess">
+      <UniqueIdentifier>{f5af8b21-7034-47cd-a516-0e07bab93ba6}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ソース ファイル\GameObject\Lights\Base">
+      <UniqueIdentifier>{485358cd-7402-46a2-920d-15a5ed3c9bfa}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ソース ファイル\System\Config">
+      <UniqueIdentifier>{adcbf103-04fc-44e8-a914-83abd59c6fe5}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ソース ファイル\System\Scene">
+      <UniqueIdentifier>{f3d811e7-11e5-4aa4-a0da-ba21d63c7a89}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Shader\Shadow">
+      <UniqueIdentifier>{bbdfe271-c6a3-4119-8733-e86e1c29a7ad}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ソース ファイル\System\Render\Shadow">
+      <UniqueIdentifier>{0993d881-97b8-42d6-b005-eba2163f06e7}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ソース ファイル\GameObject\Component">
+      <UniqueIdentifier>{d8dbe7b7-9d53-4182-9e99-e7c78d1ac554}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="ImGUI\imgui.cpp">
+      <Filter>ImGUI</Filter>
+    </ClCompile>
+    <ClCompile Include="ImGUI\imgui_demo.cpp">
+      <Filter>ImGUI</Filter>
+    </ClCompile>
+    <ClCompile Include="ImGUI\imgui_draw.cpp">
+      <Filter>ImGUI</Filter>
+    </ClCompile>
+    <ClCompile Include="ImGUI\imgui_impl_dx12.cpp">
+      <Filter>ImGUI</Filter>
+    </ClCompile>
+    <ClCompile Include="ImGUI\imgui_impl_win32.cpp">
+      <Filter>ImGUI</Filter>
+    </ClCompile>
+    <ClCompile Include="ImGUI\imgui_widgets.cpp">
+      <Filter>ImGUI</Filter>
+    </ClCompile>
+    <ClCompile Include="GameManager.cpp">
+      <Filter>ソース ファイル\System</Filter>
+    </ClCompile>
+    <ClCompile Include="Main.cpp">
+      <Filter>ソース ファイル\System</Filter>
+    </ClCompile>
+    <ClCompile Include="Function.cpp">
+      <Filter>Function</Filter>
+    </ClCompile>
+    <ClCompile Include="Mouse.cpp">
+      <Filter>ソース ファイル\Input</Filter>
+    </ClCompile>
+    <ClCompile Include="Input.cpp">
+      <Filter>ソース ファイル\Input</Filter>
+    </ClCompile>
+    <ClCompile Include="Polygon2D.cpp">
+      <Filter>ソース ファイル\GameObject</Filter>
+    </ClCompile>
+    <ClCompile Include="Time.cpp">
+      <Filter>ソース ファイル\System</Filter>
+    </ClCompile>
+    <ClCompile Include="InputManager.cpp">
+      <Filter>ソース ファイル\Input</Filter>
+    </ClCompile>
+    <ClCompile Include="ImGuiManager.cpp">
+      <Filter>ImGUI\Manager</Filter>
+    </ClCompile>
+    <ClCompile Include="DirectionalLight.cpp">
+      <Filter>ソース ファイル\GameObject\Lights</Filter>
+    </ClCompile>
+    <ClCompile Include="PointLight.cpp">
+      <Filter>ソース ファイル\GameObject\Lights</Filter>
+    </ClCompile>
+    <ClCompile Include="FBXModel.cpp">
+      <Filter>ソース ファイル\Mesh</Filter>
+    </ClCompile>
+    <ClCompile Include="DDSTextureLoader12.cpp">
+      <Filter>ソース ファイル\Texture</Filter>
+    </ClCompile>
+    <ClCompile Include="Sky.cpp">
+      <Filter>ソース ファイル\GameObject</Filter>
+    </ClCompile>
+    <ClCompile Include="RenderManager.cpp">
+      <Filter>ソース ファイル\System\Render</Filter>
+    </ClCompile>
+    <ClCompile Include="Material.cpp">
+      <Filter>ソース ファイル\System\Render</Filter>
+    </ClCompile>
+    <ClCompile Include="ColorGradingLUTBaker.cpp">
+      <Filter>ソース ファイル\System\Render\Baker</Filter>
+    </ClCompile>
+    <ClCompile Include="IBLBaker.cpp">
+      <Filter>ソース ファイル\System\Render\Baker</Filter>
+    </ClCompile>
+    <ClCompile Include="Cat.cpp">
+      <Filter>ソース ファイル\GameObject\StaticObject</Filter>
+    </ClCompile>
+    <ClCompile Include="Table.cpp">
+      <Filter>ソース ファイル\GameObject\StaticObject</Filter>
+    </ClCompile>
+    <ClCompile Include="Lion.cpp">
+      <Filter>ソース ファイル\GameObject\StaticObject</Filter>
+    </ClCompile>
+    <ClCompile Include="Field.cpp">
+      <Filter>ソース ファイル\GameObject\StaticObject</Filter>
+    </ClCompile>
+    <ClCompile Include="Actor.cpp">
+      <Filter>ソース ファイル\GameObject\Base</Filter>
+    </ClCompile>
+    <ClCompile Include="Camera.cpp">
+      <Filter>ソース ファイル\GameObject\Camera</Filter>
+    </ClCompile>
+    <ClCompile Include="CameraComponent.cpp">
+      <Filter>ソース ファイル\GameObject\Camera</Filter>
+    </ClCompile>
+    <ClCompile Include="PostProcessVolume.cpp">
+      <Filter>ソース ファイル\System\Render\PostProcess</Filter>
+    </ClCompile>
+    <ClCompile Include="AutoExposure.cpp">
+      <Filter>ソース ファイル\System\Render\PostProcess</Filter>
+    </ClCompile>
+    <ClCompile Include="LightComponent.cpp">
+      <Filter>ソース ファイル\GameObject\Lights\Base</Filter>
+    </ClCompile>
+    <ClCompile Include="LightSceneProxy.cpp">
+      <Filter>ソース ファイル\GameObject\Lights\Base</Filter>
+    </ClCompile>
+    <ClCompile Include="Light.cpp">
+      <Filter>ソース ファイル\GameObject\Lights\Base</Filter>
+    </ClCompile>
+    <ClCompile Include="SpotLight.cpp">
+      <Filter>ソース ファイル\GameObject\Lights</Filter>
+    </ClCompile>
+    <ClCompile Include="RectLight.cpp">
+      <Filter>ソース ファイル\GameObject\Lights</Filter>
+    </ClCompile>
+    <ClCompile Include="World.cpp">
+      <Filter>ソース ファイル\System</Filter>
+    </ClCompile>
+    <ClCompile Include="ConfigFile.cpp">
+      <Filter>ソース ファイル\System\Config</Filter>
+    </ClCompile>
+    <ClCompile Include="SettingsManager.cpp">
+      <Filter>ソース ファイル\System\Config</Filter>
+    </ClCompile>
+    <ClCompile Include="Scene.cpp">
+      <Filter>ソース ファイル\System\Scene</Filter>
+    </ClCompile>
+    <ClCompile Include="SceneRenderer.cpp">
+      <Filter>ソース ファイル\System\Scene</Filter>
+    </ClCompile>
+    <ClCompile Include="SceneTextures.cpp">
+      <Filter>ソース ファイル\System\Scene</Filter>
+    </ClCompile>
+    <ClCompile Include="PrimitiveSceneProxy.cpp">
+      <Filter>ソース ファイル\System\Scene</Filter>
+    </ClCompile>
+    <ClCompile Include="ShadowRendering.cpp">
+      <Filter>ソース ファイル\System\Render\Shadow</Filter>
+    </ClCompile>
+    <ClCompile Include="DistanceFieldAtlas.cpp">
+      <Filter>ソース ファイル\System\Render\Shadow</Filter>
+    </ClCompile>
+    <ClCompile Include="PrimitiveComponent.cpp">
+      <Filter>ソース ファイル\GameObject\Component</Filter>
+    </ClCompile>
+    <ClCompile Include="StaticMeshComponent.cpp">
+      <Filter>ソース ファイル\GameObject\Component</Filter>
+    </ClCompile>
+    <ClCompile Include="SceneComponent.cpp">
+      <Filter>ソース ファイル\GameObject\Component</Filter>
+    </ClCompile>
+    <ClCompile Include="LightGridInjection.cpp">
+      <Filter>ソース ファイル\System\Render</Filter>
+    </ClCompile>
+    <ClCompile Include="ConvexVolume.cpp">
+      <Filter>ソース ファイル\System</Filter>
+    </ClCompile>
+    <ClCompile Include="Horse.cpp">
+      <Filter>ソース ファイル\GameObject\StaticObject</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="ImGUI\imconfig.h">
+      <Filter>ImGUI</Filter>
+    </ClInclude>
+    <ClInclude Include="ImGUI\imgui.h">
+      <Filter>ImGUI</Filter>
+    </ClInclude>
+    <ClInclude Include="ImGUI\imgui_impl_dx12.h">
+      <Filter>ImGUI</Filter>
+    </ClInclude>
+    <ClInclude Include="ImGUI\imgui_impl_win32.h">
+      <Filter>ImGUI</Filter>
+    </ClInclude>
+    <ClInclude Include="ImGUI\imgui_internal.h">
+      <Filter>ImGUI</Filter>
+    </ClInclude>
+    <ClInclude Include="ImGUI\imstb_rectpack.h">
+      <Filter>ImGUI</Filter>
+    </ClInclude>
+    <ClInclude Include="ImGUI\imstb_textedit.h">
+      <Filter>ImGUI</Filter>
+    </ClInclude>
+    <ClInclude Include="ImGUI\imstb_truetype.h">
+      <Filter>ImGUI</Filter>
+    </ClInclude>
+    <ClInclude Include="Function.h">
+      <Filter>Function</Filter>
+    </ClInclude>
+    <ClInclude Include="DirectxMathOperators.h">
+      <Filter>ソース ファイル\Math</Filter>
+    </ClInclude>
+    <ClInclude Include="ImGuiManager.h">
+      <Filter>ImGUI\Manager</Filter>
+    </ClInclude>
+    <ClInclude Include="Polygon2D.h">
+      <Filter>ソース ファイル\GameObject</Filter>
+    </ClInclude>
+    <ClInclude Include="Input.h">
+      <Filter>ソース ファイル\Input</Filter>
+    </ClInclude>
+    <ClInclude Include="InputManager.h">
+      <Filter>ソース ファイル\Input</Filter>
+    </ClInclude>
+    <ClInclude Include="Mouse.h">
+      <Filter>ソース ファイル\Input</Filter>
+    </ClInclude>
+    <ClInclude Include="D3DX12.h">
+      <Filter>ソース ファイル\System</Filter>
+    </ClInclude>
+    <ClInclude Include="GameManager.h">
+      <Filter>ソース ファイル\System</Filter>
+    </ClInclude>
+    <ClInclude Include="Main.h">
+      <Filter>ソース ファイル\System</Filter>
+    </ClInclude>
+    <ClInclude Include="Time.h">
+      <Filter>ソース ファイル\System</Filter>
+    </ClInclude>
+    <ClInclude Include="DirectionalLight.h">
+      <Filter>ソース ファイル\GameObject\Lights</Filter>
+    </ClInclude>
+    <ClInclude Include="PointLight.h">
+      <Filter>ソース ファイル\GameObject\Lights</Filter>
+    </ClInclude>
+    <ClInclude Include="FBXModel.h">
+      <Filter>ソース ファイル\Mesh</Filter>
+    </ClInclude>
+    <ClInclude Include="DDSTextureLoader12.h">
+      <Filter>ソース ファイル\Texture</Filter>
+    </ClInclude>
+    <ClInclude Include="Sky.h">
+      <Filter>ソース ファイル\GameObject</Filter>
+    </ClInclude>
+    <ClInclude Include="RenderManager.h">
+      <Filter>ソース ファイル\System\Render</Filter>
+    </ClInclude>
+    <ClInclude Include="Material.h">
+      <Filter>ソース ファイル\System\Render</Filter>
+    </ClInclude>
+    <ClInclude Include="IBLBaker.h">
+      <Filter>ソース ファイル\System\Render\Baker</Filter>
+    </ClInclude>
+    <ClInclude Include="ColorGradingLUTBaker.h">
+      <Filter>ソース ファイル\System\Render\Baker</Filter>
+    </ClInclude>
+    <ClInclude Include="Cat.h">
+      <Filter>ソース ファイル\GameObject\StaticObject</Filter>
+    </ClInclude>
+    <ClInclude Include="Table.h">
+      <Filter>ソース ファイル\GameObject\StaticObject</Filter>
+    </ClInclude>
+    <ClInclude Include="Lion.h">
+      <Filter>ソース ファイル\GameObject\StaticObject</Filter>
+    </ClInclude>
+    <ClInclude Include="Field.h">
+      <Filter>ソース ファイル\GameObject\StaticObject</Filter>
+    </ClInclude>
+    <ClInclude Include="Actor.h">
+      <Filter>ソース ファイル\GameObject\Base</Filter>
+    </ClInclude>
+    <ClInclude Include="ActorComponent.h">
+      <Filter>ソース ファイル\GameObject\Base</Filter>
+    </ClInclude>
+    <ClInclude Include="Camera.h">
+      <Filter>ソース ファイル\GameObject\Camera</Filter>
+    </ClInclude>
+    <ClInclude Include="CameraComponent.h">
+      <Filter>ソース ファイル\GameObject\Camera</Filter>
+    </ClInclude>
+    <ClInclude Include="PostProcessVolume.h">
+      <Filter>ソース ファイル\System\Render\PostProcess</Filter>
+    </ClInclude>
+    <ClInclude Include="AutoExposure.h">
+      <Filter>ソース ファイル\System\Render\PostProcess</Filter>
+    </ClInclude>
+    <ClInclude Include="LightComponent.h">
+      <Filter>ソース ファイル\GameObject\Lights\Base</Filter>
+    </ClInclude>
+    <ClInclude Include="LightSceneProxy.h">
+      <Filter>ソース ファイル\GameObject\Lights\Base</Filter>
+    </ClInclude>
+    <ClInclude Include="Light.h">
+      <Filter>ソース ファイル\GameObject\Lights\Base</Filter>
+    </ClInclude>
+    <ClInclude Include="RectLight.h">
+      <Filter>ソース ファイル\GameObject\Lights</Filter>
+    </ClInclude>
+    <ClInclude Include="SpotLight.h">
+      <Filter>ソース ファイル\GameObject\Lights</Filter>
+    </ClInclude>
+    <ClInclude Include="PostProcessSettings.h">
+      <Filter>ソース ファイル\System\Render\PostProcess</Filter>
+    </ClInclude>
+    <ClInclude Include="World.h">
+      <Filter>ソース ファイル\System</Filter>
+    </ClInclude>
+    <ClInclude Include="ConfigFile.h">
+      <Filter>ソース ファイル\System\Config</Filter>
+    </ClInclude>
+    <ClInclude Include="SettingsManager.h">
+      <Filter>ソース ファイル\System\Config</Filter>
+    </ClInclude>
+    <ClInclude Include="Scene.h">
+      <Filter>ソース ファイル\System\Scene</Filter>
+    </ClInclude>
+    <ClInclude Include="SceneRenderer.h">
+      <Filter>ソース ファイル\System\Scene</Filter>
+    </ClInclude>
+    <ClInclude Include="SceneTextures.h">
+      <Filter>ソース ファイル\System\Scene</Filter>
+    </ClInclude>
+    <ClInclude Include="PrimitiveSceneProxy.h">
+      <Filter>ソース ファイル\System\Scene</Filter>
+    </ClInclude>
+    <ClInclude Include="ShadowRendering.h">
+      <Filter>ソース ファイル\System\Render\Shadow</Filter>
+    </ClInclude>
+    <ClInclude Include="DistanceFieldAtlas.h">
+      <Filter>ソース ファイル\System\Render\Shadow</Filter>
+    </ClInclude>
+    <ClInclude Include="PrimitiveComponent.h">
+      <Filter>ソース ファイル\GameObject\Component</Filter>
+    </ClInclude>
+    <ClInclude Include="StaticMeshComponent.h">
+      <Filter>ソース ファイル\GameObject\Component</Filter>
+    </ClInclude>
+    <ClInclude Include="SceneComponent.h">
+      <Filter>ソース ファイル\GameObject\Component</Filter>
+    </ClInclude>
+    <ClInclude Include="LightGridInjection.h">
+      <Filter>ソース ファイル\System\Render</Filter>
+    </ClInclude>
+    <ClInclude Include="BoxSphereBounds.h">
+      <Filter>ソース ファイル\System</Filter>
+    </ClInclude>
+    <ClInclude Include="ConvexVolume.h">
+      <Filter>ソース ファイル\System</Filter>
+    </ClInclude>
+    <ClInclude Include="Horse.h">
+      <Filter>ソース ファイル\GameObject\StaticObject</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="shader\UnlitPS.hlsl">
+      <Filter>Shader</Filter>
+    </FxCompile>
+    <FxCompile Include="shader\UnlitVS.hlsl">
+      <Filter>Shader</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\LitPS.hlsl">
+      <Filter>Shader</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\LitVS.hlsl">
+      <Filter>Shader</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\DeferredPS.hlsl">
+      <Filter>Shader</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\DeferredVS.hlsl">
+      <Filter>Shader</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\GeometryVS.hlsl">
+      <Filter>Shader</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\GeometryPS.hlsl">
+      <Filter>Shader</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\LinearDepthPS.hlsl">
+      <Filter>Shader</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\IBL\IBL_EquirectToCube.hlsl">
+      <Filter>Shader\IBLBaker</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\IBL\IBL_BRDFLut.hlsl">
+      <Filter>Shader\IBLBaker</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\IBL\IBL_Prefilter.hlsl">
+      <Filter>Shader\IBLBaker</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\IBL\IBL_Irradiance.hlsl">
+      <Filter>Shader\IBLBaker</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\IBL\IBL_DownsampleCube.hlsl">
+      <Filter>Shader\IBLBaker</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\BloomUpsamplePS.hlsl">
+      <Filter>Shader\PostProcess\Bloom</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\BloomThresholdPS.hlsl">
+      <Filter>Shader\PostProcess\Bloom</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\TonemapPS.hlsl">
+      <Filter>Shader\PostProcess</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\BloomDownsamplePS.hlsl">
+      <Filter>Shader\PostProcess\Bloom</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\ColorGradingLUT_CS.hlsl">
+      <Filter>Shader\PostProcess</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\PostProcess_Utility.hlsl">
+      <Filter>Shader\Header</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\ColorSpace.hlsl">
+      <Filter>Shader\Header</Filter>
+    </FxCompile>
+    <FxCompile Include="shader\Common.hlsl">
+      <Filter>Shader\Header</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\Constant.hlsl">
+      <Filter>Shader\Header</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\ConstantBuffers.hlsl">
+      <Filter>Shader\Header</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\Grading.hlsl">
+      <Filter>Shader\Header</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\PBR_Utility.hlsl">
+      <Filter>Shader\Header</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\Resources.hlsl">
+      <Filter>Shader\Header</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\Structs.hlsl">
+      <Filter>Shader\Header</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\DOFBlurPS.hlsl">
+      <Filter>Shader\PostProcess\DOF</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\DOFCoCPS.hlsl">
+      <Filter>Shader\PostProcess\DOF</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\DOFCompositePS.hlsl">
+      <Filter>Shader\PostProcess\DOF</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\AutoExposureAverage_CS.hlsl">
+      <Filter>Shader\PostProcess\AutoExposure</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\AutoExposureHistogram_CS.hlsl">
+      <Filter>Shader\PostProcess\AutoExposure</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\DeferredLightingCommon.hlsl">
+      <Filter>Shader\Header</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\ShadowDepthPS.hlsl">
+      <Filter>Shader\Shadow</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\ShadowDepthVS.hlsl">
+      <Filter>Shader\Shadow</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\ShadowFilteringCommon.hlsl">
+      <Filter>Shader\Shadow</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\DistanceFieldShadowing.hlsl">
+      <Filter>Shader\Shadow</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\DistanceFieldBake_CS.hlsl">
+      <Filter>Shader\Shadow</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\LightGridInjection_CS.hlsl">
+      <Filter>Shader</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\LightGridCommon.hlsl">
+      <Filter>Shader</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\LightGridCompact_CS.hlsl">
+      <Filter>Shader</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\TranslucentPS.hlsl">
+      <Filter>Shader</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\ShadowDepthMaskedPS.hlsl">
+      <Filter>Shader\Shadow</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\SubstrateEvaluation.hlsl">
+      <Filter>Shader</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\RefractionCommon.hlsl">
+      <Filter>Shader</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\Substrate.hlsl">
+      <Filter>Shader</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\SubstrateDefinitions.hlsl">
+      <Filter>Shader</Filter>
+    </FxCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="packages.config">
+      <Filter>リソース ファイル</Filter>
+    </None>
+  </ItemGroup>
+</Project>
