@@ -73,7 +73,6 @@ void ImGuiManager::Draw()
 	LightGridWindow();
 
 	CullingWindow();
-	TranslucencyWindow();
 }
 
 
@@ -164,67 +163,6 @@ void ImGuiManager::LightGridWindow()
 	{
 		params.DebugMode = (unsigned int)debugMode;
 	}
-
-	ImGui::End();
-}
-
-// ============================================================
-//  フラスタムカリング デバッグウィンドウ
-//  (stat InitViews のカリング統計 + r.FreezeRendering 相当)
-// ============================================================
-// ============================================================
-//  Translucency ウィンドウ
-//  ETranslucentSortPolicy (プロジェクト設定 Translucent Sort
-//  Policy 相当) をランタイムで切り替える。プリミティブ個別の
-//  Translucency Sort Priority は Details -> Rendering にある。
-// ============================================================
-void ImGuiManager::TranslucencyWindow()
-{
-	ImGui::Begin("Translucency");
-
-	if (m_SceneRenderer == nullptr)
-	{
-		ImGui::TextUnformatted("Scene renderer is not available.");
-		ImGui::End();
-		return;
-	}
-
-	FSceneRenderer::FTranslucencyParams& params = m_SceneRenderer->GetTranslucencyParams();
-
-	// ---- ソートポリシー (ETranslucentSortPolicy と 1:1) ----
-	static const char* policyNames[] =
-	{
-		"Sort By Distance", "Sort By Projected Z", "Sort Along Axis",
-	};
-	int policy = (int)params.SortPolicy;
-	if (ImGui::Combo("Sort Policy", &policy, policyNames, IM_ARRAYSIZE(policyNames)))
-	{
-		params.SortPolicy = (FSceneRenderer::ETranslucentSortPolicy)policy;
-	}
-
-	switch (params.SortPolicy)
-	{
-	case FSceneRenderer::ETranslucentSortPolicy::SortByProjectedZ:
-		ImGui::TextDisabled("View-space depth. Robust when a large surface\n"
-			"(e.g. ground plane) and small objects invert with\n"
-			"origin-distance sorting.");
-		break;
-
-	case FSceneRenderer::ETranslucentSortPolicy::SortAlongAxis:
-		ImGui::DragFloat3("Sort Axis", &params.SortAxis.x, 0.01f, -1.0f, 1.0f);
-		ImGui::TextDisabled("Projection onto a fixed axis (2D / top-down).");
-		break;
-
-	case FSceneRenderer::ETranslucentSortPolicy::SortByDistance:
-	default:
-		ImGui::TextDisabled("Distance to bounds origin (default).");
-		break;
-	}
-
-	ImGui::Separator();
-	ImGui::TextDisabled("Sorting is per-primitive (bounds origin), same as\n"
-		"UE. Use per-primitive 'Translucency Sort Priority'\n"
-		"(Details -> Rendering) to pin a fixed order.");
 
 	ImGui::End();
 }

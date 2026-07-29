@@ -24,7 +24,6 @@ private:
 	void BufferWindow();
 	void LightGridWindow();
 	void CullingWindow();
-	void TranslucencyWindow();
 	void OutlinerWindow();
 	void DetailsWindow();
 
