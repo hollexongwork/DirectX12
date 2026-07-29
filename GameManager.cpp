@@ -1,16 +1,11 @@
-#include "Main.h"
-#include "Input.h"
-#include "Mouse.h"
+﻿#include "Main.h"
 #include "GameManager.h"
 #include "ImGUI/imgui.h"
 
 #include "Camera.h"
 #include "Sky.h"
 #include "Field.h"
-#include "Table.h"
-#include "Cat.h"
-#include "Lion.h"
-#include "Horse.h"
+#include "StaticMeshActor.h"
 #include "Polygon2D.h"
 #include "PostProcessVolume.h"
 #include "DirectionalLight.h"
@@ -68,10 +63,109 @@ GameManager::GameManager(HWND hWnd)
 	m_World.SpawnActor<ACameraActor>();
 	m_World.SpawnActor<ASky>();
 	m_World.SpawnActor<AField>();
-	m_World.SpawnActor<ATable>();
-	m_World.SpawnActor<ACat>();
-	m_World.SpawnActor<ALion>();
-	m_World.SpawnActor<AHorse>();
+
+	// ---- スタティックメッシュ配置 (AStaticMeshActor) ----
+	// 旧 ATable / ACat / ALion / AHorse (同型ボイラープレート) は
+	// UE5 の AStaticMeshActor へ統合し、レベルロード相当のここで
+	// メッシュ / テクスチャ / トランスフォーム / ラベルを構成する。
+	// スポーン順 (Table -> Cat -> Lion -> Horse) は旧実装のまま。
+	{
+		// 旧 ACat / AHorse / ATable が設定していた共通マテリアル値
+		auto SetDefaultLitMaterial = [](Material& material)
+		{
+			material.Params.BaseColor = { 0.5f, 0.0f, 0.5f, 1.0f };
+			material.Params.EmissionColor = { 0.0f, 0.0f, 0.0f, 0.0f };
+			material.Params.Metallic = 0.0f;
+			material.Params.Specular = 0.0f;
+			material.Params.Roughness = 1.0f;
+			material.Params.NormalWeight = 1.0f;
+			material.Params.Unlit = FALSE;
+		};
+
+		// テーブル (旧 ATable)
+		AStaticMeshActor* table = m_World.SpawnActor<AStaticMeshActor>();
+		table->SetActorLabel("Table");
+		{
+			UStaticMeshComponent* mesh = table->GetStaticMeshComponent();
+			mesh->SetStaticMesh("Asset/Model/wooden_picnic_table_4k.fbx");
+			mesh->SetNumMaterialSlots(2);
+
+			table->SetActorLocation({ 0.0f, 0.0f, 0.0f });
+			table->SetActorRotation({ XMConvertToRadians(90.0f), XMConvertToRadians(90.0f), 0.0f });
+			table->SetActorScale3D({ 5.0f, 5.0f, 5.0f });
+
+			mesh->SetBaseColorTexture(0, "Asset/Texture/wooden_picnic_table_bottom_diff_4k.dds");
+			mesh->SetNormalTexture(0, "Asset/Texture/wooden_picnic_table_bottom_nor_dx_4k.dds");
+			mesh->SetARMTexture(0, "Asset/Texture/wooden_picnic_table_bottom_arm_4k.dds");
+
+			mesh->SetBaseColorTexture(1, "Asset/Texture/wooden_picnic_table_top_diff_4k.dds");
+			mesh->SetNormalTexture(1, "Asset/Texture/wooden_picnic_table_top_nor_dx_4k.dds");
+			mesh->SetARMTexture(1, "Asset/Texture/wooden_picnic_table_top_arm_4k.dds");
+
+			for (unsigned int i = 0; i < 2; ++i)
+			{
+				SetDefaultLitMaterial(mesh->GetMaterial(i));
+			}
+			mesh->MarkRenderStateDirty();	// GetMaterial() 直接書き換えの反映
+		}
+
+		// 猫の石像 (旧 ACat)
+		AStaticMeshActor* cat = m_World.SpawnActor<AStaticMeshActor>();
+		cat->SetActorLabel("Cat");
+		{
+			UStaticMeshComponent* mesh = cat->GetStaticMeshComponent();
+			mesh->SetStaticMesh("Asset/Model/concrete_cat_statue_4k.fbx");
+
+			cat->SetActorLocation({ -1.0f, 3.75f, 0.0f });
+			cat->SetActorRotation({ 1.57f, 0.0f, 0.0f });
+			cat->SetActorScale3D({ 7.0f, 7.0f, 7.0f });
+
+			mesh->SetBaseColorTexture(0, "Asset/Texture/concrete_cat_statue_diff_4k.dds");
+			mesh->SetNormalTexture(0, "Asset/Texture/concrete_cat_statue_nor_dx_4k.dds");
+			mesh->SetARMTexture(0, "Asset/Texture/concrete_cat_statue_arm_4k.dds");
+
+			SetDefaultLitMaterial(mesh->GetMaterial(0));
+			mesh->MarkRenderStateDirty();	// GetMaterial() 直接書き換えの反映
+		}
+
+		// ライオンの頭像 (旧 ALion)
+		AStaticMeshActor* lion = m_World.SpawnActor<AStaticMeshActor>();
+		lion->SetActorLabel("Lion");
+		{
+			UStaticMeshComponent* mesh = lion->GetStaticMeshComponent();
+			mesh->SetStaticMesh("Asset/Model/lion_head_4k.fbx");
+
+			lion->SetActorLocation({ 2.0f, 3.75f, 1.0f });
+			lion->SetActorRotation({ XMConvertToRadians(90.0f), 0.0f, 0.0f });
+			lion->SetActorScale3D({ 7.0f, 7.0f, 7.0f });
+
+			mesh->SetBaseColorTexture(0, "Asset/Texture/lion_head_diff_4k.dds");
+			mesh->SetNormalTexture(0, "Asset/Texture/lion_head_nor_dx_4k.dds");
+			mesh->SetARMTexture(0, "Asset/Texture/lion_head_arm_4k.dds");
+
+			// マテリアルはスロット既定値 (旧 ALion と同じくデフォルトのまま)
+		}
+
+		// 馬の像 (旧 AHorse)
+		AStaticMeshActor* horse = m_World.SpawnActor<AStaticMeshActor>();
+		horse->SetActorLabel("Horse");
+		{
+			UStaticMeshComponent* mesh = horse->GetStaticMeshComponent();
+			mesh->SetStaticMesh("Asset/Model/horse_statue_01_4k.fbx");
+
+			horse->SetActorLocation({ -1.0f, 3.7f, 0.0f });
+			horse->SetActorRotation({ 1.57f, 0.0f, 0.0f });
+			horse->SetActorScale3D({ 10.0f, 10.0f, 10.0f });
+
+			mesh->SetBaseColorTexture(0, "Asset/Texture/horse_statue_01_diff_4k.dds");
+			mesh->SetNormalTexture(0, "Asset/Texture/horse_statue_01_nor_dx_4k.dds");
+			mesh->SetARMTexture(0, "Asset/Texture/horse_statue_01_arm_4k.dds");
+
+			SetDefaultLitMaterial(mesh->GetMaterial(0));
+			mesh->MarkRenderStateDirty();	// GetMaterial() 直接書き換えの反映
+		}
+	}
+
 	//m_World.SpawnActor<APolygon2D>();	// 2D オーバーレイ (使う場合は必ず最後にスポーン)
 }
 

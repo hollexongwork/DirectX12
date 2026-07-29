@@ -107,7 +107,6 @@ int APIENTRY wWinMain(  _In_ HINSTANCE hInstance,
         while (true)
         {
 
-            //DWORD frame = 0;
             MSG msg;
 
             if (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
@@ -196,13 +195,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             ChangeFullWindow();
             break;
         }
-        if (wParam == VK_ESCAPE) {
-            SendMessage(hWnd, WM_CLOSE, 0, 0); // WM_CLOSEメッセージの送信
-        }
+        break;
+
+    // システムキーの既定処理 (Alt メニュー等) を抑止する
     case WM_SYSKEYDOWN:
     case WM_KEYUP:
     case WM_SYSKEYUP:
-        //Keyboard_ProcessMessage(uMsg, wParam, lParam);
         break;
     case WM_INPUT:
     case WM_MOUSEMOVE:

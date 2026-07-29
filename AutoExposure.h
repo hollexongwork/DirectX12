@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 // ============================================================
 //  AutoExposure
@@ -86,7 +86,6 @@ private:
     ComPtr<ID3D12Resource>      m_Result;
     unsigned int                m_ResultUAVIndex = 0;
     unsigned int                m_ResultSRVIndex = 0;
-    D3D12_GPU_DESCRIPTOR_HANDLE m_ResultSRVHandle{};
 
     // Non-shader-visible heap for ClearUnorderedAccessViewUint (it needs a
     // CPU handle from a non-shader-visible heap plus the shader-visible one).
@@ -126,10 +125,9 @@ public:
                   unsigned int width, unsigned int height,
                   float deltaTime);
 
-    // SRV index/handle of the 1-element exposure result buffer, bound
+    // SRV index of the 1-element exposure result buffer, bound
     // to the tonemap pass on t11 (TEXTURE_TYPE::AUTO_EXPOSURE).
     unsigned int                GetExposureSRVIndex()  const { return m_ResultSRVIndex; }
-    D3D12_GPU_DESCRIPTOR_HANDLE GetExposureSRVHandle() const { return m_ResultSRVHandle; }
 
     // Latest GPU-computed values read back to the CPU (for ImGui display).
     // These lag the GPU by a frame or two (readback is asynchronous) but are

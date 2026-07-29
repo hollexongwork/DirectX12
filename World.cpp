@@ -1,4 +1,4 @@
-#include "Main.h"
+﻿#include "Main.h"
 #include "World.h"
 
 #include <cctype>
@@ -103,7 +103,7 @@ std::string UWorld::CleanTypeName(const char* RawName)
 {
 	std::string name = (RawName != nullptr) ? RawName : "";
 
-	// MSVC: "class ACat" / "struct Foo" / "enum Bar"
+	// MSVC: "class APointLight" / "struct Foo" / "enum Bar"
 	static const char* prefixes[] = { "class ", "struct ", "enum " };
 	for (const char* prefix : prefixes)
 	{
@@ -115,7 +115,7 @@ std::string UWorld::CleanTypeName(const char* RawName)
 		}
 	}
 
-	// GCC / Clang: 先頭に長さの数字が付く ("4ACat")
+	// GCC / Clang: 先頭に長さの数字が付く ("11APointLight")
 	size_t digits = 0;
 	while (digits < name.size() && isdigit((unsigned char)name[digits]))
 	{

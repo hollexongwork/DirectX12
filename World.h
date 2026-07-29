@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include <vector>
 #include <memory>
 #include <string>
@@ -98,7 +98,7 @@ public:
 
 	// ---- 型名ユーティリティ ----
 	// typeid(...).name() から "class " / "struct " / 先頭の長さ数字 /
-	// ネームスペースを除いた表示名を返す (例: "class ACat" -> "ACat")。
+	// ネームスペースを除いた表示名を返す (例: "class APointLight" -> "APointLight")。
 	static std::string CleanTypeName(const char* RawName);
 	static std::string GetClassDisplayName(const AActor* Actor);
 	static std::string GetClassDisplayName(const UActorComponent* Component);

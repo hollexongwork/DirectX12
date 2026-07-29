@@ -1,4 +1,4 @@
-#include "Main.h"
+﻿#include "Main.h"
 #include "RenderManager.h"
 #include "ImGUI/imgui_impl_dx12.h"
 #include "ImGUI/imgui.h"
@@ -8,7 +8,6 @@
 #include "CameraComponent.h"
 #include "Polygon2D.h"
 #include "Field.h"
-#include "Cat.h"
 #include "StaticMeshComponent.h"
 #include "PostProcessVolume.h"
 #include "SceneRenderer.h"
@@ -47,7 +46,6 @@ ImGuiManager::ImGuiManager()
 
 void ImGuiManager::Start()
 {
-	m_RenderManager = RenderManager::GetInstance();
 	m_SceneRenderer = GameManager::GetInstance()->GetSceneRenderer();
 
 	// ワールドからアクターを検索する
@@ -62,8 +60,6 @@ void ImGuiManager::Start()
 
 void ImGuiManager::Draw()
 {
-	//CurveWindow();
-
 	OutlinerWindow();
 
 	DetailsWindow();
@@ -75,35 +71,6 @@ void ImGuiManager::Draw()
 	CullingWindow();
 }
 
-
-void ImGuiManager::CurveWindow()
-{
-	ImGui::Begin("Curve Editor");
-
-	ImVec2 canvas_pos = ImGui::GetCursorScreenPos();
-	ImVec2 canvas_size = ImVec2(400, 200);
-
-	ImDrawList* draw_list = ImGui::GetWindowDrawList();
-
-	// 背景
-	draw_list->AddRectFilled(canvas_pos,
-		ImVec2(canvas_pos.x + canvas_size.x, canvas_pos.y + canvas_size.y),
-		IM_COL32(50, 50, 50, 255));
-
-	// ベジェカーブ描画
-	ImVec2 p0 = ImVec2(canvas_pos.x, canvas_pos.y + canvas_size.y);
-	ImVec2 p1 = ImVec2(canvas_pos.x + canvas_size.x * 0.3f, canvas_pos.y);
-	ImVec2 p2 = ImVec2(canvas_pos.x + canvas_size.x * 0.7f, canvas_pos.y + canvas_size.y);
-	ImVec2 p3 = ImVec2(canvas_pos.x + canvas_size.x, canvas_pos.y);
-
-	draw_list->AddBezierCurve(p0, p1, p2, p3,
-		IM_COL32(255, 200, 0, 255), 2.0f);
-
-	// ダミーでマウス入力を受け取る領域確保
-	ImGui::InvisibleButton("canvas", canvas_size);
-
-	ImGui::End();
-}
 
 void ImGuiManager::BufferWindow()
 {
@@ -494,33 +461,6 @@ void ImGuiManager::OutlinerWindow()
 		}
 
 		PushID(index);
-
-		// ---- 可視性トグル (プリミティブを持つアクターのみ) ----
-		//bool hasPrimitive = false;
-		//bool visible = false;
-		//for (const auto& component : actor->GetComponents())
-		//{
-		//	if (auto* primitive = dynamic_cast<UPrimitiveComponent*>(component.get()))
-		//	{
-		//		hasPrimitive = true;
-		//		visible |= primitive->IsVisible();
-		//	}
-		//}
-
-		//if (hasPrimitive)
-		//{
-		//	if (Checkbox("##Visible", &visible))
-		//	{
-		//		for (const auto& component : actor->GetComponents())
-		//		{
-		//			if (auto* primitive = dynamic_cast<UPrimitiveComponent*>(component.get()))
-		//			{
-		//				primitive->SetVisibility(visible);
-		//			}
-		//		}
-		//	}
-		//	SameLine();
-		//}
 
 		// ---- 行本体 (ラベル + クラス名) ----
 		char row[256];

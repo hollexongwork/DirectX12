@@ -1,12 +1,15 @@
-#pragma once
-#include "Actor.h"
-#include "StaticMeshComponent.h"
+﻿#pragma once
+#include "StaticMeshActor.h"
 
-class ASky : public AActor
+// ============================================================
+//  ASky
+//  AStaticMeshActor 派生の空ドーム。
+//  カメラ位置へ毎フレーム追従し、常にビューを覆う (Tick 有効)。
+// ============================================================
+
+class ASky : public AStaticMeshActor
 {
 private:
-	UStaticMeshComponent* m_MeshComponent = nullptr;
-
 	class ACameraActor* m_Camera = nullptr;
 
 public:
@@ -14,6 +17,4 @@ public:
 
 	void BeginPlay() override;
 	void Tick(float DeltaTime) override;
-
-	UStaticMeshComponent* GetMeshComponent() const { return m_MeshComponent; }
 };

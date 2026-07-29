@@ -1,10 +1,7 @@
-#include "Main.h"
-#include "RenderManager.h"
-#include "Time.h"
+﻿#include "Main.h"
 #include "Input.h"
 #include "Mouse.h"
 #include "Camera.h"
-#include "Function.h"
 #include "DirectxMathOperators.h"
 
 ACameraActor::ACameraActor()

@@ -1,4 +1,4 @@
-﻿#ifndef COLOR_SPACE_HLSL
+#ifndef COLOR_SPACE_HLSL
 #define COLOR_SPACE_HLSL
 
 // Rec.709 輝度係数

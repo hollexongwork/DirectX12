@@ -1,4 +1,4 @@
-﻿#ifndef PBR_UTILITY_HLSL
+#ifndef PBR_UTILITY_HLSL
 #define PBR_UTILITY_HLSL
 
 #include "Common.hlsl"

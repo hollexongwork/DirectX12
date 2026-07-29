@@ -1,10 +1,9 @@
-#pragma once
+﻿#pragma once
 
 
 class ImGuiManager
 {
 private:
-	class RenderManager* m_RenderManager = nullptr;
 	class FSceneRenderer* m_SceneRenderer = nullptr;
 
 	class UWorld* m_World = nullptr;
@@ -13,14 +12,11 @@ private:
 	class AutoExposure* m_AutoExposure = nullptr;
 	class SettingsManager* m_Settings = nullptr;
 
-	XMFLOAT4 m_Color;
-
 	// ---- Outliner / Details 選択状態 ----
 	class AActor*          m_SelectedActor = nullptr;
 	class UActorComponent* m_SelectedComponent = nullptr;
 	char                   m_LabelBuffer[128] = {};
 
-	void CurveWindow();
 	void BufferWindow();
 	void LightGridWindow();
 	void CullingWindow();

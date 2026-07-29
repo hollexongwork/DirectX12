@@ -1,4 +1,4 @@
-#include "Main.h"
+﻿#include "Main.h"
 #include "RenderManager.h"
 #include "PostProcessSettings.h"
 #include "ColorGradingLUTBaker.h"
@@ -168,7 +168,6 @@ void ColorGradingLUTBaker::Init()
 		srv.Texture3D.MipLevels = 1;
 		Device()->CreateShaderResourceView(m_LUT.Get(), &srv,
 			m_Owner->GetCPUDescriptorHandle(m_LUTSRVIndex));
-		m_LUTSRVHandle = m_Owner->GetGPUDescriptorHandle(m_LUTSRVIndex);
 	}
 
 	// ---- param upload buffer (b0) ----

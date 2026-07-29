@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 // ============================================================
 //  ColorGradingLUTBaker
@@ -58,7 +58,6 @@ private:
 	ComPtr<ID3D12Resource>      m_LUT;            // Texture3D 33^3 RGBA16F
 	unsigned int                m_LUTUAVIndex = 0;
 	unsigned int                m_LUTSRVIndex = 0;
-	D3D12_GPU_DESCRIPTOR_HANDLE m_LUTSRVHandle{};
 
 	ComPtr<ID3D12RootSignature> m_RootSignature;
 	ComPtr<ID3D12PipelineState> m_PSO;
@@ -101,9 +100,8 @@ public:
 	// grading-related ImGui control changes).
 	void MarkDirty() { m_Dirty = true; }
 
-	// SRV index/handle of the baked LUT (Texture3D), for the tonemap pass.
+	// SRV index of the baked LUT (Texture3D), for the tonemap pass.
 	unsigned int                GetLUTSRVIndex()  const { return m_LUTSRVIndex; }
-	D3D12_GPU_DESCRIPTOR_HANDLE GetLUTSRVHandle() const { return m_LUTSRVHandle; }
 
 	static const unsigned int LUT_SIZE = 33;   // Standard neutral LUT size
 

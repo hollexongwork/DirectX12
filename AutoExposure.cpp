@@ -1,4 +1,4 @@
-#include "Main.h"
+﻿#include "Main.h"
 #include "RenderManager.h"
 #include "AutoExposure.h"
 #include "D3DX12.h"
@@ -225,7 +225,6 @@ void AutoExposure::Init()
         srv.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
         Device()->CreateShaderResourceView(m_Result.Get(), &srv,
             m_Owner->GetCPUDescriptorHandle(m_ResultSRVIndex));
-        m_ResultSRVHandle = m_Owner->GetGPUDescriptorHandle(m_ResultSRVIndex);
     }
 
     // ------------------------------------------------------------

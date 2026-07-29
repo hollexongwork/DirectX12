@@ -1,4 +1,4 @@
-﻿#include "Common.hlsl"
+#include "Common.hlsl"
 
 // 深度バッファ(非線形 [0,1])を線形化して書き出すパス
 // 出力フォーマットは R32G32_FLOAT を想定

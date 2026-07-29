@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include "PostProcessSettings.h"
 
 // ============================================================
@@ -355,7 +355,6 @@ public:
 	// ------------------------------------------------------------
 	std::unique_ptr<RENDER_TARGET> CreateRenderTarget(unsigned int Width, unsigned int Height, DXGI_FORMAT Format, unsigned int MipLevels = 1);
 	std::unique_ptr<TEXTURE>       LoadTexture(const char* FileName, bool sRGB = false);
-	//std::unique_ptr<TEXTURE>       CreateSolidColorTexture(UINT8 r, UINT8 g, UINT8 b, UINT8 a);
 	std::unique_ptr<VERTEX_BUFFER> CreateVertexBuffer(unsigned int Stride, unsigned int Size);
 	std::unique_ptr<INDEX_BUFFER>  CreateIndexBuffer(unsigned int Size);
 
@@ -397,11 +396,7 @@ public:
 	// ------------------------------------------------------------
 	//  Accessors used by IBLBaker / baker classes
 	// ------------------------------------------------------------
-	ID3D12CommandQueue* GetCommandQueue() { return m_CommandQueue.Get(); }
 	ID3D12DescriptorHeap* GetSRVDescriptorHeap() { return m_SRVDescriptorHeap.Get(); }
-
-	unsigned int                CreateShaderResourceViewPublic(ID3D12Resource* Resource) { return CreateShaderResourceView(Resource); }
-	D3D12_GPU_DESCRIPTOR_HANDLE GetShaderResourceViewHandlePublic(unsigned int SRVIndex) { return GetShaderResourceViewHandle(SRVIndex); }
 
 	unsigned int                AllocateDescriptor();              // Reserve one slot from the SRV/UAV/CBV heap.
 	D3D12_CPU_DESCRIPTOR_HANDLE GetCPUDescriptorHandle(unsigned int Index);

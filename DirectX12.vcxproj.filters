@@ -122,9 +122,6 @@
     <ClCompile Include="Main.cpp">
       <Filter>ソース ファイル\System</Filter>
     </ClCompile>
-    <ClCompile Include="Function.cpp">
-      <Filter>Function</Filter>
-    </ClCompile>
     <ClCompile Include="Mouse.cpp">
       <Filter>ソース ファイル\Input</Filter>
     </ClCompile>
@@ -169,15 +166,6 @@
     </ClCompile>
     <ClCompile Include="IBLBaker.cpp">
       <Filter>ソース ファイル\System\Render\Baker</Filter>
-    </ClCompile>
-    <ClCompile Include="Cat.cpp">
-      <Filter>ソース ファイル\GameObject\StaticObject</Filter>
-    </ClCompile>
-    <ClCompile Include="Table.cpp">
-      <Filter>ソース ファイル\GameObject\StaticObject</Filter>
-    </ClCompile>
-    <ClCompile Include="Lion.cpp">
-      <Filter>ソース ファイル\GameObject\StaticObject</Filter>
     </ClCompile>
     <ClCompile Include="Field.cpp">
       <Filter>ソース ファイル\GameObject\StaticObject</Filter>
@@ -254,8 +242,8 @@
     <ClCompile Include="ConvexVolume.cpp">
       <Filter>ソース ファイル\System</Filter>
     </ClCompile>
-    <ClCompile Include="Horse.cpp">
-      <Filter>ソース ファイル\GameObject\StaticObject</Filter>
+    <ClCompile Include="StaticMeshActor.cpp">
+      <Filter>ソース ファイル\GameObject\Base</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -282,9 +270,6 @@
     </ClInclude>
     <ClInclude Include="ImGUI\imstb_truetype.h">
       <Filter>ImGUI</Filter>
-    </ClInclude>
-    <ClInclude Include="Function.h">
-      <Filter>Function</Filter>
     </ClInclude>
     <ClInclude Include="DirectxMathOperators.h">
       <Filter>ソース ファイル\Math</Filter>
@@ -342,15 +327,6 @@
     </ClInclude>
     <ClInclude Include="ColorGradingLUTBaker.h">
       <Filter>ソース ファイル\System\Render\Baker</Filter>
-    </ClInclude>
-    <ClInclude Include="Cat.h">
-      <Filter>ソース ファイル\GameObject\StaticObject</Filter>
-    </ClInclude>
-    <ClInclude Include="Table.h">
-      <Filter>ソース ファイル\GameObject\StaticObject</Filter>
-    </ClInclude>
-    <ClInclude Include="Lion.h">
-      <Filter>ソース ファイル\GameObject\StaticObject</Filter>
     </ClInclude>
     <ClInclude Include="Field.h">
       <Filter>ソース ファイル\GameObject\StaticObject</Filter>
@@ -436,23 +412,11 @@
     <ClInclude Include="ConvexVolume.h">
       <Filter>ソース ファイル\System</Filter>
     </ClInclude>
-    <ClInclude Include="Horse.h">
-      <Filter>ソース ファイル\GameObject\StaticObject</Filter>
+    <ClInclude Include="StaticMeshActor.h">
+      <Filter>ソース ファイル\GameObject\Base</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <FxCompile Include="shader\UnlitPS.hlsl">
-      <Filter>Shader</Filter>
-    </FxCompile>
-    <FxCompile Include="shader\UnlitVS.hlsl">
-      <Filter>Shader</Filter>
-    </FxCompile>
-    <FxCompile Include="Shader\LitPS.hlsl">
-      <Filter>Shader</Filter>
-    </FxCompile>
-    <FxCompile Include="Shader\LitVS.hlsl">
-      <Filter>Shader</Filter>
-    </FxCompile>
     <FxCompile Include="Shader\DeferredPS.hlsl">
       <Filter>Shader</Filter>
     </FxCompile>

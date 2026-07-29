@@ -1,4 +1,4 @@
-﻿#ifndef POSTPROCESS_UTILITY_HLSL
+#ifndef POSTPROCESS_UTILITY_HLSL
 #define POSTPROCESS_UTILITY_HLSL
 
 #include "Common.hlsl"   // ConstantBuffers / Resources / ColorSpace を含む
