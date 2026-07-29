@@ -96,6 +96,12 @@
     <Filter Include="ソース ファイル\GameObject\Component">
       <UniqueIdentifier>{d8dbe7b7-9d53-4182-9e99-e7c78d1ac554}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Shader\Substrate">
+      <UniqueIdentifier>{a202bd2c-9756-40fd-a8d6-08c773253790}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Shader\LightGrid">
+      <UniqueIdentifier>{71ee00b2-f808-4d84-9363-5299ffe4284a}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="ImGUI\imgui.cpp">
@@ -522,32 +528,32 @@
     <FxCompile Include="Shader\DistanceFieldBake_CS.hlsl">
       <Filter>Shader\Shadow</Filter>
     </FxCompile>
-    <FxCompile Include="Shader\LightGridInjection_CS.hlsl">
-      <Filter>Shader</Filter>
-    </FxCompile>
-    <FxCompile Include="Shader\LightGridCommon.hlsl">
-      <Filter>Shader</Filter>
-    </FxCompile>
-    <FxCompile Include="Shader\LightGridCompact_CS.hlsl">
-      <Filter>Shader</Filter>
-    </FxCompile>
     <FxCompile Include="Shader\TranslucentPS.hlsl">
       <Filter>Shader</Filter>
     </FxCompile>
     <FxCompile Include="Shader\ShadowDepthMaskedPS.hlsl">
       <Filter>Shader\Shadow</Filter>
     </FxCompile>
-    <FxCompile Include="Shader\SubstrateEvaluation.hlsl">
-      <Filter>Shader</Filter>
-    </FxCompile>
-    <FxCompile Include="Shader\RefractionCommon.hlsl">
-      <Filter>Shader</Filter>
-    </FxCompile>
     <FxCompile Include="Shader\Substrate.hlsl">
-      <Filter>Shader</Filter>
+      <Filter>Shader\Substrate</Filter>
     </FxCompile>
     <FxCompile Include="Shader\SubstrateDefinitions.hlsl">
-      <Filter>Shader</Filter>
+      <Filter>Shader\Substrate</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\SubstrateEvaluation.hlsl">
+      <Filter>Shader\Substrate</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\RefractionCommon.hlsl">
+      <Filter>Shader\Header</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\LightGridCommon.hlsl">
+      <Filter>Shader\LightGrid</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\LightGridCompact_CS.hlsl">
+      <Filter>Shader\LightGrid</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\LightGridInjection_CS.hlsl">
+      <Filter>Shader\LightGrid</Filter>
     </FxCompile>
   </ItemGroup>
   <ItemGroup>
