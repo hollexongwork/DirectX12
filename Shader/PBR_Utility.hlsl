@@ -1,16 +1,16 @@
-#ifndef PBR_UTILITY_HLSL
+ï»¿#ifndef PBR_UTILITY_HLSL
 #define PBR_UTILITY_HLSL
 
 #include "Common.hlsl"
 
-// —U“d‘Ì‚ÌŠù’è F0 (4%)
+// èª˜é›»ä½“ã®æ—¢å®š F0 (4%)
 static const float3 DIELECTRIC_F0 = float3(0.04f, 0.04f, 0.04f);
 
 // =============================================================
 //  Direct lighting BRDF (Cook-Torrance)
 // =============================================================
 
-// GGX –@ü•ª•zŠÖ”
+// GGX æ³•ç·šåˆ†å¸ƒé–¢æ•°
 float GGX_NDF(float NdotH, float roughness)
 {
     float a = roughness * roughness;
@@ -19,14 +19,14 @@ float GGX_NDF(float NdotH, float roughness)
     return a2 / max(PI * d * d, EPSILON);
 }
 
-// Schlick ƒtƒŒƒlƒ‹
+// Schlick ãƒ•ãƒ¬ãƒãƒ«
 float3 SchlickFresnel(float3 F0, float VdotH)
 {
     float f = pow(1.0f - max(VdotH, 0.0f), 5.0f);
     return F0 + (1.0f - F0) * f;
 }
 
-// Smith-GGX ƒWƒIƒƒgƒŠ (Schlick-Beckmann, ’¼ÚŒõ k)
+// Smith-GGX ã‚¸ã‚ªãƒ¡ãƒˆãƒª (Schlick-Beckmann, ç›´æ¥å…‰ k)
 float SchlickGGX(float NdotV, float roughness)
 {
     float r = roughness + 1.0f;
@@ -40,7 +40,7 @@ float SmithGeometry(float NdotV, float NdotL, float roughness)
          * SchlickGGX(max(NdotL, 0.0f), roughness);
 }
 
-// Cook-Torrance BRDF (’Pˆê•ûŒüŒõ). –ß‚è’l‚Í radiance Šñ—^B
+// Cook-Torrance BRDF (å˜ä¸€æ–¹å‘å…‰). æˆ»ã‚Šå€¤ã¯ radiance å¯„ä¸ã€‚
 float3 CookTorrance(
     float3 Normal, float3 LightDir, float3 ViewDir,
     float3 albedo, float roughness, float metallic,
@@ -53,17 +53,17 @@ float3 CookTorrance(
     float NdotH = max(dot(Normal, HalfVec), 0.0f);
     float VdotH = max(dot(ViewDir, HalfVec), 0.0f);
 
-    // F0: —U“d‘Ì=4%, ‹à‘®=ƒAƒ‹ƒxƒh
+    // F0: èª˜é›»ä½“=4%, é‡‘å±=ã‚¢ãƒ«ãƒ™ãƒ‰
     float3 F0 = lerp(DIELECTRIC_F0, albedo, metallic);
 
     float D = GGX_NDF(NdotH, roughness);
     float G = SmithGeometry(NdotV, NdotL, roughness);
     float3 F = SchlickFresnel(F0, VdotH);
 
-    // ‹¾–Ê”½Ë
+    // é¡é¢åå°„
     float3 specular = (D * G * F) / max(4.0f * NdotV * NdotL, EPSILON);
 
-    // ŠgU”½Ë (Lambert, ‹à‘®=0)
+    // æ‹¡æ•£åå°„ (Lambert, é‡‘å±=0)
     float3 kD = (1.0f - F) * (1.0f - metallic);
     float3 diffuse = kD * albedo * INV_PI;
 
@@ -72,24 +72,24 @@ float3 CookTorrance(
 
 // =============================================================
 //  IBL (Image-Based Lighting)
-//  ‹N“®‚É IBLBaker ‚ªˆÈ‰º‚ğˆê“x‚«‚èƒxƒCƒN:
-//    IrradianceCube : ŠgU irradiance (ô‚İ‚İÏƒLƒ…[ƒu)
-//    PrefilterCube  : roughness •Ê specular (ƒ~ƒbƒvô‚İ‚İÏƒLƒ…[ƒu)
-//    BRDFLut        : (scale, bias) “‡ LUT
-//  ƒ‰ƒ“ƒ^ƒCƒ€‚Í Irradiance 1 + Prefilter 1 + LUT 1 = 3 ƒTƒ“ƒvƒ‹‚Ì‚İB
+//  èµ·å‹•æ™‚ã« IBLBaker ãŒä»¥ä¸‹ã‚’ä¸€åº¦ãã‚Šãƒ™ã‚¤ã‚¯:
+//    IrradianceCube : æ‹¡æ•£ irradiance (ç•³ã¿è¾¼ã¿æ¸ˆã‚­ãƒ¥ãƒ¼ãƒ–)
+//    PrefilterCube  : roughness åˆ¥ specular (ãƒŸãƒƒãƒ—ç•³ã¿è¾¼ã¿æ¸ˆã‚­ãƒ¥ãƒ¼ãƒ–)
+//    BRDFLut        : (scale, bias) çµ±åˆ LUT
+//  ãƒ©ãƒ³ã‚¿ã‚¤ãƒ ã¯ Irradiance 1 + Prefilter 1 + LUT 1 = 3 ã‚µãƒ³ãƒ—ãƒ«ã®ã¿ã€‚
 // =============================================================
 
-// Prefilter ƒLƒ…[ƒu‚ÌÅ‘åƒ~ƒbƒv (C++ ‘¤ PREFILTER_MIP_COUNT ‚Æˆê’v•K{)
-static const float PREFILTER_MAX_MIP = 4.0f; // mip 0..4 (5’i)
+// Prefilter ã‚­ãƒ¥ãƒ¼ãƒ–ã®æœ€å¤§ãƒŸãƒƒãƒ— (C++ å´ PREFILTER_MIP_COUNT ã¨ä¸€è‡´å¿…é ˆ)
+static const float PREFILTER_MAX_MIP = 4.0f; // mip 0..4 (5æ®µ)
 
-// Fresnel (roughness Œ¸Š•t‚«, Lagarde)
+// Fresnel (roughness æ¸›è¡°ä»˜ã, Lagarde)
 float3 FresnelSchlickRoughness(float cosTheta, float3 F0, float roughness)
 {
     float3 maxF = max((1.0f - roughness).xxx, F0);
     return F0 + (maxF - F0) * pow(clamp(1.0f - cosTheta, 0.0f, 1.0f), 5.0f);
 }
 
-// Š®‘S‚È IBL ƒAƒ“ƒrƒGƒ“ƒg€ (3 ƒ^ƒbƒv)
+// å®Œå…¨ãª IBL ã‚¢ãƒ³ãƒ“ã‚¨ãƒ³ãƒˆé … (3 ã‚¿ãƒƒãƒ—)
 float3 IBL_Ambient(
     float3 albedo,
     float metallic,

@@ -1,9 +1,9 @@
-#include "Common.hlsl"
+ï»¿#include "Common.hlsl"
 
-// [“xƒoƒbƒtƒ@(”ñüŒ` [0,1])‚ğüŒ`‰»‚µ‚Ä‘‚«o‚·ƒpƒX
-// o—ÍƒtƒH[ƒ}ƒbƒg‚Í R32G32_FLOAT ‚ğ‘z’è
-//   R = ViewLinearDepth : ƒrƒ…[‹óŠÔ‚ÌÀ‹——£iDepthFade“™‚ÌƒGƒtƒFƒNƒg—pj
-//   G = NormalizedDepth  : (À‹——£ - Near) / (Far - Near) ‚ğ [0,1] ‚É³‹K‰»i•\¦—pj
+// æ·±åº¦ãƒãƒƒãƒ•ã‚¡(éç·šå½¢ [0,1])ã‚’ç·šå½¢åŒ–ã—ã¦æ›¸ãå‡ºã™ãƒ‘ã‚¹
+// å‡ºåŠ›ãƒ•ã‚©ãƒ¼ãƒãƒƒãƒˆã¯ R32G32_FLOAT ã‚’æƒ³å®š
+//   R = ViewLinearDepth : ãƒ“ãƒ¥ãƒ¼ç©ºé–“ã®å®Ÿè·é›¢ï¼ˆDepthFadeç­‰ã®ã‚¨ãƒ•ã‚§ã‚¯ãƒˆç”¨ï¼‰
+//   G = NormalizedDepth  : (å®Ÿè·é›¢ - Near) / (Far - Near) ã‚’ [0,1] ã«æ­£è¦åŒ–ï¼ˆè¡¨ç¤ºç”¨ï¼‰
 
 PS_OUTPUT main(PS_INPUT input)
 {
@@ -12,14 +12,14 @@ PS_OUTPUT main(PS_INPUT input)
     float zNear = NearFar.x;
     float zFar = NearFar.y;
 
-    // ”ñüŒ`[“x [0,1] ‚ğƒTƒ“ƒvƒ‹
+    // éç·šå½¢æ·±åº¦ [0,1] ã‚’ã‚µãƒ³ãƒ—ãƒ«
     float depth = TextureDepth.Sample(Sampler2, input.TexCoord).r;
 
-    // ƒrƒ…[‹óŠÔ‚ÌÀ‹——£‚ğ•œŒ³iXMMatrixPerspectiveFovLH, Depth¸[0,1]j
-    //   depth = zFar / (zFar - zNear) * (1 - zNear / viewZ)  ‚Ì‹tZ
+    // ãƒ“ãƒ¥ãƒ¼ç©ºé–“ã®å®Ÿè·é›¢ã‚’å¾©å…ƒï¼ˆXMMatrixPerspectiveFovLH, Depthâˆˆ[0,1]ï¼‰
+    //   depth = zFar / (zFar - zNear) * (1 - zNear / viewZ)  ã®é€†ç®—
     float viewZ = (zNear * zFar) / (zFar - depth * (zFar - zNear));
 
-    // [0,1] ³‹K‰»i•\¦—pj
+    // [0,1] æ­£è¦åŒ–ï¼ˆè¡¨ç¤ºç”¨ï¼‰
     float normalized = saturate((viewZ - zNear) / (zFar - zNear) * 20.0f);
 
     output.Color = float4(viewZ, normalized , 0.0f, 1.0f);

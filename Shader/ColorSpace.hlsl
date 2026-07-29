@@ -1,7 +1,7 @@
-#ifndef COLOR_SPACE_HLSL
+ï»¿#ifndef COLOR_SPACE_HLSL
 #define COLOR_SPACE_HLSL
 
-// Rec.709 ‹P“xŒW”
+// Rec.709 è¼åº¦ä¿‚æ•°
 static const float3 LUM_WEIGHT = float3(0.2126f, 0.7152f, 0.0722f);
 
 float Luminance(float3 c)

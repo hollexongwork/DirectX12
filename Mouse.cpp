@@ -1,11 +1,11 @@
-//--------------------------------------------------------------------------------------
+ï»¿//--------------------------------------------------------------------------------------
 // File: mouse.cpp
 //
-// •Ö—˜‚Èƒ}ƒEƒXƒ‚ƒWƒ…[ƒ‹
+// ä¾¿åˆ©ãªãƒã‚¦ã‚¹ãƒ¢ã‚¸ãƒ¥ãƒ¼ãƒ«
 //
 //--------------------------------------------------------------------------------------
 // 2020/02/11
-//     DirectXTK‚æ‚èA‚È‚ñ‚¿‚á‚Á‚ÄCŒ¾Œê—p‚ÉƒVƒFƒCƒvƒAƒbƒv‰ü•Ï
+//     DirectXTKã‚ˆã‚Šã€ãªã‚“ã¡ã‚ƒã£ã¦Cè¨€èªç”¨ã«ã‚·ã‚§ã‚¤ãƒ—ã‚¢ãƒƒãƒ—æ”¹å¤‰
 //
 // Licensed under the MIT License.
 //
@@ -195,7 +195,7 @@ void Mouse_ProcessMessage(UINT message, WPARAM wParam, LPARAM lParam)
         point.x = gLastX;
         point.y = gLastY;
 
-        // ƒŠƒ‚[ƒgƒfƒBƒXƒNƒgƒbƒv‚É‘Î‰‚·‚é‚½‚ß‚ÉˆÚ“®‘O‚ÉƒJ[ƒ\ƒ‹‚ğ•\¦‚·‚é
+        // ãƒªãƒ¢ãƒ¼ãƒˆãƒ‡ã‚£ã‚¹ã‚¯ãƒˆãƒƒãƒ—ã«å¯¾å¿œã™ã‚‹ãŸã‚ã«ç§»å‹•å‰ã«ã‚«ãƒ¼ã‚½ãƒ«ã‚’è¡¨ç¤ºã™ã‚‹
         ShowCursor(TRUE);
 
         if (MapWindowPoints(gWindow, nullptr, &point, 1)) {
@@ -267,7 +267,7 @@ void Mouse_ProcessMessage(UINT message, WPARAM wParam, LPARAM lParam)
                 }
                 else if (raw.data.mouse.usFlags & MOUSE_VIRTUAL_DESKTOP) {
 
-                    // ƒŠƒ‚[ƒgƒfƒBƒXƒNƒgƒbƒv‚È‚Ç‚É‘Î‰
+                    // ãƒªãƒ¢ãƒ¼ãƒˆãƒ‡ã‚£ã‚¹ã‚¯ãƒˆãƒƒãƒ—ãªã©ã«å¯¾å¿œ
                     const int width = GetSystemMetrics(SM_CXVIRTUALSCREEN);
                     const int height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
 
@@ -353,13 +353,13 @@ void Mouse_ProcessMessage(UINT message, WPARAM wParam, LPARAM lParam)
         break;
 
     default:
-        // ƒ}ƒEƒX‚É‘Î‚·‚éƒƒbƒZ[ƒW‚Í–³‚©‚Á‚½c
+        // ãƒã‚¦ã‚¹ã«å¯¾ã™ã‚‹ãƒ¡ãƒƒã‚»ãƒ¼ã‚¸ã¯ç„¡ã‹ã£ãŸâ€¦
         return;
     }
 
     if (gMode == MOUSE_POSITION_MODE_ABSOLUTE) {
 
-        // ‚·‚×‚Ä‚Ìƒ}ƒEƒXƒƒbƒZ[ƒW‚É‘Î‚µ‚ÄV‚µ‚¢À•W‚ğæ“¾‚·‚é
+        // ã™ã¹ã¦ã®ãƒã‚¦ã‚¹ãƒ¡ãƒƒã‚»ãƒ¼ã‚¸ã«å¯¾ã—ã¦æ–°ã—ã„åº§æ¨™ã‚’å–å¾—ã™ã‚‹
         int xPos = GET_X_LPARAM(lParam);
         int yPos = GET_Y_LPARAM(lParam);
 

@@ -1,8 +1,8 @@
-#ifndef POSTPROCESS_UTILITY_HLSL
+ï»¿#ifndef POSTPROCESS_UTILITY_HLSL
 #define POSTPROCESS_UTILITY_HLSL
 
-#include "Common.hlsl"   // ConstantBuffers / Resources / ColorSpace ‚ğŠÜ‚Ş
-#include "Grading.hlsl"  // WhiteBalanceScale / ColorGradeApply (ƒˆŠÖ”)
+#include "Common.hlsl"   // ConstantBuffers / Resources / ColorSpace ã‚’å«ã‚€
+#include "Grading.hlsl"  // WhiteBalanceScale / ColorGradeApply (ç´”ç²‹é–¢æ•°)
 
 // =============================================================
 //  Tonemap operators
@@ -15,7 +15,7 @@ float3 ACES_Narkowicz(float3 x)
     return saturate((x * (a * x + b)) / (x * (c * x + d) + e));
 }
 
-// ---- ACES Hill (RRT+ODT ƒtƒBƒbƒg, Desktop) ----
+// ---- ACES Hill (RRT+ODT ãƒ•ã‚£ãƒƒãƒˆ, Desktop) ----
 static const float3x3 ACESInputMat = float3x3(
      0.59719f, 0.35458f, 0.04823f,
      0.07600f, 0.90834f, 0.01566f,
@@ -40,7 +40,7 @@ float3 ACES_Hill(float3 color)
     return saturate(color);
 }
 
-// ƒ‚[ƒh•ªŠò: 0=Narkowicz, 1=Hill, ‚»‚êˆÈŠO=ƒNƒ‰ƒ“ƒv‚Ì‚İ
+// ãƒ¢ãƒ¼ãƒ‰åˆ†å²: 0=Narkowicz, 1=Hill, ãã‚Œä»¥å¤–=ã‚¯ãƒ©ãƒ³ãƒ—ã®ã¿
 float3 ApplyTonemap(float3 hdr, uint mode)
 {
     if (mode == 0u)
@@ -65,7 +65,7 @@ float3 ColorGrade(float3 color)
 //  Helpers
 // =============================================================
 
-// ƒtƒBƒ‹ƒ€ƒOƒŒƒCƒ“—pƒnƒbƒVƒ…
+// ãƒ•ã‚£ãƒ«ãƒ ã‚°ãƒ¬ã‚¤ãƒ³ç”¨ãƒãƒƒã‚·ãƒ¥
 float Hash21(float2 p)
 {
     p = frac(p * float2(123.34f, 456.21f));
@@ -73,7 +73,7 @@ float Hash21(float2 p)
     return frac(p.x * p.y);
 }
 
-// 3D ƒJƒ‰[ƒOƒŒ[ƒfƒBƒ“ƒO LUT ƒTƒ“ƒvƒ‹ (33^3, ”¼ƒeƒNƒZƒ‹ƒIƒtƒZƒbƒg•â³)
+// 3D ã‚«ãƒ©ãƒ¼ã‚°ãƒ¬ãƒ¼ãƒ‡ã‚£ãƒ³ã‚° LUT ã‚µãƒ³ãƒ—ãƒ« (33^3, åŠãƒ†ã‚¯ã‚»ãƒ«ã‚ªãƒ•ã‚»ãƒƒãƒˆè£œæ­£)
 float3 SampleColorGradingLUT(float3 color)
 {
     const float lutSize = 33.0f;

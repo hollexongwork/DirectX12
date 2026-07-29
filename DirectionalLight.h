@@ -1,12 +1,12 @@
-#pragma once
+ï»¿#pragma once
 #include "Light.h"
 
 // ============================================================
 //  ADirectionalLight
-//  UDirectionalLightComponent ‚ğRoot ‚É‚ÂB”­Œõ•ûŒü‚ÍƒAƒNƒ^[
-//  ‚Ì‘O•û (+Z)B‹­“x‚Í luxB
-//  Œü‚«‚Ìw’è‚Í SetActorRotation ‚©A•ûŒüƒxƒNƒgƒ‹‚©‚ç‚Ì•ÏŠ·‚É
-//  ULightComponentBase::DirectionToRotator ‚ğg‚¤B
+//  UDirectionalLightComponent ã‚’Root ã«æŒã¤ã€‚ç™ºå…‰æ–¹å‘ã¯ã‚¢ã‚¯ã‚¿ãƒ¼
+//  ã®å‰æ–¹ (+Z)ã€‚å¼·åº¦ã¯ luxã€‚
+//  å‘ãã®æŒ‡å®šã¯ SetActorRotation ã‹ã€æ–¹å‘ãƒ™ã‚¯ãƒˆãƒ«ã‹ã‚‰ã®å¤‰æ›ã«
+//  ULightComponentBase::DirectionToRotator ã‚’ä½¿ã†ã€‚
 // ============================================================
 
 class ADirectionalLight : public ALight

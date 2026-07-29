@@ -1,11 +1,11 @@
-//--------------------------------------------------------------------------------------
+ï»¿//--------------------------------------------------------------------------------------
 // File: mouse.h
 //
-// •Ö—˜‚Èƒ}ƒEƒXƒ‚ƒWƒ…[ƒ‹
+// ä¾¿åˆ©ãªãƒžã‚¦ã‚¹ãƒ¢ã‚¸ãƒ¥ãƒ¼ãƒ«
 //
 //--------------------------------------------------------------------------------------
 // 2020/02/11
-//     DirectXTK‚æ‚èA‚È‚ñ‚¿‚á‚Á‚ÄCŒ¾Œê—p‚ÉƒVƒFƒCƒvƒAƒbƒv‰ü•Ï
+//     DirectXTKã‚ˆã‚Šã€ãªã‚“ã¡ã‚ƒã£ã¦Cè¨€èªžç”¨ã«ã‚·ã‚§ã‚¤ãƒ—ã‚¢ãƒƒãƒ—æ”¹å¤‰
 //
 // Licensed under the MIT License.
 //
@@ -21,15 +21,15 @@
 #include <memory>
 
 
-// ƒ}ƒEƒXƒ‚[ƒh
+// ãƒžã‚¦ã‚¹ãƒ¢ãƒ¼ãƒ‰
 typedef enum Mouse_PositionMode_tag
 {
-    MOUSE_POSITION_MODE_ABSOLUTE, // â‘ÎÀ•Wƒ‚[ƒh
-    MOUSE_POSITION_MODE_RELATIVE, // ‘Š‘ÎÀ•Wƒ‚[ƒh
+    MOUSE_POSITION_MODE_ABSOLUTE, // çµ¶å¯¾åº§æ¨™ãƒ¢ãƒ¼ãƒ‰
+    MOUSE_POSITION_MODE_RELATIVE, // ç›¸å¯¾åº§æ¨™ãƒ¢ãƒ¼ãƒ‰
 } Mouse_PositionMode;
 
 
-// ƒ}ƒEƒXó‘Ô\‘¢‘Ì
+// ãƒžã‚¦ã‚¹çŠ¶æ…‹æ§‹é€ ä½“
 typedef struct MouseState_tag
 {
     bool leftButton;
@@ -45,31 +45,31 @@ typedef struct MouseState_tag
 } Mouse_State;
 
 
-// ƒ}ƒEƒXƒ‚ƒWƒ…[ƒ‹‚Ì‰Šú‰»
+// ãƒžã‚¦ã‚¹ãƒ¢ã‚¸ãƒ¥ãƒ¼ãƒ«ã®åˆæœŸåŒ–
 void Mouse_Initialize(HWND window);
 
-// ƒ}ƒEƒXƒ‚ƒWƒ…[ƒ‹‚ÌI—¹ˆ—
+// ãƒžã‚¦ã‚¹ãƒ¢ã‚¸ãƒ¥ãƒ¼ãƒ«ã®çµ‚äº†å‡¦ç†
 void Mouse_Finalize(void);
 
-// ƒ}ƒEƒX‚Ìó‘Ô‚ðŽæ“¾‚·‚é
+// ãƒžã‚¦ã‚¹ã®çŠ¶æ…‹ã‚’å–å¾—ã™ã‚‹
 void Mouse_GetState(Mouse_State* pState);
 
-// —ÝÏ‚µ‚½ƒ}ƒEƒXƒXƒNƒ[ƒ‹ƒzƒC[ƒ‹’l‚ðƒŠƒZƒbƒg‚·‚é
+// ç´¯ç©ã—ãŸãƒžã‚¦ã‚¹ã‚¹ã‚¯ãƒ­ãƒ¼ãƒ«ãƒ›ã‚¤ãƒ¼ãƒ«å€¤ã‚’ãƒªã‚»ãƒƒãƒˆã™ã‚‹
 void Mouse_ResetScrollWheelValue(void);
 
-// ƒ}ƒEƒX‚Ìƒ|ƒWƒVƒ‡ƒ“ƒ‚[ƒh‚ðÝ’è‚·‚éiƒfƒtƒHƒ‹ƒg‚Íâ‘ÎÀ•Wƒ‚[ƒhj
+// ãƒžã‚¦ã‚¹ã®ãƒã‚¸ã‚·ãƒ§ãƒ³ãƒ¢ãƒ¼ãƒ‰ã‚’è¨­å®šã™ã‚‹ï¼ˆãƒ‡ãƒ•ã‚©ãƒ«ãƒˆã¯çµ¶å¯¾åº§æ¨™ãƒ¢ãƒ¼ãƒ‰ï¼‰
 void Mouse_SetMode(Mouse_PositionMode mode);
 
-// ƒ}ƒEƒX‚ÌÚ‘±‚ðŒŸo‚·‚é
+// ãƒžã‚¦ã‚¹ã®æŽ¥ç¶šã‚’æ¤œå‡ºã™ã‚‹
 bool Mouse_IsConnected(void);
 
-// ƒ}ƒEƒXƒJ[ƒ\ƒ‹‚ª•\Ž¦‚³‚ê‚Ä‚¢‚é‚©Šm”F‚·‚é
+// ãƒžã‚¦ã‚¹ã‚«ãƒ¼ã‚½ãƒ«ãŒè¡¨ç¤ºã•ã‚Œã¦ã„ã‚‹ã‹ç¢ºèªã™ã‚‹
 bool Mouse_IsVisible(void);
 
-// ƒ}ƒEƒXƒJ[ƒ\ƒ‹•\Ž¦‚ðÝ’è‚·‚é
+// ãƒžã‚¦ã‚¹ã‚«ãƒ¼ã‚½ãƒ«è¡¨ç¤ºã‚’è¨­å®šã™ã‚‹
 void Mouse_SetVisible(bool visible);
 
-// ƒ}ƒEƒX§Œä‚Ì‚½‚ß‚ÌƒEƒBƒ“ƒhƒEƒƒbƒZ[ƒWƒvƒƒV[ƒWƒƒƒtƒbƒNŠÖ”
+// ãƒžã‚¦ã‚¹åˆ¶å¾¡ã®ãŸã‚ã®ã‚¦ã‚£ãƒ³ãƒ‰ã‚¦ãƒ¡ãƒƒã‚»ãƒ¼ã‚¸ãƒ—ãƒ­ã‚·ãƒ¼ã‚¸ãƒ£ãƒ•ãƒƒã‚¯é–¢æ•°
 void Mouse_ProcessMessage(UINT message, WPARAM wParam, LPARAM lParam);
 
 void Mouse_UpdatePrevState();
@@ -95,13 +95,13 @@ Mouse_PositionMode GetMouseMod(void);
 void SetMouseMod(Mouse_PositionMode mod);
 
 
-// “±“ü•û–@
+// å°Žå…¥æ–¹æ³•
 //
-// ‘ÎÛ‚ÌƒEƒBƒ“ƒhƒE‚ª¶¬‚³‚ê‚½‚ç‚»‚ÌƒEƒBƒ“ƒhƒEƒnƒ“ƒhƒ‹‚ðˆø”‚É‰Šú‰»ŠÖ”‚ðŒÄ‚Ô
+// å¯¾è±¡ã®ã‚¦ã‚£ãƒ³ãƒ‰ã‚¦ãŒç”Ÿæˆã•ã‚ŒãŸã‚‰ãã®ã‚¦ã‚£ãƒ³ãƒ‰ã‚¦ãƒãƒ³ãƒ‰ãƒ«ã‚’å¼•æ•°ã«åˆæœŸåŒ–é–¢æ•°ã‚’å‘¼ã¶
 //
 // Mouse_Initialize(hwnd);
 //
-// ƒEƒBƒ“ƒhƒEƒƒbƒZ[ƒWƒvƒƒV[ƒWƒƒ‚©‚çƒ}ƒEƒX§Œä—pƒtƒbƒNŠÖ”‚ðŒÄ‚Ño‚·
+// ã‚¦ã‚£ãƒ³ãƒ‰ã‚¦ãƒ¡ãƒƒã‚»ãƒ¼ã‚¸ãƒ—ãƒ­ã‚·ãƒ¼ã‚¸ãƒ£ã‹ã‚‰ãƒžã‚¦ã‚¹åˆ¶å¾¡ç”¨ãƒ•ãƒƒã‚¯é–¢æ•°ã‚’å‘¼ã³å‡ºã™
 //
 // LResult CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 // {

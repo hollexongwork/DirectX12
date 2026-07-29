@@ -1,4 +1,4 @@
-#include "Main.h"
+ï»¿#include "Main.h"
 #include "DirectionalLight.h"
 
 ADirectionalLight::ADirectionalLight()
@@ -6,6 +6,6 @@ ADirectionalLight::ADirectionalLight()
 	m_DirectionalLightComponent = CreateDefaultSubobject<UDirectionalLightComponent>();
 	m_LightComponent = m_DirectionalLightComponent;
 
-	// Šù’è (Pitch -46 “x) Œ©‰º‚ë‚µ•ûŒü
+	// æ—¢å®š (Pitch -46 åº¦) è¦‹ä¸‹ã‚ã—æ–¹å‘
 	SetActorRotation({ XMConvertToRadians(46.0f), 0.0f, 0.0f });
 }

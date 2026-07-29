@@ -1,4 +1,4 @@
-#include "Main.h"
+ï»¿#include "Main.h"
 #include "GameManager.h"
 
 #include "Mouse.h"
@@ -97,7 +97,7 @@ int APIENTRY wWinMain(  _In_ HINSTANCE hInstance,
 
         gameManager.Begin();
 
-        //ƒtƒŒ[ƒ€ƒJƒEƒ“ƒg‰Šú‰»
+        //ãƒ•ãƒ¬ãƒ¼ãƒ ã‚«ã‚¦ãƒ³ãƒˆåˆæœŸåŒ–
         DWORD dwExecLastTime;
         DWORD dwCurrentTime;
         timeBeginPeriod(1);
@@ -197,7 +197,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             break;
         }
         if (wParam == VK_ESCAPE) {
-            SendMessage(hWnd, WM_CLOSE, 0, 0); // WM_CLOSEƒƒbƒZ[ƒW‚Ì‘—M
+            SendMessage(hWnd, WM_CLOSE, 0, 0); // WM_CLOSEãƒ¡ãƒƒã‚»ãƒ¼ã‚¸ã®é€ä¿¡
         }
     case WM_SYSKEYDOWN:
     case WM_KEYUP:
