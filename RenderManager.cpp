@@ -1,4 +1,4 @@
-#include "Main.h"
+﻿#include "Main.h"
 #include "RenderManager.h"
 
 #include "D3DX12.h"
@@ -7,6 +7,15 @@
 #include "ImGUI/imgui.h"
 #include "ImGUI/imgui_impl_win32.h"
 #include "ImGUI/imgui_impl_dx12.h"
+
+
+// ============================================================
+//  デバッグ支援トグル
+//  必要時に 1 へ変更してリビルドする (既定はすべて無効)。
+// ============================================================
+#define ENABLE_GPU_BASED_VALIDATION	0	// デバッグレイヤーの GPU ベース検証
+#define ENABLE_DRED					0	// デバイス削除拡張データ (DRED)
+#define ENABLE_REPORT_LIVE_OBJECTS	0	// 終了時の生存オブジェクト一覧
 
 
 RenderManager* RenderManager::m_Instance = nullptr;
@@ -21,25 +30,25 @@ RenderManager::RenderManager()
 	Init();
 }
 
+
 RenderManager::~RenderManager()
 {
-	/*
-	#if defined(_DEBUG)
-		// ReportLiveDeviceObjects
+#if defined(_DEBUG) && ENABLE_REPORT_LIVE_OBJECTS
+	// 解放漏れ D3D12 オブジェクトを列挙する (リーク解析用)
+	{
+		ComPtr<ID3D12DebugDevice> debugInterface;
+		if (SUCCEEDED(m_Device->QueryInterface(IID_PPV_ARGS(&debugInterface))))
 		{
-			ComPtr<ID3D12DebugDevice> debugInterface;
-			if (SUCCEEDED(m_Device->QueryInterface(IID_PPV_ARGS(&debugInterface))))
-			{
-				debugInterface->ReportLiveDeviceObjects(D3D12_RLDO_DETAIL | D3D12_RLDO_IGNORE_INTERNAL);
-			}
+			debugInterface->ReportLiveDeviceObjects(D3D12_RLDO_DETAIL | D3D12_RLDO_IGNORE_INTERNAL);
 		}
-	#endif
-	*/
+	}
+#endif
 }
 
 
 // ============================================================
-//  Initialization
+//  Initialization (FD3D12DynamicRHI::Init 相当)
+//  コンストラクタから 1 度だけ呼ばれる。呼び出し順 = 依存関係順。
 // ============================================================
 void RenderManager::Init()
 {
@@ -90,27 +99,30 @@ void RenderManager::InitDevice()
 	HRESULT hr;
 
 #if defined(_DEBUG)
-	// デバッグレイヤー有効化
+	// ---- デバッグレイヤー有効化 ----
 	{
 		ComPtr<ID3D12Debug1> debugController;
 		if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController))))
 		{
 			debugController->EnableDebugLayer();
-			//debugController->SetEnableGPUBasedValidation(true);
+#if ENABLE_GPU_BASED_VALIDATION
+			debugController->SetEnableGPUBasedValidation(true);
+#endif
 		}
 	}
-	/*
-		// DRED
+
+#if ENABLE_DRED
+	// ---- DRED (デバイス削除拡張データ) ----
+	{
+		ComPtr<ID3D12DeviceRemovedExtendedDataSettings1> d3dDredSettings1;
+		if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&d3dDredSettings1))))
 		{
-			ComPtr<ID3D12DeviceRemovedExtendedDataSettings1> d3dDredSettings1;
-			if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&d3dDredSettings1))))
-			{
-				d3dDredSettings1->SetAutoBreadcrumbsEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
-				d3dDredSettings1->SetBreadcrumbContextEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
-				d3dDredSettings1->SetPageFaultEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
-			}
+			d3dDredSettings1->SetAutoBreadcrumbsEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+			d3dDredSettings1->SetBreadcrumbContextEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+			d3dDredSettings1->SetPageFaultEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
 		}
-	*/
+	}
+#endif
 #endif
 
 	UINT flag{};
@@ -330,9 +342,6 @@ void RenderManager::InitImGui()
 	ImGui::CreateContext();
 	ImGui::GetIO();
 
-	//io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-	//io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
-
 	ImGui::StyleColorsDark();
 
 	// ImGui はフォントアトラス用に SRV ヒープ先頭の 1 枠を使う。
@@ -404,6 +413,57 @@ void RenderManager::InitConstantBuffers()
 }
 
 
+// ---- 静的サンプラ (s0..s2) の記述を構築する ----
+static void BuildStaticSamplerDescs(D3D12_STATIC_SAMPLER_DESC (&OutSamplers)[3])
+{
+	// s0: 異方性ラップ (アルベドなど通常テクスチャ用)
+	OutSamplers[0].Filter = D3D12_FILTER_ANISOTROPIC;
+	OutSamplers[0].AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+	OutSamplers[0].AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+	OutSamplers[0].AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+	OutSamplers[0].MipLODBias = 0.0f;
+	OutSamplers[0].MaxAnisotropy = 4;
+	OutSamplers[0].ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
+	OutSamplers[0].BorderColor = D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK;
+	OutSamplers[0].MinLOD = 0.0f;
+	OutSamplers[0].MaxLOD = D3D12_FLOAT32_MAX;
+	OutSamplers[0].ShaderRegister = 0;
+	OutSamplers[0].RegisterSpace = 0;
+	OutSamplers[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+	// s1: 線形クランプ (G-Buffer / IBL / LUT などフルスクリーン参照用)
+	OutSamplers[1].Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+	OutSamplers[1].AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+	OutSamplers[1].AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+	OutSamplers[1].AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+	OutSamplers[1].MipLODBias = 0.0f;
+	OutSamplers[1].MaxAnisotropy = 16;
+	OutSamplers[1].ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
+	OutSamplers[1].BorderColor = D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK;
+	OutSamplers[1].MinLOD = 0.0f;
+	OutSamplers[1].MaxLOD = D3D12_FLOAT32_MAX;
+	OutSamplers[1].ShaderRegister = 1;
+	OutSamplers[1].RegisterSpace = 0;
+	OutSamplers[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+	// s2: シャドウ比較サンプラ (SampleCmp 用。バイリニア比較 PCF)
+	// ボーダー白 = シャドウマップ外は「影なし」扱い
+	OutSamplers[2].Filter = D3D12_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT;
+	OutSamplers[2].AddressU = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+	OutSamplers[2].AddressV = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+	OutSamplers[2].AddressW = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+	OutSamplers[2].MipLODBias = 0.0f;
+	OutSamplers[2].MaxAnisotropy = 1;
+	OutSamplers[2].ComparisonFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+	OutSamplers[2].BorderColor = D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE;
+	OutSamplers[2].MinLOD = 0.0f;
+	OutSamplers[2].MaxLOD = D3D12_FLOAT32_MAX;
+	OutSamplers[2].ShaderRegister = 2;
+	OutSamplers[2].RegisterSpace = 0;
+	OutSamplers[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+}
+
+
 void RenderManager::InitRootSignature()
 {
 	const unsigned int ROOT_PARAM_COUNT = (unsigned int)TEXTURE_TYPE::COUNT;
@@ -440,53 +500,9 @@ void RenderManager::InitRootSignature()
 		rootParameters[i].DescriptorTable.pDescriptorRanges = &range[i];
 	}
 
-	// サンプラー
+	// 静的サンプラ (s0: 異方性ラップ / s1: 線形クランプ / s2: シャドウ比較)
 	D3D12_STATIC_SAMPLER_DESC samplerDesc[3]{};
-	// s0: 異方性ラップ (アルベドなど通常テクスチャ用)
-	samplerDesc[0].Filter = D3D12_FILTER_ANISOTROPIC;
-	samplerDesc[0].AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-	samplerDesc[0].AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-	samplerDesc[0].AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-	samplerDesc[0].MipLODBias = 0.0f;
-	samplerDesc[0].MaxAnisotropy = 4;
-	samplerDesc[0].ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
-	samplerDesc[0].BorderColor = D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK;
-	samplerDesc[0].MinLOD = 0.0f;
-	samplerDesc[0].MaxLOD = D3D12_FLOAT32_MAX;
-	samplerDesc[0].ShaderRegister = 0;
-	samplerDesc[0].RegisterSpace = 0;
-	samplerDesc[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-
-	// s1: 線形クランプ (G-Buffer / IBL / LUT などフルスクリーン参照用)
-	samplerDesc[1].Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
-	samplerDesc[1].AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
-	samplerDesc[1].AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
-	samplerDesc[1].AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
-	samplerDesc[1].MipLODBias = 0.0f;
-	samplerDesc[1].MaxAnisotropy = 16;
-	samplerDesc[1].ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
-	samplerDesc[1].BorderColor = D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK;
-	samplerDesc[1].MinLOD = 0.0f;
-	samplerDesc[1].MaxLOD = D3D12_FLOAT32_MAX;
-	samplerDesc[1].ShaderRegister = 1;
-	samplerDesc[1].RegisterSpace = 0;
-	samplerDesc[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-
-	// s2: シャドウ比較サンプラ (SampleCmp 用。バイリニア比較 PCF)
-	// ボーダー白 = シャドウマップ外は「影なし」扱い
-	samplerDesc[2].Filter = D3D12_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT;
-	samplerDesc[2].AddressU = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
-	samplerDesc[2].AddressV = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
-	samplerDesc[2].AddressW = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
-	samplerDesc[2].MipLODBias = 0.0f;
-	samplerDesc[2].MaxAnisotropy = 1;
-	samplerDesc[2].ComparisonFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
-	samplerDesc[2].BorderColor = D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE;
-	samplerDesc[2].MinLOD = 0.0f;
-	samplerDesc[2].MaxLOD = D3D12_FLOAT32_MAX;
-	samplerDesc[2].ShaderRegister = 2;
-	samplerDesc[2].RegisterSpace = 0;
-	samplerDesc[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+	BuildStaticSamplerDescs(samplerDesc);
 
 	D3D12_ROOT_SIGNATURE_DESC rootSignatureDesc{};
 	rootSignatureDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
@@ -519,7 +535,6 @@ void RenderManager::InitRootSignature()
 		assert(false && "CreateRootSignature failed");
 	}
 }
-
 
 
 void RenderManager::InitPipelines()
@@ -660,9 +675,8 @@ void RenderManager::InitPipelines()
 }
 
 
-
 // ============================================================
-//  Frame synchronization
+//  Frame (FSceneRenderer から呼ばれる)
 // ============================================================
 void RenderManager::WaitGPU()
 {
@@ -675,10 +689,9 @@ void RenderManager::WaitGPU()
 }
 
 
-// ============================================================
-//  Frame begin (RHI): ヒープ / ルートシグネチャ / 定数リング / ビューポート
-//  パス列 (G-Buffer -> デファード -> ポスプロ) は FSceneRenderer が駆動する。
-// ============================================================
+// フレーム先頭: シェーダ可視ヒープ / ルートシグネチャ / 定数リング /
+// ビューポートを設定する。パス列 (G-Buffer -> デファード -> ポスプロ)
+// は FSceneRenderer が駆動する。
 void RenderManager::BeginFrame()
 {
 	// シェーダ可視デスクリプタヒープ + ルートシグネチャ
@@ -695,16 +708,12 @@ void RenderManager::BeginFrame()
 }
 
 
-// ============================================================
-//  Frame end (RHI): Close -> Execute -> Present -> 前フレーム待ち -> Reset
-// ============================================================
+// フレーム末尾: Close -> Execute -> Present -> 前フレーム待ち -> Reset
 void RenderManager::Present()
 {
 	HRESULT hr;
 
-	//======================================================
-	// コマンド発行
-	//======================================================
+	// ---- コマンド発行 ----
 	{
 		hr = m_GraphicsCommandList->Close();
 		assert(SUCCEEDED(hr));
@@ -717,10 +726,7 @@ void RenderManager::Present()
 	hr = m_SwapChain->Present(1, 0);
 	assert(SUCCEEDED(hr));
 
-
-	//======================================================
-	// 前フレーム待ち
-	//======================================================
+	// ---- 前フレーム待ち (フェンス) ----
 	{
 		UINT64 frame = m_Frame[m_RTIndex];
 
@@ -743,10 +749,41 @@ void RenderManager::Present()
 }
 
 
+// ============================================================
+//  Resource creation
+// ============================================================
+// ---- DDS フォーマットごとの bpp / ブロックサイズ ----
+// (WriteToSubresource の幅・高さ算出用。LoadTexture から呼ばれる)
+static void GetDDSFormatBlockInfo(DXGI_FORMAT Format, unsigned int& OutBpp, unsigned int& OutBlock)
+{
+	switch (Format)
+	{
+		// BC1: 4bpp ブロック圧縮 (UNORM / sRGB 同レイアウト)
+	case DXGI_FORMAT_BC1_UNORM:
+	case DXGI_FORMAT_BC1_UNORM_SRGB:
+		OutBpp = 4;  OutBlock = 4;  break;
 
-// ============================================================
-//  Texture creation
-// ============================================================
+		// BC2/BC3/BC7: 8bpp ブロック圧縮 (UNORM / sRGB 同レイアウト)
+	case DXGI_FORMAT_BC2_UNORM:
+	case DXGI_FORMAT_BC2_UNORM_SRGB:
+	case DXGI_FORMAT_BC3_UNORM:
+	case DXGI_FORMAT_BC3_UNORM_SRGB:
+	case DXGI_FORMAT_BC7_UNORM:
+	case DXGI_FORMAT_BC7_UNORM_SRGB:
+		OutBpp = 8;  OutBlock = 4;  break;
+
+		// BC6H: 8bpp ブロック圧縮 HDR (sRGB バリアントなし)
+	case DXGI_FORMAT_BC6H_UF16:
+	case DXGI_FORMAT_BC6H_SF16:
+		OutBpp = 8;  OutBlock = 4;  break;
+
+		// 非圧縮 32bit (R8G8B8A8 / B8G8R8A8, UNORM or sRGB)
+	default:
+		OutBpp = 32; OutBlock = 1;  break;
+	}
+}
+
+
 std::unique_ptr<TEXTURE> RenderManager::LoadTexture(const char* FileName, bool sRGB)
 {
 	std::unique_ptr<TEXTURE> texture = std::make_unique<TEXTURE>();
@@ -773,33 +810,10 @@ std::unique_ptr<TEXTURE> RenderManager::LoadTexture(const char* FileName, bool s
 
 	D3D12_RESOURCE_DESC desc = texture->Resource->GetDesc();
 
-	// フォーマットごとの bpp / ブロックサイズ (WriteToSubresource の幅・高さ算出用)
+
+	// フォーマットごとの bpp / ブロックサイズ (WriteToSubresource 用)
 	unsigned int bpp, block;
-	switch (desc.Format)
-	{
-		// BC1: 4bpp ブロック圧縮 (UNORM / sRGB 同レイアウト)
-	case DXGI_FORMAT_BC1_UNORM:
-	case DXGI_FORMAT_BC1_UNORM_SRGB:
-		bpp = 4;  block = 4;  break;
-
-		// BC2/BC3/BC7: 8bpp ブロック圧縮 (UNORM / sRGB 同レイアウト)
-	case DXGI_FORMAT_BC2_UNORM:
-	case DXGI_FORMAT_BC2_UNORM_SRGB:
-	case DXGI_FORMAT_BC3_UNORM:
-	case DXGI_FORMAT_BC3_UNORM_SRGB:
-	case DXGI_FORMAT_BC7_UNORM:
-	case DXGI_FORMAT_BC7_UNORM_SRGB:
-		bpp = 8;  block = 4;  break;
-
-		// BC6H: 8bpp ブロック圧縮 HDR (sRGB バリアントなし)
-	case DXGI_FORMAT_BC6H_UF16:
-	case DXGI_FORMAT_BC6H_SF16:
-		bpp = 8;  block = 4;  break;
-
-		// 非圧縮 32bit (R8G8B8A8 / B8G8R8A8, UNORM or sRGB)
-	default:
-		bpp = 32; block = 1;  break;
-	}
+	GetDDSFormatBlockInfo(desc.Format, bpp, block);
 
 	for (unsigned int a = 0; a < desc.DepthOrArraySize; a++)
 	{
@@ -829,9 +843,6 @@ std::unique_ptr<TEXTURE> RenderManager::LoadTexture(const char* FileName, bool s
 }
 
 
-// ============================================================
-//  Render target creation
-// ============================================================
 std::unique_ptr<RENDER_TARGET> RenderManager::CreateRenderTarget(unsigned int Width, unsigned int Height, DXGI_FORMAT Format, unsigned int MipLevels)
 {
 	D3D12_HEAP_PROPERTIES properties{};
@@ -879,8 +890,47 @@ std::unique_ptr<RENDER_TARGET> RenderManager::CreateRenderTarget(unsigned int Wi
 }
 
 
+std::unique_ptr<VERTEX_BUFFER> RenderManager::CreateVertexBuffer(unsigned int Stride, unsigned int Size)
+{
+	auto vertexBuffer = std::make_unique<VERTEX_BUFFER>();
+
+	HRESULT hr = m_Device->CreateCommittedResource(
+		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+		D3D12_HEAP_FLAG_NONE,
+		&CD3DX12_RESOURCE_DESC::Buffer(Stride * Size),
+		D3D12_RESOURCE_STATE_GENERIC_READ,
+		nullptr,
+		IID_PPV_ARGS(&vertexBuffer->Resource));
+	assert(SUCCEEDED(hr));
+
+	vertexBuffer->Stride = Stride;
+	vertexBuffer->Size = Size;
+
+	return vertexBuffer;
+}
+
+
+std::unique_ptr<INDEX_BUFFER> RenderManager::CreateIndexBuffer(unsigned int Size)
+{
+	auto indexBuffer = std::make_unique<INDEX_BUFFER>();
+
+	HRESULT hr = m_Device->CreateCommittedResource(
+		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+		D3D12_HEAP_FLAG_NONE,
+		&CD3DX12_RESOURCE_DESC::Buffer(sizeof(unsigned int) * Size),
+		D3D12_RESOURCE_STATE_GENERIC_READ,
+		nullptr,
+		IID_PPV_ARGS(&indexBuffer->Resource));
+	assert(SUCCEEDED(hr));
+
+	indexBuffer->Size = Size;
+
+	return indexBuffer;
+}
+
+
 // ============================================================
-//  Binding helpers
+//  Binding
 // ============================================================
 void RenderManager::BindRootTableBySRVIndex(unsigned int RootParameter, unsigned int SRVIndex)
 {
@@ -910,33 +960,12 @@ void RenderManager::SetTexture(TEXTURE_TYPE Type, const TEXTURE* Texture)
 	BindRootTableBySRVIndex((unsigned int)Type, Texture->SRVIndex);
 }
 
+
 void RenderManager::SetTexture(TEXTURE_TYPE Type, const RENDER_TARGET* Texture)
 {
 	BindRootTableBySRVIndex((unsigned int)Type, Texture->SRVIndex);
 }
 
-
-// ============================================================
-//  Vertex / index buffers
-// ============================================================
-std::unique_ptr<VERTEX_BUFFER> RenderManager::CreateVertexBuffer(unsigned int Stride, unsigned int Size)
-{
-	auto vertexBuffer = std::make_unique<VERTEX_BUFFER>();
-
-	HRESULT hr = m_Device->CreateCommittedResource(
-		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
-		D3D12_HEAP_FLAG_NONE,
-		&CD3DX12_RESOURCE_DESC::Buffer(Stride * Size),
-		D3D12_RESOURCE_STATE_GENERIC_READ,
-		nullptr,
-		IID_PPV_ARGS(&vertexBuffer->Resource));
-	assert(SUCCEEDED(hr));
-
-	vertexBuffer->Stride = Stride;
-	vertexBuffer->Size = Size;
-
-	return vertexBuffer;
-}
 
 void RenderManager::SetVertexBuffer(const VERTEX_BUFFER* VertexBuffer)
 {
@@ -948,24 +977,6 @@ void RenderManager::SetVertexBuffer(const VERTEX_BUFFER* VertexBuffer)
 	m_GraphicsCommandList->IASetVertexBuffers(0, 1, &vertexView);
 }
 
-
-std::unique_ptr<INDEX_BUFFER> RenderManager::CreateIndexBuffer(unsigned int Size)
-{
-	auto indexBuffer = std::make_unique<INDEX_BUFFER>();
-
-	HRESULT hr = m_Device->CreateCommittedResource(
-		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
-		D3D12_HEAP_FLAG_NONE,
-		&CD3DX12_RESOURCE_DESC::Buffer(sizeof(unsigned int) * Size),
-		D3D12_RESOURCE_STATE_GENERIC_READ,
-		nullptr,
-		IID_PPV_ARGS(&indexBuffer->Resource));
-	assert(SUCCEEDED(hr));
-
-	indexBuffer->Size = Size;
-
-	return indexBuffer;
-}
 
 void RenderManager::SetIndexBuffer(const INDEX_BUFFER* IndexBuffer)
 {
@@ -1001,15 +1012,52 @@ void RenderManager::SetPipelineState(const char* PipelineName)
 
 // ============================================================
 //  Pipeline state creation
+//  EBlendStatePreset / ECullModePreset / EDepthStatePreset
+//  (TStaticBlendState / TStaticRasterizerState /
+//   TStaticDepthStencilState 相当) から PSO を構築する。
 // ============================================================
-// ============================================================
-//  整数 (UINT / SINT) フォーマット判定
-//  整数 RTV はハードウェアブレンド不可のため、ブレンドステート
-//  構築時に BlendEnable を強制的に FALSE にする必要がある。
-//  (BlendEnable = TRUE のままだと CreateGraphicsPipelineState が
-//   E_INVALIDARG で失敗し、null PSO -> 描画時に D3D12Core 内の
-//   アクセス違反 (0xC0000005) として現れる)
-// ============================================================
+// ---- シェーダバイトコード読み込み (.cso をそのまま読み込む) ----
+static void LoadShaderBytecode(const char* Path, std::vector<char>& OutData, D3D12_SHADER_BYTECODE& OutBytecode)
+{
+	// 欠落 / 空の .cso (シェーダのコンパイル失敗や未再コンパイル)
+	// を null バイトコードのまま PSO 生成に渡すと、
+	// CreateGraphicsPipelineState 内のアクセス違反になるため
+	// ここで即検知する。
+	OutBytecode.pShaderBytecode = nullptr;
+	OutBytecode.BytecodeLength = 0;
+
+	std::ifstream file(Path, std::ios_base::in | std::ios_base::binary);
+	if (!file)
+	{
+		char msg[512];
+		sprintf_s(msg, "[RenderManager] shader .cso not found: %s\n", Path);
+		OutputDebugStringA(msg);
+		assert(false && "shader .cso not found");
+		return;
+	}
+
+	file.seekg(0, std::ios_base::end);
+	int filesize = (int)file.tellg();
+	file.seekg(0, std::ios_base::beg);
+
+	if (filesize <= 0)
+	{
+		char msg[512];
+		sprintf_s(msg, "[RenderManager] shader .cso is empty (compile failed?): %s\n", Path);
+		OutputDebugStringA(msg);
+		assert(false && "shader .cso is empty");
+		return;
+	}
+
+	OutData.resize(filesize);
+	file.read(OutData.data(), filesize);
+	file.close();
+
+	OutBytecode.pShaderBytecode = OutData.data();
+	OutBytecode.BytecodeLength = filesize;
+}
+
+
 static bool IsIntegerFormat(DXGI_FORMAT Format)
 {
 	switch (Format)
@@ -1041,92 +1089,27 @@ static bool IsIntegerFormat(DXGI_FORMAT Format)
 	}
 }
 
-ComPtr<ID3D12PipelineState> RenderManager::CreatePipeline(const char* VertexShaderFile, const char* PixelShaderFile, const DXGI_FORMAT* RTVFormats, unsigned int NumRenderTargets, int DepthBias, float SlopeScaledDepthBias, EBlendStatePreset BlendPreset, ECullModePreset CullPreset, EDepthStatePreset DepthPreset)
-{
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC pipelineStateDesc{};
-
-	// シェーダバイトコード読み込み (.cso をそのまま読み込む)
-	auto loadShader = [](const char* path, std::vector<char>& out, D3D12_SHADER_BYTECODE& bytecode)
-		{
-			// 欠落 / 空の .cso (シェーダのコンパイル失敗や未再コンパイル)
-			// を null バイトコードのまま PSO 生成に渡すと、
-			// CreateGraphicsPipelineState 内のアクセス違反になるため
-			// ここで即検知する。
-			bytecode.pShaderBytecode = nullptr;
-			bytecode.BytecodeLength = 0;
-
-			std::ifstream file(path, std::ios_base::in | std::ios_base::binary);
-			if (!file)
-			{
-				char msg[512];
-				sprintf_s(msg, "[RenderManager] shader .cso not found: %s\n", path);
-				OutputDebugStringA(msg);
-				assert(false && "shader .cso not found");
-				return;
-			}
-
-			file.seekg(0, std::ios_base::end);
-			int filesize = (int)file.tellg();
-			file.seekg(0, std::ios_base::beg);
-
-			if (filesize <= 0)
-			{
-				char msg[512];
-				sprintf_s(msg, "[RenderManager] shader .cso is empty (compile failed?): %s\n", path);
-				OutputDebugStringA(msg);
-				assert(false && "shader .cso is empty");
-				return;
-			}
-
-			out.resize(filesize);
-			file.read(out.data(), filesize);
-			file.close();
-
-			bytecode.pShaderBytecode = out.data();
-			bytecode.BytecodeLength = filesize;
-		};
-
-	std::vector<char> vertexShader;
-	std::vector<char> pixelShader;
-	loadShader(VertexShaderFile, vertexShader, pipelineStateDesc.VS);
-	loadShader(PixelShaderFile, pixelShader, pipelineStateDesc.PS);
-
-	// インプットレイアウト
-	D3D12_INPUT_ELEMENT_DESC InputElementDesc[] =
-	{
-		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT,    0,  0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-		{ "NORMAL",   0, DXGI_FORMAT_R32G32B32_FLOAT,    0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-		{ "TANGENT",  0, DXGI_FORMAT_R32G32B32_FLOAT,    0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-		{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,       0, 36, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-		{ "COLOR",    0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 44, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-	};
-	pipelineStateDesc.InputLayout.pInputElementDescs = InputElementDesc;
-	pipelineStateDesc.InputLayout.NumElements = _countof(InputElementDesc);
-
-	pipelineStateDesc.SampleDesc.Count = 1;
-	pipelineStateDesc.SampleDesc.Quality = 0;
-	pipelineStateDesc.SampleMask = UINT_MAX;
-
-	pipelineStateDesc.NumRenderTargets = NumRenderTargets;
-	for (unsigned int i = 0; i < NumRenderTargets; i++)
-		pipelineStateDesc.RTVFormats[i] = RTVFormats[i];
-
-	pipelineStateDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-	pipelineStateDesc.pRootSignature = m_RootSignature.Get();
 
 	// ラスタライザ
 	// bTwoSided (ECullModePreset::None) はカリング無効
-	pipelineStateDesc.RasterizerState.CullMode =
+static D3D12_RASTERIZER_DESC BuildRasterizerStateDesc(ECullModePreset CullPreset, int DepthBias, float SlopeScaledDepthBias)
+{
+	D3D12_RASTERIZER_DESC Desc{};
+	Desc.CullMode =
 		(CullPreset == ECullModePreset::None) ? D3D12_CULL_MODE_NONE : D3D12_CULL_MODE_BACK;
-	pipelineStateDesc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
-	pipelineStateDesc.RasterizerState.FrontCounterClockwise = FALSE;
-	pipelineStateDesc.RasterizerState.DepthBias = DepthBias;
-	pipelineStateDesc.RasterizerState.DepthBiasClamp = 0.0f;
-	pipelineStateDesc.RasterizerState.SlopeScaledDepthBias = SlopeScaledDepthBias;
-	pipelineStateDesc.RasterizerState.DepthClipEnable = FALSE;
-	pipelineStateDesc.RasterizerState.ConservativeRaster = D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
-	pipelineStateDesc.RasterizerState.AntialiasedLineEnable = FALSE;
-	pipelineStateDesc.RasterizerState.MultisampleEnable = FALSE;
+	Desc.FillMode = D3D12_FILL_MODE_SOLID;
+	Desc.FrontCounterClockwise = FALSE;
+	Desc.DepthBias = DepthBias;
+	Desc.DepthBiasClamp = 0.0f;
+	Desc.SlopeScaledDepthBias = SlopeScaledDepthBias;
+	Desc.DepthClipEnable = FALSE;
+	Desc.ConservativeRaster = D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
+	Desc.AntialiasedLineEnable = FALSE;
+	Desc.MultisampleEnable = FALSE;
+
+	return Desc;
+}
+
 
 	// ブレンド (EBlendMode -> TStaticBlendState 相当のプリセット)
 	//   Opaque / Masked : One / Zero 上書き (従来通り)
@@ -1137,9 +1120,12 @@ ComPtr<ID3D12PipelineState> RenderManager::CreatePipeline(const char* VertexShad
 	//   ような整数 RT はブレンド不可なので、その RT だけ BlendEnable を
 	//   FALSE にする (IndependentBlendEnable が必要)。未使用スロットも
 	//   FALSE に落とす。ブレンド係数は無効 RT では無視される。
-	for (int i = 0; i < _countof(pipelineStateDesc.BlendState.RenderTarget); ++i)
+static D3D12_BLEND_DESC BuildBlendStateDesc(EBlendStatePreset BlendPreset, const DXGI_FORMAT* RTVFormats, unsigned int NumRenderTargets)
+{
+	D3D12_BLEND_DESC Desc{};
+	for (int i = 0; i < _countof(Desc.RenderTarget); ++i)
 	{
-		auto& rt = pipelineStateDesc.BlendState.RenderTarget[i];
+		auto& rt = Desc.RenderTarget[i];
 
 		const bool bUsedTarget = ((unsigned int)i < NumRenderTargets) && (RTVFormats != nullptr);
 		const bool bIntegerTarget = bUsedTarget && IsIntegerFormat(RTVFormats[i]);
@@ -1187,39 +1173,87 @@ ComPtr<ID3D12PipelineState> RenderManager::CreatePipeline(const char* VertexShad
 		rt.LogicOpEnable = FALSE;
 		rt.LogicOp = D3D12_LOGIC_OP_CLEAR;
 	}
-	pipelineStateDesc.BlendState.AlphaToCoverageEnable = FALSE;
+	Desc.AlphaToCoverageEnable = FALSE;
 	// RT ごとに BlendEnable が異なる (浮動小数 RT = ON / 整数 RT = OFF)
 	// ため独立ブレンドを有効化する
-	pipelineStateDesc.BlendState.IndependentBlendEnable = TRUE;
+	Desc.IndependentBlendEnable = TRUE;
 
-	// デプス・ステンシル
-	pipelineStateDesc.DepthStencilState.DepthEnable = TRUE;
+	return Desc;
+}
+
+
+// デプス・ステンシル (EDepthStatePreset -> TStaticDepthStencilState 相当)
+static D3D12_DEPTH_STENCIL_DESC BuildDepthStencilStateDesc(EDepthStatePreset DepthPreset)
+{
+	D3D12_DEPTH_STENCIL_DESC Desc{};
+	Desc.DepthEnable = TRUE;
 	// DepthReadEqual (半透明深度プリパスの着色パス) はプリパスが書いた
 	// 最前面深度と一致するフラグメントのみ通す
-	pipelineStateDesc.DepthStencilState.DepthFunc =
+	Desc.DepthFunc =
 		(DepthPreset == EDepthStatePreset::DepthReadEqual)
 			? D3D12_COMPARISON_FUNC_EQUAL
 			: D3D12_COMPARISON_FUNC_LESS_EQUAL;
 	// トランスルーセンシー (DepthRead / DepthReadEqual) は深度テストのみ
 	// (書き込み無効)
-	pipelineStateDesc.DepthStencilState.DepthWriteMask =
+	Desc.DepthWriteMask =
 		(DepthPreset == EDepthStatePreset::DepthWrite)
 			? D3D12_DEPTH_WRITE_MASK_ALL
 			: D3D12_DEPTH_WRITE_MASK_ZERO;
-	pipelineStateDesc.DepthStencilState.StencilEnable = FALSE;
-	pipelineStateDesc.DepthStencilState.StencilReadMask = D3D12_DEFAULT_STENCIL_READ_MASK;
-	pipelineStateDesc.DepthStencilState.StencilWriteMask = D3D12_DEFAULT_STENCIL_WRITE_MASK;
+	Desc.StencilEnable = FALSE;
+	Desc.StencilReadMask = D3D12_DEFAULT_STENCIL_READ_MASK;
+	Desc.StencilWriteMask = D3D12_DEFAULT_STENCIL_WRITE_MASK;
 
-	pipelineStateDesc.DepthStencilState.FrontFace.StencilFailOp = D3D12_STENCIL_OP_KEEP;
-	pipelineStateDesc.DepthStencilState.FrontFace.StencilDepthFailOp = D3D12_STENCIL_OP_KEEP;
-	pipelineStateDesc.DepthStencilState.FrontFace.StencilPassOp = D3D12_STENCIL_OP_KEEP;
-	pipelineStateDesc.DepthStencilState.FrontFace.StencilFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+	Desc.FrontFace.StencilFailOp = D3D12_STENCIL_OP_KEEP;
+	Desc.FrontFace.StencilDepthFailOp = D3D12_STENCIL_OP_KEEP;
+	Desc.FrontFace.StencilPassOp = D3D12_STENCIL_OP_KEEP;
+	Desc.FrontFace.StencilFunc = D3D12_COMPARISON_FUNC_ALWAYS;
 
-	pipelineStateDesc.DepthStencilState.BackFace.StencilFailOp = D3D12_STENCIL_OP_KEEP;
-	pipelineStateDesc.DepthStencilState.BackFace.StencilDepthFailOp = D3D12_STENCIL_OP_KEEP;
-	pipelineStateDesc.DepthStencilState.BackFace.StencilPassOp = D3D12_STENCIL_OP_KEEP;
-	pipelineStateDesc.DepthStencilState.BackFace.StencilFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+	Desc.BackFace.StencilFailOp = D3D12_STENCIL_OP_KEEP;
+	Desc.BackFace.StencilDepthFailOp = D3D12_STENCIL_OP_KEEP;
+	Desc.BackFace.StencilPassOp = D3D12_STENCIL_OP_KEEP;
+	Desc.BackFace.StencilFunc = D3D12_COMPARISON_FUNC_ALWAYS;
 
+	return Desc;
+}
+
+
+ComPtr<ID3D12PipelineState> RenderManager::CreatePipeline(const char* VertexShaderFile, const char* PixelShaderFile, const DXGI_FORMAT* RTVFormats, unsigned int NumRenderTargets, int DepthBias, float SlopeScaledDepthBias, EBlendStatePreset BlendPreset, ECullModePreset CullPreset, EDepthStatePreset DepthPreset)
+{
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC pipelineStateDesc{};
+
+	// ---- シェーダバイトコード ----
+	std::vector<char> vertexShader;
+	std::vector<char> pixelShader;
+	LoadShaderBytecode(VertexShaderFile, vertexShader, pipelineStateDesc.VS);
+	LoadShaderBytecode(PixelShaderFile, pixelShader, pipelineStateDesc.PS);
+
+	// インプットレイアウト
+	D3D12_INPUT_ELEMENT_DESC InputElementDesc[] =
+	{
+		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT,    0,  0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+		{ "NORMAL",   0, DXGI_FORMAT_R32G32B32_FLOAT,    0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+		{ "TANGENT",  0, DXGI_FORMAT_R32G32B32_FLOAT,    0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+		{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,       0, 36, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+		{ "COLOR",    0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 44, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+	};
+	pipelineStateDesc.InputLayout.pInputElementDescs = InputElementDesc;
+	pipelineStateDesc.InputLayout.NumElements = _countof(InputElementDesc);
+
+	pipelineStateDesc.SampleDesc.Count = 1;
+	pipelineStateDesc.SampleDesc.Quality = 0;
+	pipelineStateDesc.SampleMask = UINT_MAX;
+
+	pipelineStateDesc.NumRenderTargets = NumRenderTargets;
+	for (unsigned int i = 0; i < NumRenderTargets; i++)
+		pipelineStateDesc.RTVFormats[i] = RTVFormats[i];
+
+	pipelineStateDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+	pipelineStateDesc.pRootSignature = m_RootSignature.Get();
+
+	// ---- ステートプリセット -> 各ステート記述 ----
+	pipelineStateDesc.RasterizerState = BuildRasterizerStateDesc(CullPreset, DepthBias, SlopeScaledDepthBias);
+	pipelineStateDesc.BlendState = BuildBlendStateDesc(BlendPreset, RTVFormats, NumRenderTargets);
+	pipelineStateDesc.DepthStencilState = BuildDepthStencilStateDesc(DepthPreset);
 	pipelineStateDesc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
 
 	ComPtr<ID3D12PipelineState> pipelineState;
@@ -1241,7 +1275,8 @@ ComPtr<ID3D12PipelineState> RenderManager::CreatePipeline(const char* VertexShad
 
 
 // ============================================================
-//  Descriptor pool helpers
+//  Descriptor management
+//  SRV / RTV ヒープのフリーリスト割当と各ビュー生成。
 // ============================================================
 unsigned int RenderManager::AllocateSRVSlot()
 {
@@ -1250,6 +1285,7 @@ unsigned int RenderManager::AllocateSRVSlot()
 	return index;
 }
 
+
 unsigned int RenderManager::AllocateRTVSlot()
 {
 	unsigned int index = m_RTVDescriptorPool.front();
@@ -1257,11 +1293,13 @@ unsigned int RenderManager::AllocateRTVSlot()
 	return index;
 }
 
+
 D3D12_CPU_DESCRIPTOR_HANDLE RenderManager::OffsetCPUHandle(D3D12_CPU_DESCRIPTOR_HANDLE base, unsigned int index, D3D12_DESCRIPTOR_HEAP_TYPE type) const
 {
 	base.ptr += (SIZE_T)m_Device->GetDescriptorHandleIncrementSize(type) * index;
 	return base;
 }
+
 
 D3D12_GPU_DESCRIPTOR_HANDLE RenderManager::OffsetGPUHandle(D3D12_GPU_DESCRIPTOR_HANDLE base, unsigned int index, D3D12_DESCRIPTOR_HEAP_TYPE type) const
 {
@@ -1291,12 +1329,14 @@ unsigned int RenderManager::CreateShaderResourceView(ID3D12Resource* Resource)
 	return index;
 }
 
+
 D3D12_GPU_DESCRIPTOR_HANDLE RenderManager::GetShaderResourceViewHandle(unsigned int SRVIndex)
 {
 	return OffsetGPUHandle(
 		m_SRVDescriptorHeap->GetGPUDescriptorHandleForHeapStart(),
 		SRVIndex, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 }
+
 
 void RenderManager::ReleaseShaderResourceView(unsigned int SRVIndex)
 {
@@ -1317,12 +1357,14 @@ unsigned int RenderManager::CreateRenderTargetView(ID3D12Resource* Resource, uns
 	return index;
 }
 
+
 D3D12_CPU_DESCRIPTOR_HANDLE RenderManager::GetRenderTargetViewHandle(unsigned int RTVIndex)
 {
 	return OffsetCPUHandle(
 		m_RTVDescriptorHeap->GetCPUDescriptorHandleForHeapStart(),
 		RTVIndex, D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 }
+
 
 void RenderManager::ReleaseRenderTargetView(unsigned int RTVIndex)
 {
@@ -1331,12 +1373,13 @@ void RenderManager::ReleaseRenderTargetView(unsigned int RTVIndex)
 
 
 // ============================================================
-//  Resource destructors (return descriptor slots to the pool)
+//  Resource destructors (デスクリプタ枠をプールへ返却)
 // ============================================================
 TEXTURE::~TEXTURE()
 {
 	RenderManager::GetInstance()->ReleaseShaderResourceView(SRVIndex);
 }
+
 
 RENDER_TARGET::~RENDER_TARGET()
 {
@@ -1346,12 +1389,14 @@ RENDER_TARGET::~RENDER_TARGET()
 
 
 // ============================================================
-//  Accessors used by IBLBaker
+//  Accessors used by baker / compute systems
+//  (IBLBaker / AutoExposure / ColorGradingLUTBaker / LightGrid / DFAtlas)
 // ============================================================
 unsigned int RenderManager::AllocateDescriptor()
 {
 	return AllocateSRVSlot();
 }
+
 
 D3D12_CPU_DESCRIPTOR_HANDLE RenderManager::GetCPUDescriptorHandle(unsigned int Index)
 {
@@ -1360,12 +1405,14 @@ D3D12_CPU_DESCRIPTOR_HANDLE RenderManager::GetCPUDescriptorHandle(unsigned int I
 		Index, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 }
 
+
 D3D12_GPU_DESCRIPTOR_HANDLE RenderManager::GetGPUDescriptorHandle(unsigned int Index)
 {
 	return OffsetGPUHandle(
 		m_SRVDescriptorHeap->GetGPUDescriptorHandleForHeapStart(),
 		Index, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 }
+
 
 // コマンドリストを即時実行して完了待ち、次フレーム用に Reset
 void RenderManager::FlushAndResetCommandList()

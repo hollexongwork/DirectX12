@@ -103,14 +103,6 @@ struct TEXTURE
 };
 
 
-struct CONSTANT_BUFFER
-{
-	ComPtr<ID3D12Resource>	Resource;
-	unsigned int			SRVIndex;
-	~CONSTANT_BUFFER();
-};
-
-
 struct RENDER_TARGET
 {
 	ComPtr<ID3D12Resource>	Resource;
