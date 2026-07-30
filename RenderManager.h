@@ -396,3 +396,4 @@ public:
 	void                        FlushAndResetCommandList();        // Close / Execute / Wait / Reset for immediate completion.
 
 };
+//Test
