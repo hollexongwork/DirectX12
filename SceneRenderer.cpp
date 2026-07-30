@@ -983,6 +983,7 @@ void FSceneRenderer::RenderPostProcessing()
 	if (m_AutoExposure)
 	{
 		m_AutoExposure->Dispatch(
+			m_SceneTextures.SceneColor->Resource.Get(),
 			m_SceneTextures.SceneColor->SRVIndex,
 			(unsigned int)m_RHI->GetBackBufferWidth(),
 			(unsigned int)m_RHI->GetBackBufferHeight(),

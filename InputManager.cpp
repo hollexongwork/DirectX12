@@ -31,3 +31,14 @@ void InputManager::Update()
 		Mouse_SetMode(MOUSE_POSITION_MODE_ABSOLUTE);
 	}
 }
+
+void InputManager::PostUpdate()
+{
+	// マウスの前フレームステート退避はフレーム末尾(全ゲームコードの入力読み取り後)に行う。
+	//
+	// マウスの gState はウィンドウメッセージ(WndProc)経由で随時更新されるため、
+	// Update() の先頭で退避すると World.Tick が読む時点で常に gPrevState == gState となり、
+	// IsLeftClickTrigger / IsRightClickTrigger のエッジ検出が永久に false になる。
+	// (キーボードは Input::Update 内で「旧退避 → GetKeyboardState で新規取得」の順なので問題ない)
+	Mouse_UpdatePrevState();
+}

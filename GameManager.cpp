@@ -200,6 +200,10 @@ void GameManager::Update()
 	// 変更されたレンダーステート / トランスフォームをプロキシへ反映
 	// (UWorld::SendAllEndOfFrameUpdates)
 	m_World.SendAllEndOfFrameUpdates();
+
+	// マウスの前フレームステート退避(クリックトリガーのエッジ検出用)。
+	// 必ず全ゲームコードの入力読み取り後 = フレーム末尾で行うこと。
+	m_InputManager.PostUpdate();
 }
 
 void GameManager::Draw()

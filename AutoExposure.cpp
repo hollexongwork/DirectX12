@@ -320,7 +320,8 @@ void AutoExposure::Init()
     }
 }
 
-void AutoExposure::Dispatch(unsigned int sceneColorSRVIndex,
+void AutoExposure::Dispatch(ID3D12Resource* sceneColorResource,
+    unsigned int sceneColorSRVIndex,
     unsigned int width, unsigned int height,
     float deltaTime)
 {
@@ -358,11 +359,15 @@ void AutoExposure::Dispatch(unsigned int sceneColorSRVIndex,
         D3D12_CPU_DESCRIPTOR_HANDLE rClearCPU = m_ClearHeap->GetCPUDescriptorHandleForHeapStart();
         rClearCPU.ptr += inc; // slot 1
 
-        const float zeroF[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-        cl->ClearUnorderedAccessViewFloat(
+        // RAW (R32_TYPELESS) バッファ UAV のクリアは Uint 版が必須。
+        // Float 版は typeless/RAW ビューに対して不正 (デバッグレイヤーエラー、
+        // ドライバによっては結果未定義) となる。ゼロはビットパターンが同一
+        // なので Uint 版で同じ結果になる。
+        const UINT zeroU[4] = { 0, 0, 0, 0 };
+        cl->ClearUnorderedAccessViewUint(
             m_Owner->GetGPUDescriptorHandle(m_ResultUAVIndex), // shader-visible
             rClearCPU,                                         // non-shader-visible
-            m_Result.Get(), zeroF, 0, nullptr);
+            m_Result.Get(), zeroU, 0, nullptr);
         cl->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::UAV(m_Result.Get()));
     }
 
@@ -379,6 +384,14 @@ void AutoExposure::Dispatch(unsigned int sceneColorSRVIndex,
 
     // ---- Pass 1 : build histogram ----
     {
+        // SceneColor はポストプロセス用に PIXEL_SHADER_RESOURCE で渡されるが、
+        // コンピュートシェーダー (t0) から読むには NON_PIXEL_SHADER_RESOURCE が
+        // 必要 (このままではデバッグレイヤーエラー / 仕様上未定義動作)。
+        cl->ResourceBarrier(1,
+            &CD3DX12_RESOURCE_BARRIER::Transition(sceneColorResource,
+                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE));
+
         cl->SetPipelineState(m_PSOHistogram.Get());
         cl->SetComputeRootDescriptorTable(1, m_Owner->GetGPUDescriptorHandle(sceneColorSRVIndex)); // t0
         cl->SetComputeRootDescriptorTable(2, m_Owner->GetGPUDescriptorHandle(m_HistogramUAVIndex)); // u0
@@ -389,6 +402,12 @@ void AutoExposure::Dispatch(unsigned int sceneColorSRVIndex,
         cl->Dispatch(gx, gy, 1);
 
         cl->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::UAV(m_Histogram.Get()));
+    
+        // 後続パス (Bloom / Tonemap) はピクセルシェーダーから読むため元の状態へ戻す。
+        cl->ResourceBarrier(1,
+            &CD3DX12_RESOURCE_BARRIER::Transition(sceneColorResource,
+                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
     }
 
     // ---- Pass 2 : average + temporal adaptation ----

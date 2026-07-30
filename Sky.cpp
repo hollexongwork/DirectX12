@@ -39,6 +39,17 @@ void ASky::BeginPlay()
 
 void ASky::Tick(float DeltaTime)
 {
+	if (!m_Camera)
+	{
+		UWorld* world = GameManager::GetInstance()->GetWorld();
+		m_Camera = world->GetActorOfClass<ACameraActor>();
+
+		if (!m_Camera)
+		{
+			return;
+		}
+	}
+
 	XMFLOAT3 pos = m_Camera->GetActorLocation();
 	SetActorLocation(pos);
 }
