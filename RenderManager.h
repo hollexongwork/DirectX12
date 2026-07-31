@@ -1,4 +1,5 @@
 ﻿#pragma once
+#include <deque>
 #include "PostProcessSettings.h"
 
 // ============================================================
@@ -158,8 +159,8 @@ enum class EDepthStatePreset
 	DepthWrite,		// 深度テスト + 書き込み (既定)
 	DepthRead,		// 深度テストのみ (Translucent / Additive)
 	DepthReadEqual,	// 深度テストのみ + EQUAL 比較
-					// (半透明深度プリパスの着色パス: プリパスが書いた
-					//  最前面深度に一致するフラグメントだけ着色する)
+	// (半透明深度プリパスの着色パス: プリパスが書いた
+	//  最前面深度に一致するフラグメントだけ着色する)
 };
 
 
@@ -252,6 +253,26 @@ private:
 	ComPtr<ID3D12DescriptorHeap> m_RTVDescriptorHeap;
 	std::list<unsigned int>      m_RTVDescriptorPool;
 	static const unsigned int    RTV_DESCRIPTOR_MAX = 1000;
+
+	// ---- 遅延削除キュー (Deferred Deletion) ----
+	// 2フレーム・イン・フライトのため、破棄要求されたリソース /
+	// デスクリプタ枠は「破棄時点で記録中のフレームの Signal 値」を
+	// 添えて保留し、GPU がそのフェンス値へ到達してから実解放する。
+	// (UE5 の FRHIResource 遅延削除に相当。即時解放すると in-flight の
+	//  コマンドリストが解放済みリソース / 上書きされたデスクリプタを
+	//  参照して DEVICE_REMOVED になる)
+	struct DEFERRED_RELEASE_ENTRY
+	{
+		UINT64                 FenceValue;     // この値まで GPU 完了で解放可
+		ComPtr<ID3D12Resource> Resource;       // null = デスクリプタ枠のみ返却
+		int                    SRVIndex = -1;  // -1 = なし
+		int                    RTVIndex = -1;  // -1 = なし
+	};
+	std::deque<DEFERRED_RELEASE_ENTRY> m_DeferredReleaseQueue;
+
+	// キュー先頭から CompletedFenceValue 以下のエントリを実解放する。
+	// (Present / WaitGPU のフェンス待ち直後に呼ぶ)
+	void FlushDeferredReleases(UINT64 CompletedFenceValue);
 
 	// Ring constant buffer (one per frame-in-flight)
 	static const unsigned int CONSTANT_BUFFER_SIZE = 512;
@@ -365,9 +386,17 @@ public:
 
 	// ------------------------------------------------------------
 	//  Descriptor release (called by resource destructors)
+	//  ※ どちらも即時返却ではなく遅延削除キュー経由 (GPU 完了後に返却)
 	// ------------------------------------------------------------
 	void ReleaseShaderResourceView(unsigned int SRVIndex);
 	void ReleaseRenderTargetView(unsigned int RTVIndex);
+
+	// リソース本体とデスクリプタ枠をまとめて遅延解放する。
+	// Resource の所有権を引き取り、GPU が現在記録中のフレームを
+	// 完了するまで生存させる (TEXTURE / RENDER_TARGET デストラクタ、
+	// および実行時のアセット差し替え時に使用)。
+	void DeferredRelease(ComPtr<ID3D12Resource> Resource,
+		int SRVIndex = -1, int RTVIndex = -1);
 
 	// ------------------------------------------------------------
 	//  Simple accessors
@@ -378,11 +407,11 @@ public:
 	int                        GetBackBufferHeight() { return m_BackBufferHeight; }
 
 	// 深度バッファ (DSV は RHI 所有 / SRV は FSceneTextures が生成)
-	ID3D12Resource*             GetDepthBufferResource() { return m_DepthBuffer.Get(); }
+	ID3D12Resource* GetDepthBufferResource() { return m_DepthBuffer.Get(); }
 	D3D12_CPU_DESCRIPTOR_HANDLE GetDepthStencilViewHandle() { return m_DepthBufferHandle; }
 
 	// 現在のバックバッファ (Tonemap / ImGui の描画先)
-	ID3D12Resource*             GetCurrentBackBufferResource() { return m_RenderTarget[m_RTIndex].Get(); }
+	ID3D12Resource* GetCurrentBackBufferResource() { return m_RenderTarget[m_RTIndex].Get(); }
 	D3D12_CPU_DESCRIPTOR_HANDLE GetCurrentBackBufferRTV() { return m_RenderTargetHandle[m_RTIndex]; }
 
 	// ------------------------------------------------------------

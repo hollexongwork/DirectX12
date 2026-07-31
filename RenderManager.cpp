@@ -414,7 +414,7 @@ void RenderManager::InitConstantBuffers()
 
 
 // ---- 静的サンプラ (s0..s2) の記述を構築する ----
-static void BuildStaticSamplerDescs(D3D12_STATIC_SAMPLER_DESC (&OutSamplers)[3])
+static void BuildStaticSamplerDescs(D3D12_STATIC_SAMPLER_DESC(&OutSamplers)[3])
 {
 	// s0: 異方性ラップ (アルベドなど通常テクスチャ用)
 	OutSamplers[0].Filter = D3D12_FILTER_ANISOTROPIC;
@@ -685,6 +685,9 @@ void RenderManager::WaitGPU()
 	m_Fence->SetEventOnCompletion(m_Frame[m_RTIndex], m_FenceEvent);
 	WaitForSingleObjectEx(m_FenceEvent, INFINITE, FALSE);
 
+	// GPU 完全アイドルなので保留中の遅延削除をすべて実解放できる
+	FlushDeferredReleases(m_Fence->GetCompletedValue());
+
 	m_Frame[m_RTIndex]++;
 }
 
@@ -737,6 +740,9 @@ void RenderManager::Present()
 			m_Fence->SetEventOnCompletion(m_Frame[m_RTIndex], m_FenceEvent);
 			WaitForSingleObjectEx(m_FenceEvent, INFINITE, FALSE);
 		}
+
+		// フェンス到達済みの遅延削除エントリを実解放する
+		FlushDeferredReleases(m_Fence->GetCompletedValue());
 
 		m_Frame[m_RTIndex] = frame + 1;
 	}
@@ -1090,8 +1096,8 @@ static bool IsIntegerFormat(DXGI_FORMAT Format)
 }
 
 
-	// ラスタライザ
-	// bTwoSided (ECullModePreset::None) はカリング無効
+// ラスタライザ
+// bTwoSided (ECullModePreset::None) はカリング無効
 static D3D12_RASTERIZER_DESC BuildRasterizerStateDesc(ECullModePreset CullPreset, int DepthBias, float SlopeScaledDepthBias)
 {
 	D3D12_RASTERIZER_DESC Desc{};
@@ -1111,15 +1117,15 @@ static D3D12_RASTERIZER_DESC BuildRasterizerStateDesc(ECullModePreset CullPreset
 }
 
 
-	// ブレンド (EBlendMode -> TStaticBlendState 相当のプリセット)
-	//   Opaque / Masked : One / Zero 上書き (従来通り)
-	//   Translucent     : SrcAlpha / InvSrcAlpha (BLEND_Translucent)
-	//   Additive        : SrcAlpha / One (BLEND_Additive)
-	// α チャンネルは合成後のシーンカバレッジ規約 (Zero / InvSrcAlpha 系)
-	// ※ Substrate バッファ (BasePass RT3/RT4 = R32G32B32A32_UINT) の
-	//   ような整数 RT はブレンド不可なので、その RT だけ BlendEnable を
-	//   FALSE にする (IndependentBlendEnable が必要)。未使用スロットも
-	//   FALSE に落とす。ブレンド係数は無効 RT では無視される。
+// ブレンド (EBlendMode -> TStaticBlendState 相当のプリセット)
+//   Opaque / Masked : One / Zero 上書き (従来通り)
+//   Translucent     : SrcAlpha / InvSrcAlpha (BLEND_Translucent)
+//   Additive        : SrcAlpha / One (BLEND_Additive)
+// α チャンネルは合成後のシーンカバレッジ規約 (Zero / InvSrcAlpha 系)
+// ※ Substrate バッファ (BasePass RT3/RT4 = R32G32B32A32_UINT) の
+//   ような整数 RT はブレンド不可なので、その RT だけ BlendEnable を
+//   FALSE にする (IndependentBlendEnable が必要)。未使用スロットも
+//   FALSE に落とす。ブレンド係数は無効 RT では無視される。
 static D3D12_BLEND_DESC BuildBlendStateDesc(EBlendStatePreset BlendPreset, const DXGI_FORMAT* RTVFormats, unsigned int NumRenderTargets)
 {
 	D3D12_BLEND_DESC Desc{};
@@ -1191,14 +1197,14 @@ static D3D12_DEPTH_STENCIL_DESC BuildDepthStencilStateDesc(EDepthStatePreset Dep
 	// 最前面深度と一致するフラグメントのみ通す
 	Desc.DepthFunc =
 		(DepthPreset == EDepthStatePreset::DepthReadEqual)
-			? D3D12_COMPARISON_FUNC_EQUAL
-			: D3D12_COMPARISON_FUNC_LESS_EQUAL;
+		? D3D12_COMPARISON_FUNC_EQUAL
+		: D3D12_COMPARISON_FUNC_LESS_EQUAL;
 	// トランスルーセンシー (DepthRead / DepthReadEqual) は深度テストのみ
 	// (書き込み無効)
 	Desc.DepthWriteMask =
 		(DepthPreset == EDepthStatePreset::DepthWrite)
-			? D3D12_DEPTH_WRITE_MASK_ALL
-			: D3D12_DEPTH_WRITE_MASK_ZERO;
+		? D3D12_DEPTH_WRITE_MASK_ALL
+		: D3D12_DEPTH_WRITE_MASK_ZERO;
 	Desc.StencilEnable = FALSE;
 	Desc.StencilReadMask = D3D12_DEFAULT_STENCIL_READ_MASK;
 	Desc.StencilWriteMask = D3D12_DEFAULT_STENCIL_WRITE_MASK;
@@ -1340,7 +1346,10 @@ D3D12_GPU_DESCRIPTOR_HANDLE RenderManager::GetShaderResourceViewHandle(unsigned 
 
 void RenderManager::ReleaseShaderResourceView(unsigned int SRVIndex)
 {
-	m_SRVDescriptorPool.push_front(SRVIndex);
+	// 即時返却すると次の Allocate が同じ枠を掴み、in-flight の
+	// コマンドリストが読んでいる shader-visible デスクリプタを
+	// 上書きしてしまうため、遅延削除キュー経由で返却する。
+	DeferredRelease(nullptr, (int)SRVIndex, -1);
 }
 
 
@@ -1368,23 +1377,71 @@ D3D12_CPU_DESCRIPTOR_HANDLE RenderManager::GetRenderTargetViewHandle(unsigned in
 
 void RenderManager::ReleaseRenderTargetView(unsigned int RTVIndex)
 {
-	m_RTVDescriptorPool.push_front(RTVIndex);
+	// SRV 同様、遅延削除キュー経由で返却する。
+	DeferredRelease(nullptr, -1, (int)RTVIndex);
 }
 
 
 // ============================================================
-//  Resource destructors (デスクリプタ枠をプールへ返却)
+//  Deferred Deletion (遅延削除)
+// ============================================================
+void RenderManager::DeferredRelease(ComPtr<ID3D12Resource> Resource,
+	int SRVIndex, int RTVIndex)
+{
+	DEFERRED_RELEASE_ENTRY entry;
+
+	// m_Frame[m_RTIndex] は「現在記録中のフレームが Present 時に
+	// Signal する値」。この値の完了を待てば、1つ前の in-flight
+	// フレーム (より小さい値) の完了も保証される。
+	entry.FenceValue = m_Frame[m_RTIndex];
+	entry.Resource = std::move(Resource);
+	entry.SRVIndex = SRVIndex;
+	entry.RTVIndex = RTVIndex;
+
+	m_DeferredReleaseQueue.push_back(std::move(entry));
+}
+
+
+void RenderManager::FlushDeferredReleases(UINT64 CompletedFenceValue)
+{
+	// FenceValue は enqueue 順に単調非減少なので先頭から見るだけでよい
+	while (!m_DeferredReleaseQueue.empty() &&
+		m_DeferredReleaseQueue.front().FenceValue <= CompletedFenceValue)
+	{
+		DEFERRED_RELEASE_ENTRY& entry = m_DeferredReleaseQueue.front();
+
+		if (entry.SRVIndex >= 0)
+		{
+			m_SRVDescriptorPool.push_front((unsigned int)entry.SRVIndex);
+		}
+		if (entry.RTVIndex >= 0)
+		{
+			m_RTVDescriptorPool.push_front((unsigned int)entry.RTVIndex);
+		}
+
+		// pop で ComPtr が解放される (リソース本体の実解放)
+		m_DeferredReleaseQueue.pop_front();
+	}
+}
+
+
+// ============================================================
+//  Resource destructors (リソース本体 + デスクリプタ枠を遅延解放)
 // ============================================================
 TEXTURE::~TEXTURE()
 {
-	RenderManager::GetInstance()->ReleaseShaderResourceView(SRVIndex);
+	// Resource の所有権を遅延削除キューへ移し、GPU が現在記録中の
+	// フレームを完了するまで生存させる (即時解放だと in-flight の
+	// 描画が解放済みリソースを参照して DEVICE_REMOVED になる)。
+	RenderManager::GetInstance()->DeferredRelease(
+		std::move(Resource), (int)SRVIndex, -1);
 }
 
 
 RENDER_TARGET::~RENDER_TARGET()
 {
-	RenderManager::GetInstance()->ReleaseShaderResourceView(SRVIndex);
-	RenderManager::GetInstance()->ReleaseRenderTargetView(RTVIndex);
+	RenderManager::GetInstance()->DeferredRelease(
+		std::move(Resource), (int)SRVIndex, (int)RTVIndex);
 }
 
 

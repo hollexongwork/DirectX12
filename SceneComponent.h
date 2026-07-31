@@ -33,8 +33,18 @@ protected:
 	FBoxSphereBounds m_Bounds;
 
 public:
-	// ---- アタッチメント (登録前に呼ぶ) ----
+	// デストラクタで親子リンクを双方向に解除する
+	// (親の子リスト残留 / 子の親ポインタのダングリング防止)
+	virtual ~USceneComponent();
+
+	// ---- アタッチメント ----
+	// 既に親がいる場合は付け替え (旧親の子リストから自動除去)。
+	// 自分自身・自分の子孫へのアタッチ (循環) は無視される。
 	void SetupAttachment(USceneComponent* Parent);
+
+	// 親から切り離す (UE5 の DetachFromComponent に相当)。
+	// 親の子リストからも自分を除去する。未アタッチなら何もしない。
+	void DetachFromParent();
 
 	USceneComponent*                     GetAttachParent() const { return m_AttachParent; }
 	const std::vector<USceneComponent*>& GetAttachChildren() const { return m_AttachChildren; }
