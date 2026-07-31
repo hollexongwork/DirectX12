@@ -783,6 +783,18 @@ static void GetDDSFormatBlockInfo(DXGI_FORMAT Format, unsigned int& OutBpp, unsi
 	case DXGI_FORMAT_BC6H_SF16:
 		OutBpp = 8;  OutBlock = 4;  break;
 
+		// BC4: 4bpp ブロック圧縮 単チャンネル (ハイトマップ / マスク等)
+	case DXGI_FORMAT_BC4_UNORM:
+	case DXGI_FORMAT_BC4_SNORM:
+		OutBpp = 4;  OutBlock = 4;  break;
+
+		// BC5: 8bpp ブロック圧縮 2チャンネル (法線マップの標準形式)
+		// ※ default (32bpp/block1) に落ちると WriteToSubresource の
+		//    D3D12_BOX が実際の 1/4 の行数になりテクスチャが破損する
+	case DXGI_FORMAT_BC5_UNORM:
+	case DXGI_FORMAT_BC5_SNORM:
+		OutBpp = 8;  OutBlock = 4;  break;
+
 		// 非圧縮 32bit (R8G8B8A8 / B8G8R8A8, UNORM or sRGB)
 	default:
 		OutBpp = 32; OutBlock = 1;  break;
@@ -952,6 +964,17 @@ void RenderManager::SetConstant(CONSTANT_TYPE Type, const void* Constant, unsign
 {
 	const unsigned int slot = m_ConstantBufferIndex[m_RTIndex];
 	assert(slot < CONSTANT_BUFFER_MAX);
+
+	// Release ビルドでは assert が消えるため実行時ガードを併設する。
+	// リング溢れ時にそのまま進むと、マップ済みアップロードヒープ外への
+	// memcpy (ヒープ破壊) と m_ConstantBufferView の範囲外読みが無警告で
+	// 発生する。溢れた描画は直前バインドの定数のまま描かれる (表示は
+	// 乱れるがメモリ破壊よりは安全)。
+	if (slot >= CONSTANT_BUFFER_MAX)
+	{
+		OutputDebugStringA("[RenderManager] SetConstant: constant ring overflow (CONSTANT_BUFFER_MAX exceeded)\n");
+		return;
+	}
 
 	memcpy(m_ConstantBufferPointer[m_RTIndex] + CONSTANT_BUFFER_SIZE * slot, Constant, Size);
 

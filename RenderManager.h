@@ -406,6 +406,11 @@ public:
 	int                        GetBackBufferWidth() { return m_BackBufferWidth; }
 	int                        GetBackBufferHeight() { return m_BackBufferHeight; }
 
+	// 現在のフレームインデックス (0/1)。CPU が毎フレーム書き換える
+	// アップロードリソースのダブルバッファリング用 (in-flight フレームとの
+	// 書き込み競合防止。AutoExposure / ColorGradingLUTBaker / Polygon2D)。
+	unsigned int               GetCurrentFrameIndex() const { return m_RTIndex; }
+
 	// 深度バッファ (DSV は RHI 所有 / SRV は FSceneTextures が生成)
 	ID3D12Resource* GetDepthBufferResource() { return m_DepthBuffer.Get(); }
 	D3D12_CPU_DESCRIPTOR_HANDLE GetDepthStencilViewHandle() { return m_DepthBufferHandle; }

@@ -8,10 +8,9 @@ UWorld::~UWorld()
 {
 	for (auto& actor : m_Actors)
 	{
-		if (actor->HasBegunPlay())
-		{
-			actor->EndPlay();
-		}
+		// アクター本体 + コンポーネント両方の EndPlay を配送する
+		// (BeginPlay 済みの場合のみ。内部でガードされる)
+		actor->DispatchEndPlay();
 		actor->UnregisterAllComponents();
 	}
 	m_Actors.clear();
@@ -46,24 +45,28 @@ void UWorld::Tick(float DeltaTime)
 	}
 
 	// ---- 破棄予約されたアクターの削除 (PendingKill 相当) ----
-	if (!m_PendingKillActors.empty())
+	// EndPlay 中の DestroyActor が m_PendingKillActors へ push_back しても
+	// 安全なように、ローカルへ swap してから処理する (range-for 中の
+	// push_back によるイテレータ無効化の防止)。処理中に新たに積まれた
+	// 分も while で同フレーム内に消化する。
+	while (!m_PendingKillActors.empty())
 	{
-		for (AActor* dead : m_PendingKillActors)
+		std::vector<AActor*> pendingKill;
+		pendingKill.swap(m_PendingKillActors);
+
+		for (AActor* dead : pendingKill)
 		{
 			auto it = std::find_if(m_Actors.begin(), m_Actors.end(),
 				[dead](const std::unique_ptr<AActor>& actor) { return actor.get() == dead; });
 
 			if (it != m_Actors.end())
 			{
-				if ((*it)->HasBegunPlay())
-				{
-					(*it)->EndPlay();
-				}
+				// アクター本体 + コンポーネント両方の EndPlay を配送
+				(*it)->DispatchEndPlay();
 				(*it)->UnregisterAllComponents();
 				m_Actors.erase(it);
 			}
 		}
-		m_PendingKillActors.clear();
 	}
 }
 

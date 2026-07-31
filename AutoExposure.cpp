@@ -18,8 +18,11 @@ AutoExposure::AutoExposure(RenderManager* owner)
 
 AutoExposure::~AutoExposure()
 {
-    if (m_ParamBuffer && m_ParamPtr)
-        m_ParamBuffer->Unmap(0, nullptr);
+    for (int i = 0; i < 2; ++i)
+    {
+        if (m_ParamBuffer[i] && m_ParamPtr[i])
+            m_ParamBuffer[i]->Unmap(0, nullptr);
+    }
     if (m_Readback && m_ReadbackPtr)
         m_Readback->Unmap(0, nullptr);
 }
@@ -284,11 +287,15 @@ void AutoExposure::Init()
         d.SampleDesc.Count = 1;
         d.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
 
-        HRESULT hr = Device()->CreateCommittedResource(&prop, D3D12_HEAP_FLAG_NONE,
-            &d, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
-            IID_PPV_ARGS(&m_ParamBuffer));
-        assert(SUCCEEDED(hr));
-        m_ParamBuffer->Map(0, nullptr, &m_ParamPtr);
+        // フレーム毎にダブルバッファ (in-flight フレームとの書き込み競合防止)
+        for (int i = 0; i < 2; ++i)
+        {
+            HRESULT hr = Device()->CreateCommittedResource(&prop, D3D12_HEAP_FLAG_NONE,
+                &d, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+                IID_PPV_ARGS(&m_ParamBuffer[i]));
+            assert(SUCCEEDED(hr));
+            m_ParamBuffer[i]->Map(0, nullptr, &m_ParamPtr[i]);
+        }
     }
 
     // ------------------------------------------------------------
@@ -344,10 +351,12 @@ void AutoExposure::Dispatch(ID3D12Resource* sceneColorResource,
     p.ExposureCompensation = m_Params.ExposureCompensation;
     // Guard against huge first-frame / paused dt (avoids an exposure pop).
     p.DeltaTime = (deltaTime > 0.0f && deltaTime < 0.5f) ? deltaTime : 1.0f / 60.0f;
-    std::memcpy(m_ParamPtr, &p, sizeof(p));
+    // 現在フレーム側のバッファへ書く (前フレームの GPU 読みと競合しない)
+    const unsigned int frameIndex = m_Owner->GetCurrentFrameIndex();
+    std::memcpy(m_ParamPtr[frameIndex], &p, sizeof(p));
 
     cl->SetComputeRootSignature(m_RootSignature.Get());
-    cl->SetComputeRootConstantBufferView(0, m_ParamBuffer->GetGPUVirtualAddress());
+    cl->SetComputeRootConstantBufferView(0, m_ParamBuffer[frameIndex]->GetGPUVirtualAddress());
 
     // One-time zero init of the persistent result buffer. It is created in
     // UAV state, so on the first frame we can clear it directly (the average
@@ -402,7 +411,7 @@ void AutoExposure::Dispatch(ID3D12Resource* sceneColorResource,
         cl->Dispatch(gx, gy, 1);
 
         cl->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::UAV(m_Histogram.Get()));
-    
+
         // 後続パス (Bloom / Tonemap) はピクセルシェーダーから読むため元の状態へ戻す。
         cl->ResourceBarrier(1,
             &CD3DX12_RESOURCE_BARRIER::Transition(sceneColorResource,

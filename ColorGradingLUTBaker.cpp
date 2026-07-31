@@ -9,14 +9,17 @@
 //  ColorGradingLUTBaker : Grading LUT bake (compute).
 // ============================================================
 
-ColorGradingLUTBaker::ColorGradingLUTBaker(RenderManager* owner): m_Owner(owner)
+ColorGradingLUTBaker::ColorGradingLUTBaker(RenderManager* owner) : m_Owner(owner)
 {
 }
 
 ColorGradingLUTBaker::~ColorGradingLUTBaker()
 {
-	if (m_ParamBuffer && m_ParamPtr)
-		m_ParamBuffer->Unmap(0, nullptr);
+	for (int i = 0; i < 2; ++i)
+	{
+		if (m_ParamBuffer[i] && m_ParamPtr[i])
+			m_ParamBuffer[i]->Unmap(0, nullptr);
+	}
 }
 
 ID3D12Device* ColorGradingLUTBaker::Device()
@@ -185,11 +188,15 @@ void ColorGradingLUTBaker::Init()
 		d.SampleDesc.Count = 1;
 		d.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
 
-		HRESULT hr = Device()->CreateCommittedResource(&prop, D3D12_HEAP_FLAG_NONE,
-			&d, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
-			IID_PPV_ARGS(&m_ParamBuffer));
-		assert(SUCCEEDED(hr));
-		m_ParamBuffer->Map(0, nullptr, &m_ParamPtr);
+		// フレーム毎にダブルバッファ (in-flight フレームとの書き込み競合防止)
+		for (int i = 0; i < 2; ++i)
+		{
+			HRESULT hr = Device()->CreateCommittedResource(&prop, D3D12_HEAP_FLAG_NONE,
+				&d, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+				IID_PPV_ARGS(&m_ParamBuffer[i]));
+			assert(SUCCEEDED(hr));
+			m_ParamBuffer[i]->Map(0, nullptr, &m_ParamPtr[i]);
+		}
 	}
 
 	// 1x1 fallback so the artist-LUT SRV slot (t0) is always bound.
@@ -308,7 +315,9 @@ void ColorGradingLUTBaker::UpdateIfDirty(const PP_SETTINGS& Settings)
 	m_LastParams = p;
 	m_Dirty = false;
 
-	std::memcpy(m_ParamPtr, &p, sizeof(GRADING_PARAMS));
+	// 現在フレーム側のバッファへ書く (前フレームのベイクが in-flight でも競合しない)
+	const unsigned int frameIndex = m_Owner->GetCurrentFrameIndex();
+	std::memcpy(m_ParamPtr[frameIndex], &p, sizeof(GRADING_PARAMS));
 
 	ID3D12GraphicsCommandList* cl = CommandList();
 	ID3D12DescriptorHeap* heap = m_Owner->GetSRVDescriptorHeap();
@@ -316,7 +325,7 @@ void ColorGradingLUTBaker::UpdateIfDirty(const PP_SETTINGS& Settings)
 
 	cl->SetComputeRootSignature(m_RootSignature.Get());
 	cl->SetPipelineState(m_PSO.Get());
-	cl->SetComputeRootConstantBufferView(0, m_ParamBuffer->GetGPUVirtualAddress());
+	cl->SetComputeRootConstantBufferView(0, m_ParamBuffer[frameIndex]->GetGPUVirtualAddress());
 	cl->SetComputeRootDescriptorTable(1, m_Owner->GetGPUDescriptorHandle(m_LUTUAVIndex));
 	// t0 : artist LUT if present, else the 1x1 fallback (always bound).
 	unsigned int artistSRV = m_ArtistLUT ? m_ArtistLUT->SRVIndex : m_FallbackSRVIndex;

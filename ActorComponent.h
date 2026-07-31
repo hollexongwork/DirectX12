@@ -57,6 +57,15 @@ public:
 		BeginPlay();
 	}
 
+	// BeginPlay 済みの場合のみ EndPlay を1回だけ呼ぶ
+	// (AActor::DispatchEndPlay から呼ばれる)
+	void DispatchEndPlay()
+	{
+		if (!m_HasBegunPlay) return;
+		m_HasBegunPlay = false;
+		EndPlay();
+	}
+
 	// ---- アクセサ ----
 	void    SetOwner(AActor* Owner) { m_Owner = Owner; }
 	AActor* GetOwner() const { return m_Owner; }

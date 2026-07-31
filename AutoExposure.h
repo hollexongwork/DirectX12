@@ -92,8 +92,11 @@ private:
     ComPtr<ID3D12DescriptorHeap> m_ClearHeap;
 
     // b0 upload buffer.
-    ComPtr<ID3D12Resource>      m_ParamBuffer;
-    void* m_ParamPtr = nullptr;
+    // 2フレーム・イン・フライトのため、CPU 書き込みが in-flight フレームの
+    // GPU 読みと競合しないようフレーム毎にダブルバッファする
+    // (m_LightBuffer 等と同じパターン)。
+    ComPtr<ID3D12Resource>      m_ParamBuffer[2];
+    void* m_ParamPtr[2] = {};
 
     bool                        m_ResultInitialised = false;
 
