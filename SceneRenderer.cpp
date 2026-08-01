@@ -2,12 +2,11 @@
 #include "RenderManager.h"
 #include "SceneRenderer.h"
 #include "Scene.h"
+#include "SceneView.h"
 #include "PrimitiveSceneProxy.h"
 #include "LightSceneProxy.h"
 #include "ShadowRendering.h"
 #include "LightGridInjection.h"
-#include "CameraComponent.h"
-#include "PostProcessVolume.h"
 #include "IBLBaker.h"
 #include "AutoExposure.h"
 #include "ColorGradingLUTBaker.h"
@@ -294,21 +293,12 @@ void FSceneRenderer::SetupLightConstants(FScene* Scene)
 // ============================================================
 //  PostProcess constant (resolved settings -> b4)
 // ============================================================
-void FSceneRenderer::ResolvePostProcessSettings(FScene* Scene)
+void FSceneRenderer::ResolvePostProcessSettings(const FSceneView& View)
 {
-	// FFinalPostProcessSettings 解決に相当。
-	// ボリュームが登録されていればその設定を、無ければ既定値を使う。
-	// (bUnbound=false の範囲判定 / BlendWeight ブレンドはあたり判定フェーズで有効化)
-	APostProcessVolume* volume = Scene ? Scene->GetPostProcessVolume() : nullptr;
-
-	if (volume && volume->bEnabled && volume->bUnbound)
-	{
-		m_FinalSettings = volume->Settings();
-	}
-	else
-	{
-		m_FinalSettings = PP_SETTINGS{};
-	}
+	// ボリュームからの解決 (FFinalPostProcessSettings 相当) はゲーム側
+	// (UWorld::CalcSceneView) で済んでいる。ここではレンダラ専有コピーへ
+	// 受け取るだけ (パス内の一時変更をボリュームへ書き戻さないため)。
+	m_FinalSettings = View.FinalPostProcessSettings;
 
 	// テクセルサイズはレンダラ管轄 (フル解像度で開始)
 	SetTexelSize(m_RHI->GetBackBufferWidth(), m_RHI->GetBackBufferHeight());
@@ -430,7 +420,7 @@ void FSceneRenderer::ComputeViewVisibility(FScene* Scene)
 	}
 
 	const FConvexVolume& frustum = m_bHasFrozenView ? m_FrozenViewFrustum : m_ViewFrustum;
-	const XMFLOAT3&      cullOrigin = m_bHasFrozenView ? m_FrozenViewOrigin : viewOrigin;
+	const XMFLOAT3& cullOrigin = m_bHasFrozenView ? m_FrozenViewOrigin : viewOrigin;
 
 	// ---- プリミティブ巡回 (PrimitiveCull) ----
 	const std::vector<FPrimitiveSceneInfo>& primitives = Scene->GetPrimitives();
@@ -492,17 +482,30 @@ void FSceneRenderer::ComputeViewVisibility(FScene* Scene)
 // ============================================================
 //  Base pass: view/env constants + scene primitives -> G-Buffer
 // ============================================================
-void FSceneRenderer::RenderBasePass(FScene* Scene)
+void FSceneRenderer::RenderBasePass(FScene* Scene, const FSceneView& View)
 {
 	if (Scene == nullptr) return;
 
 	// ---- VIEW 定数 (b0: カメラ + 代表ディレクショナルライト) ----
-	// FViewUniformShaderParameters と同様、カメラ由来の
-	// 行列群とシーンの太陽ライトを 1 つの View ユニフォームに解決する。
-	if (UCameraComponent* camera = Scene->GetActiveCamera())
+	// FViewUniformShaderParameters と同様、FSceneView (ゲーム側で
+	// スナップショット済みのカメラ情報) とシーンの太陽ライトを
+	// 1 つの View ユニフォームに解決する。カメラ不在
+	// (View.bValid = false) のフレームは前回の VIEW 定数を保持する
+	// (従来のカメラ不在時挙動と同じ)。
+	if (View.bValid)
 	{
-		float aspect = (float)m_RHI->GetBackBufferWidth() / m_RHI->GetBackBufferHeight();
-		camera->GetViewConstants(m_ViewConstant, aspect);
+		XMMATRIX view = XMLoadFloat4x4(&View.ViewMatrix);
+		XMMATRIX projection = XMLoadFloat4x4(&View.ProjectionMatrix);
+
+		XMMATRIX viewProjection = view * projection;
+		XMMATRIX invViewProjection = XMMatrixInverse(nullptr, viewProjection);
+
+		XMStoreFloat4x4(&m_ViewConstant.View, XMMatrixTranspose(view));
+		XMStoreFloat4x4(&m_ViewConstant.Projection, XMMatrixTranspose(projection));
+		XMStoreFloat4x4(&m_ViewConstant.InvViewProjection, XMMatrixTranspose(invViewProjection));
+
+		m_ViewConstant.WorldCameraOrigin = { View.ViewOrigin.x, View.ViewOrigin.y, View.ViewOrigin.z, 1.0f };
+		m_ViewConstant.NearFar = { View.NearClip, View.FarClip, 0.0f, 0.0f };
 	}
 
 	// FScene のライトリストを VIEW 定数 (directional) /
@@ -512,8 +515,8 @@ void FSceneRenderer::RenderBasePass(FScene* Scene)
 	m_RHI->SetConstant(RenderManager::CONSTANT_TYPE::VIEW, &m_ViewConstant, sizeof(m_ViewConstant));
 	m_RHI->SetConstant(RenderManager::CONSTANT_TYPE::FORWARD_LIGHT, &m_ForwardLightConstant, sizeof(m_ForwardLightConstant));
 
-	// ---- POST_PROCESS 定数 (b4: ボリュームから解決した設定) ----
-	ResolvePostProcessSettings(Scene);
+	// ---- POST_PROCESS 定数 (b4: ゲーム側で解決済みの設定) ----
+	ResolvePostProcessSettings(View);
 	UploadPostProcessConstant();
 
 	// ---- ビュー可視性の解決 (ComputeViewVisibility) ----
@@ -552,20 +555,19 @@ void FSceneRenderer::RenderBasePass(FScene* Scene)
 //  ※ 各シャドウビューが VIEW 定数 (b0) を上書きするため、
 //    RenderLighting 先頭でカメラの VIEW 定数を積み直す。
 // ============================================================
-void FSceneRenderer::RenderShadowDepths(FScene* Scene)
+void FSceneRenderer::RenderShadowDepths(FScene* Scene, const FSceneView& View)
 {
 	if (Scene == nullptr || m_ShadowRenderer == nullptr) return;
-
-	float aspect = (float)m_RHI->GetBackBufferWidth() / m_RHI->GetBackBufferHeight();
 
 	// カリング制御をシャドウ側へ伝搬 (デバッグ時に一括で無効化できる)
 	m_ShadowRenderer->SetFrustumCullingEnabled(m_CullingParams.bEnableFrustumCulling);
 
 	// シャドウビュー構築 (CSM カスケード + ローカルスライス割当) と
-	// GPU パラメータ (b5 / t16) の更新
+	// GPU パラメータ (b5 / t16) の更新。CSM のフィッティングは
+	// FSceneView のカメラスナップショットを使う (View.bValid = false
+	// のフレームは CSM をスキップ = 従来のカメラ不在時挙動)。
 	m_ShadowRenderer->InitDynamicShadows(
-		m_FrameDirectionalLight, m_FrameLocalLights,
-		Scene->GetActiveCamera(), aspect);
+		m_FrameDirectionalLight, m_FrameLocalLights, View);
 
 	// Distance Field オブジェクトバッファ (t18) を今フレームの
 	// プロキシ列から詰め直す (DistanceFieldObjectBuffers 更新相当)
@@ -793,8 +795,8 @@ void FSceneRenderer::RenderTranslucency(FScene* Scene)
 		case ETranslucentSortPolicy::SortAlongAxis:
 			// 固定軸への射影 (2D / 見下ろし向け)
 			sortKey = origin.x * transParams.SortAxis.x
-			        + origin.y * transParams.SortAxis.y
-			        + origin.z * transParams.SortAxis.z;
+				+ origin.y * transParams.SortAxis.y
+				+ origin.z * transParams.SortAxis.z;
 			break;
 
 		case ETranslucentSortPolicy::SortByDistance:
@@ -983,6 +985,7 @@ void FSceneRenderer::RenderPostProcessing()
 	if (m_AutoExposure)
 	{
 		m_AutoExposure->Dispatch(
+			m_SceneTextures.SceneColor->Resource.Get(),
 			m_SceneTextures.SceneColor->SRVIndex,
 			(unsigned int)m_RHI->GetBackBufferWidth(),
 			(unsigned int)m_RHI->GetBackBufferHeight(),

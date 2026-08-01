@@ -72,15 +72,15 @@ GameManager::GameManager(HWND hWnd)
 	{
 		// 旧 ACat / AHorse / ATable が設定していた共通マテリアル値
 		auto SetDefaultLitMaterial = [](Material& material)
-		{
-			material.Params.BaseColor = { 0.5f, 0.0f, 0.5f, 1.0f };
-			material.Params.EmissionColor = { 0.0f, 0.0f, 0.0f, 0.0f };
-			material.Params.Metallic = 0.0f;
-			material.Params.Specular = 0.0f;
-			material.Params.Roughness = 1.0f;
-			material.Params.NormalWeight = 1.0f;
-			material.Params.Unlit = FALSE;
-		};
+			{
+				material.Params.BaseColor = { 0.5f, 0.0f, 0.5f, 1.0f };
+				material.Params.EmissionColor = { 0.0f, 0.0f, 0.0f, 0.0f };
+				material.Params.Metallic = 0.0f;
+				material.Params.Specular = 0.0f;
+				material.Params.Roughness = 1.0f;
+				material.Params.NormalWeight = 1.0f;
+				material.Params.Unlit = FALSE;
+			};
 
 		// テーブル (旧 ATable)
 		AStaticMeshActor* table = m_World.SpawnActor<AStaticMeshActor>();
@@ -200,17 +200,29 @@ void GameManager::Update()
 	// 変更されたレンダーステート / トランスフォームをプロキシへ反映
 	// (UWorld::SendAllEndOfFrameUpdates)
 	m_World.SendAllEndOfFrameUpdates();
+
+	// マウスの前フレームステート退避(クリックトリガーのエッジ検出用)。
+	// 必ず全ゲームコードの入力読み取り後 = フレーム末尾で行うこと。
+	m_InputManager.PostUpdate();
 }
 
 void GameManager::Draw()
 {
+	// ---- FSceneView 構築 (ゲーム側フェーズ) ----
+	// アクティブカメラ + APostProcessVolume をフレームに 1 回だけ
+	// 値スナップショットへ解決し、レンダラのパス列へ渡す。
+	// 以後レンダラはゲームオブジェクトに一切触れない。
+	const float aspectRatio =
+		(float)m_RenderManager.GetBackBufferWidth() / m_RenderManager.GetBackBufferHeight();
+	const FSceneView sceneView = m_World.CalcSceneView(aspectRatio);
+
 	// FDeferredShadingSceneRenderer::Render に相当するパス列。
-	m_SceneRenderer.BeginFrame();                          // RHI 準備 + G-Buffer オープン + ImGui NewFrame
-	m_SceneRenderer.RenderBasePass(m_World.GetScene());    // ビュー/環境定数 + プリミティブ -> G-Buffer
-	m_SceneRenderer.RenderShadowDepths(m_World.GetScene());// CSM + ローカルシャドウ深度 -> シャドウマップ
-	m_SceneRenderer.RenderLighting();                      // LinearDepth + デファード -> SceneColor
-	m_SceneRenderer.RenderTranslucency(m_World.GetScene());// Translucent/Additive -> SceneColor (後→前フォワード合成)
-	m_SceneRenderer.RenderPostProcessing();                // DOF -> AutoExposure -> Bloom -> LUT -> Tonemap
-	m_ImGuiManager.Draw();                                 // UI 構築 (描画は EndFrame 内)
-	m_SceneRenderer.EndFrame();                            // ImGui 描画 + Present
+	m_SceneRenderer.BeginFrame();                                     // RHI 準備 + G-Buffer オープン + ImGui NewFrame
+	m_SceneRenderer.RenderBasePass(m_World.GetScene(), sceneView);    // ビュー/環境定数 + プリミティブ -> G-Buffer
+	m_SceneRenderer.RenderShadowDepths(m_World.GetScene(), sceneView);// CSM + ローカルシャドウ深度 -> シャドウマップ
+	m_SceneRenderer.RenderLighting();                                 // LinearDepth + デファード -> SceneColor
+	m_SceneRenderer.RenderTranslucency(m_World.GetScene());           // Translucent/Additive -> SceneColor (後→前フォワード合成)
+	m_SceneRenderer.RenderPostProcessing();                           // DOF -> AutoExposure -> Bloom -> LUT -> Tonemap
+	m_ImGuiManager.Draw();                                            // UI 構築 (描画は EndFrame 内)
+	m_SceneRenderer.EndFrame();                                       // ImGui 描画 + Present
 }

@@ -6,6 +6,7 @@
 class FScene;
 class FShadowSceneRenderer;
 class FLightSceneProxy;
+struct FSceneView;
 
 // ============================================================
 //  FSceneRenderer
@@ -24,10 +25,15 @@ class FLightSceneProxy;
 //    RenderPostProcessing  : DOF -> AutoExposure -> Bloom -> LUT -> Tonemap
 //    EndFrame              : ImGui 描画 + Present
 //
-//  ポストプロセス設定は毎フレーム APostProcessVolume から
-//  m_FinalSettings (FFinalPostProcessSettings 相当) に解決され、
-//  パス内の一時変更 (テクセルサイズ / DofPad) はこのコピーにのみ
-//  行われる — ボリューム側は不変。
+//  ポストプロセス設定はゲーム側 (UWorld::CalcSceneView) が
+//  APostProcessVolume から FSceneView::FinalPostProcessSettings へ
+//  解決済み。レンダラはそれを m_FinalSettings (レンダラ専有
+//  コピー) へ受け取り、パス内の一時変更 (テクセルサイズ / DofPad)
+//  はこのコピーにのみ行われる — ボリューム側は不変。
+//
+//  ビュー情報も同様に FSceneView (値スナップショット) 経由で
+//  受け取る。レンダラが UCameraComponent / APostProcessVolume を
+//  直接読むことはない。
 // ============================================================
 
 class FSceneRenderer
@@ -88,7 +94,7 @@ private:
 	// 2 フレームインフライト (Present の待ち方) に合わせて
 	// ダブルバッファ化し、GPU が読んでいる方への上書きを避ける。
 	ComPtr<ID3D12Resource>          m_LightBuffer[2];
-	struct FLightShaderParameters*  m_LightBufferPointer[2] = {};	// 永続 Map 先
+	struct FLightShaderParameters* m_LightBufferPointer[2] = {};	// 永続 Map 先
 	unsigned int                    m_LightBufferSRVIndex[2] = {};
 	unsigned int                    m_LightBufferFrame = 0;
 
@@ -138,8 +144,8 @@ private:
 	// FORWARD_LIGHT 定数 + ライトバッファ (local, t13)。
 	// RenderBasePass の先頭で毎フレーム実行。
 	void SetupLightConstants(FScene* Scene);
-	// ボリューム設定 -> m_FinalSettings に解決 (フル解像度テクセル付き)
-	void ResolvePostProcessSettings(FScene* Scene);
+	// FSceneView の解決済み設定 -> m_FinalSettings (フル解像度テクセル付き)
+	void ResolvePostProcessSettings(const FSceneView& View);
 	// m_FinalSettings を POST_PROCESS 定数 (b4) にアップロード
 	void UploadPostProcessConstant();
 	// m_FinalSettings のテクセルサイズを更新 (パス内の解像度切替用)
@@ -161,11 +167,14 @@ public:
 	~FSceneRenderer();
 
 	// ---- フレームパス列 (GameManager::Draw から呼ばれる) ----
+	// View はゲーム側 (UWorld::CalcSceneView) がフレーム先頭で構築した
+	// 値スナップショット。View.bValid = false (カメラ不在) のフレームは
+	// ビュー定数を更新せず、CSM もスキップする (従来挙動と同じ)。
 	void BeginFrame();
-	void RenderBasePass(FScene* Scene);
+	void RenderBasePass(FScene* Scene, const FSceneView& View);
 	// シャドウ深度パス (RenderShadowDepthMaps)。RenderBasePass の後、
 	// RenderLighting の前に呼ぶこと (SetupLightConstants の結果を使う)。
-	void RenderShadowDepths(FScene* Scene);
+	void RenderShadowDepths(FScene* Scene, const FSceneView& View);
 	void RenderLighting();
 	// トランスルーセンシーパス (RenderTranslucency 相当)。
 	// RenderLighting の後 (SceneColor 確定後)、RenderPostProcessing の
@@ -207,7 +216,7 @@ public:
 		int NumDistanceCulled = 0;	// Min/MaxDrawDistance で棄却された数
 	};
 
-	FCullingParams&      GetCullingParams() { return m_CullingParams; }
+	FCullingParams& GetCullingParams() { return m_CullingParams; }
 	const FCullingStats& GetCullingStats() const { return m_CullingStats; }
 
 	// ---- トランスルーセンシーソートポリシー (ETranslucentSortPolicy) ----

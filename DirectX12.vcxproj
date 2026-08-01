@@ -133,6 +133,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="Actor.cpp" />
+    <ClCompile Include="AssetManager.cpp" />
     <ClCompile Include="AutoExposure.cpp" />
     <ClCompile Include="Camera.cpp" />
     <ClCompile Include="CameraComponent.cpp" />
@@ -185,6 +186,7 @@
   <ItemGroup>
     <ClInclude Include="Actor.h" />
     <ClInclude Include="ActorComponent.h" />
+    <ClInclude Include="AssetManager.h" />
     <ClInclude Include="AutoExposure.h" />
     <ClInclude Include="BoxSphereBounds.h" />
     <ClInclude Include="Camera.h" />
@@ -231,6 +233,7 @@
     <ClInclude Include="SceneComponent.h" />
     <ClInclude Include="SceneRenderer.h" />
     <ClInclude Include="SceneTextures.h" />
+    <ClInclude Include="SceneView.h" />
     <ClInclude Include="SettingsManager.h" />
     <ClInclude Include="ShadowRendering.h" />
     <ClInclude Include="Sky.h" />

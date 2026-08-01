@@ -34,14 +34,14 @@ public:
     // SettingsManager が Default スナップショットを保持するため public 型にしている。
     struct Params
     {
-        float MinLogLuminance      = -10.0f;  // histogram low  end (log2)
-        float MaxLogLuminance      = 1.0f;    // histogram high end (log2)
-        float LowPercent           = 0.25f;   // clip darkest
-        float HighPercent          = 0.75f;   // clip above
-        float MinBrightness        = 0.03f;   // exposure clamp (lo)
-        float MaxBrightness        = 0.25f;   // exposure clamp (hi)
-        float SpeedUp              = 10.0f;   // adapt speed (scene brighter)
-        float SpeedDown            = 10.0f;   // adapt speed (scene darker)
+        float MinLogLuminance = -10.0f;  // histogram low  end (log2)
+        float MaxLogLuminance = 1.0f;    // histogram high end (log2)
+        float LowPercent = 0.25f;   // clip darkest
+        float HighPercent = 0.75f;   // clip above
+        float MinBrightness = 0.03f;   // exposure clamp (lo)
+        float MaxBrightness = 0.25f;   // exposure clamp (hi)
+        float SpeedUp = 10.0f;   // adapt speed (scene brighter)
+        float SpeedDown = 10.0f;   // adapt speed (scene darker)
         float ExposureCompensation = 0.0f;    // EV bias on the auto result
     };
 
@@ -92,8 +92,11 @@ private:
     ComPtr<ID3D12DescriptorHeap> m_ClearHeap;
 
     // b0 upload buffer.
-    ComPtr<ID3D12Resource>      m_ParamBuffer;
-    void* m_ParamPtr = nullptr;
+    // 2フレーム・イン・フライトのため、CPU 書き込みが in-flight フレームの
+    // GPU 読みと競合しないようフレーム毎にダブルバッファする
+    // (m_LightBuffer 等と同じパターン)。
+    ComPtr<ID3D12Resource>      m_ParamBuffer[2];
+    void* m_ParamPtr[2] = {};
 
     bool                        m_ResultInitialised = false;
 
@@ -117,13 +120,18 @@ public:
     void Init();                       // root sig / PSOs / buffers / SRV
 
     // Record the histogram + adaptation dispatches for this frame.
-    //  sceneColorSRVIndex : SRV of the HDR SceneColor (already in a
-    //                       shader-readable state by the caller).
+    //  sceneColorResource : HDR SceneColor resource. Must be in
+    //                       PIXEL_SHADER_RESOURCE on entry; Dispatch
+    //                       transitions it to NON_PIXEL_SHADER_RESOURCE
+    //                       for the histogram compute pass and restores
+    //                       it before returning.
+    //  sceneColorSRVIndex : SRV of the HDR SceneColor.
     //  width/height       : SceneColor dimensions.
     //  deltaTime          : seconds since last frame (adaptation rate).
-    void Dispatch(unsigned int sceneColorSRVIndex,
-                  unsigned int width, unsigned int height,
-                  float deltaTime);
+    void Dispatch(ID3D12Resource* sceneColorResource,
+        unsigned int sceneColorSRVIndex,
+        unsigned int width, unsigned int height,
+        float deltaTime);
 
     // SRV index of the 1-element exposure result buffer, bound
     // to the tonemap pass on t11 (TEXTURE_TYPE::AUTO_EXPOSURE).
@@ -144,7 +152,7 @@ public:
 
     // ---- Tunable parameters (driven by ImGui / PostProcessVolume) ----
 
-    Params&       GetParams()       { return m_Params; }
+    Params& GetParams() { return m_Params; }
     const Params& GetParams() const { return m_Params; }
 
     static const unsigned int HISTOGRAM_BINS = 256;

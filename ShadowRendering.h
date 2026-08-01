@@ -3,7 +3,7 @@
 #include "LightSceneProxy.h"
 
 class FScene;
-class UCameraComponent;
+struct FSceneView;
 
 // ============================================================
 //  ShadowRendering
@@ -162,7 +162,7 @@ private:
 	// ---- Distance Field オブジェクトバッファ (StructuredBuffer, t18) ----
 	// t16 と同じダブルバッファのアップロードヒープ。
 	ComPtr<ID3D12Resource> m_DFObjectBuffer[2];
-	FDFObjectData*         m_DFObjectPointer[2] = {};
+	FDFObjectData* m_DFObjectPointer[2] = {};
 	unsigned int           m_DFObjectSRVIndex[2] = {};
 	unsigned int           m_DFObjectFrame = 0;
 	unsigned int           m_NumDFObjects = 0;
@@ -188,9 +188,10 @@ private:
 	void InitShadowParamBuffers();
 	void InitDistanceFieldBuffers();
 
-	// CSM カスケード構築 (サブフラスタ外接球 + テクセルスナップ)
+	// CSM カスケード構築 (サブフラスタ外接球 + テクセルスナップ)。
+	// カメラ情報は FSceneView (ゲーム側スナップショット) から読む。
 	void SetupDirectionalShadows(const FLightSceneProxy* Directional,
-		UCameraComponent* Camera, float AspectRatio);
+		const FSceneView& View);
 
 	// スポット / レクト / ポイントのシャドウビュー + t16 パラメータ構築
 	void SetupLocalShadows(const std::vector<const FLightSceneProxy*>& LocalLights);
@@ -202,10 +203,12 @@ public:
 	// 毎フレーム: プロキシ列からシャドウビューと GPU パラメータを構築する
 	// (FSceneRenderer::InitDynamicShadows)。
 	// LocalLights はライトバッファ (t13) と同順であること (t16 と 1:1 対応)。
+	// View はゲーム側で構築済みの FSceneView (カメラスナップショット)。
+	// View.bValid = false のフレームは CSM をスキップする。
 	void InitDynamicShadows(
 		const FLightSceneProxy* Directional,
 		const std::vector<const FLightSceneProxy*>& LocalLights,
-		UCameraComponent* Camera, float AspectRatio);
+		const FSceneView& View);
 
 	// Distance Field オブジェクトバッファ (t18) を今フレームの
 	// プロキシ列から詰め直す (DistanceFieldObjectBuffers 更新相当)。

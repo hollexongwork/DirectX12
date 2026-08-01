@@ -1,12 +1,71 @@
 #include "Main.h"
+#include <algorithm>
 #include "SceneComponent.h"
+
+USceneComponent::~USceneComponent()
+{
+	// 親の子リストから自分を除去 (親側に解放済みポインタを残さない)
+	DetachFromParent();
+
+	// 子の親ポインタを無効化 (子側が解放済みの親を辿らないようにする)。
+	// 以後、子の GetComponentToWorld はローカル行列をワールドとして扱う。
+	// 親が消える = 子のワールドトランスフォームが変わるため、
+	// 生き残る子はダーティにしてプロキシへ再プッシュさせる。
+	for (USceneComponent* child : m_AttachChildren)
+	{
+		child->m_AttachParent = nullptr;
+		child->MarkRenderTransformDirty();
+	}
+	m_AttachChildren.clear();
+}
 
 void USceneComponent::SetupAttachment(USceneComponent* Parent)
 {
 	if (Parent == nullptr || Parent == this) return;
 
+	// 循環アタッチ防止: Parent の祖先チェーンに自分がいたら無視する
+	// (許すと GetComponentToWorld が無限再帰する)
+	for (USceneComponent* ancestor = Parent; ancestor != nullptr; ancestor = ancestor->m_AttachParent)
+	{
+		if (ancestor == this) return;
+	}
+
+	// 付け替え: 旧親の子リストに残留エントリを作らない
+	DetachFromParent();
+
 	m_AttachParent = Parent;
 	Parent->m_AttachChildren.push_back(this);
+
+	// 親が変わる = ワールドトランスフォームが変わる (自分と子孫)
+	MarkRenderTransformDirty();
+}
+
+void USceneComponent::DetachFromParent()
+{
+	if (m_AttachParent == nullptr) return;
+
+	std::vector<USceneComponent*>& siblings = m_AttachParent->m_AttachChildren;
+	siblings.erase(std::remove(siblings.begin(), siblings.end(), this), siblings.end());
+
+	m_AttachParent = nullptr;
+
+	// 親が外れる = ワールドトランスフォームが変わる (自分と子孫)
+	MarkRenderTransformDirty();
+}
+
+// ============================================================
+//  レンダートランスフォームダーティ (プッシュ型更新)
+//  既定実装はアタッチ子への再帰伝搬のみ。描画に関与する派生
+//  (UPrimitiveComponent / ULightComponent) がオーバーライドして
+//  FScene のトランスフォームダーティリストへ自分を積む。
+// ============================================================
+void USceneComponent::MarkRenderTransformDirty()
+{
+	// 親の移動は子のワールドトランスフォームも変えるため再帰伝搬する
+	for (USceneComponent* child : m_AttachChildren)
+	{
+		child->MarkRenderTransformDirty();
+	}
 }
 
 XMMATRIX USceneComponent::GetLocalMatrix() const

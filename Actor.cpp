@@ -13,22 +13,42 @@ void AActor::DispatchBeginPlay()
 	if (m_HasBegunPlay) return;
 	m_HasBegunPlay = true;
 
-	// コンポーネント → アクター本体の順で BeginPlay
-	for (auto& component : m_OwnedComponents)
+	// コンポーネント → アクター本体の順で BeginPlay。
+	// BeginPlay 中の CreateDefaultSubobject (動的追加) による
+	// push_back (再確保) に備えてインデックスループで巡回する
+	// (range-for だとイテレータ無効化で UB)。追加分もこのループで
+	// BeginPlay される。
+	for (size_t i = 0; i < m_OwnedComponents.size(); ++i)
 	{
-		component->DispatchBeginPlay();
+		m_OwnedComponents[i]->DispatchBeginPlay();
 	}
 
 	BeginPlay();
 }
 
+void AActor::DispatchEndPlay()
+{
+	if (!m_HasBegunPlay) return;
+	m_HasBegunPlay = false;
+
+	// アクター本体 → コンポーネントの順で EndPlay (BeginPlay の逆順)
+	EndPlay();
+
+	for (size_t i = 0; i < m_OwnedComponents.size(); ++i)
+	{
+		m_OwnedComponents[i]->DispatchEndPlay();
+	}
+}
+
 void AActor::TickComponents(float DeltaTime)
 {
-	for (auto& component : m_OwnedComponents)
+	// TickComponent 中の動的追加に備えてインデックスループ
+	// (DispatchBeginPlay と同様)
+	for (size_t i = 0; i < m_OwnedComponents.size(); ++i)
 	{
-		if (component->bCanEverTick)
+		if (m_OwnedComponents[i]->bCanEverTick)
 		{
-			component->TickComponent(DeltaTime);
+			m_OwnedComponents[i]->TickComponent(DeltaTime);
 		}
 	}
 }

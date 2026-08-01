@@ -23,26 +23,57 @@ class USceneComponent : public UActorComponent
 protected:
 	XMFLOAT3 m_RelativeLocation = { 0.0f, 0.0f, 0.0f };
 	XMFLOAT3 m_RelativeRotation = { 0.0f, 0.0f, 0.0f };	// ラジアン
-	XMFLOAT3 m_RelativeScale3D  = { 1.0f, 1.0f, 1.0f };
+	XMFLOAT3 m_RelativeScale3D = { 1.0f, 1.0f, 1.0f };
 
-	USceneComponent*              m_AttachParent = nullptr;
+	USceneComponent* m_AttachParent = nullptr;
 	std::vector<USceneComponent*> m_AttachChildren;
 
 	// ワールド空間の境界 (USceneComponent::Bounds)。
 	// UpdateBounds() が CalcBounds(GetComponentToWorld()) で更新する。
 	FBoxSphereBounds m_Bounds;
 
+	// レンダートランスフォームダーティフラグ (プッシュ型更新)。
+	// 立っている = FScene のトランスフォームダーティリストに
+	// エンキュー済み (登録中のみ)。二重登録防止に使う。
+	// UPrimitiveComponent / ULightComponent の
+	// MarkRenderTransformDirty オーバーライドが管理する。
+	bool m_RenderTransformDirty = false;
+
 public:
-	// ---- アタッチメント (登録前に呼ぶ) ----
+	// デストラクタで親子リンクを双方向に解除する
+	// (親の子リスト残留 / 子の親ポインタのダングリング防止)
+	virtual ~USceneComponent();
+
+	// ---- アタッチメント ----
+	// 既に親がいる場合は付け替え (旧親の子リストから自動除去)。
+	// 自分自身・自分の子孫へのアタッチ (循環) は無視される。
 	void SetupAttachment(USceneComponent* Parent);
 
-	USceneComponent*                     GetAttachParent() const { return m_AttachParent; }
+	// 親から切り離す (UE5 の DetachFromComponent に相当)。
+	// 親の子リストからも自分を除去する。未アタッチなら何もしない。
+	void DetachFromParent();
+
+	USceneComponent* GetAttachParent() const { return m_AttachParent; }
 	const std::vector<USceneComponent*>& GetAttachChildren() const { return m_AttachChildren; }
 
 	// ---- 相対トランスフォーム ----
-	void SetRelativeLocation(const XMFLOAT3& Location) { m_RelativeLocation = Location; }
-	void SetRelativeRotation(const XMFLOAT3& Rotation) { m_RelativeRotation = Rotation; }
-	void SetRelativeScale3D(const XMFLOAT3& Scale) { m_RelativeScale3D = Scale; }
+	// セッターはレンダートランスフォームダーティを自身 + 全アタッチ子へ
+	// 伝搬する (親の移動は子のワールドトランスフォームも変える)。
+	// AActor::SetActorLocation 等もここへ委譲されるため漏れなく捕捉される。
+	// ※ m_RelativeLocation 等を直接書き換えず必ずセッターを通すこと
+	//   (プッシュ型更新のダーティ通知が漏れる)
+	void SetRelativeLocation(const XMFLOAT3& Location) { m_RelativeLocation = Location; MarkRenderTransformDirty(); }
+	void SetRelativeRotation(const XMFLOAT3& Rotation) { m_RelativeRotation = Rotation; MarkRenderTransformDirty(); }
+	void SetRelativeScale3D(const XMFLOAT3& Scale) { m_RelativeScale3D = Scale; MarkRenderTransformDirty(); }
+
+	// ---- レンダートランスフォームダーティ (MarkRenderTransformDirty) ----
+	// 既定はアタッチ子への再帰伝搬のみ (自身は描画に関与しない)。
+	// UPrimitiveComponent / ULightComponent がオーバーライドして
+	// FScene のダーティリストへ自分を積む (フラグで二重登録防止)。
+	virtual void MarkRenderTransformDirty();
+
+	bool IsRenderTransformDirty() const { return m_RenderTransformDirty; }
+	void ClearRenderTransformDirty() { m_RenderTransformDirty = false; }
 
 	XMFLOAT3 GetRelativeLocation() const { return m_RelativeLocation; }
 	XMFLOAT3 GetRelativeRotation() const { return m_RelativeRotation; }

@@ -15,7 +15,10 @@
 class UPolygon2DComponent : public UPrimitiveComponent
 {
 private:
-	std::unique_ptr<VERTEX_BUFFER> m_VertexBuffer;
+	// CPU (TickComponent) が毎フレーム書き換えるアップロードバッファ。
+	// 2フレーム・イン・フライトのため、in-flight フレームの GPU 読みと
+	// 競合しないようフレーム毎にダブルバッファする。
+	std::unique_ptr<VERTEX_BUFFER> m_VertexBuffer[2];
 	std::unique_ptr<TEXTURE> m_Texture;
 
 	XMFLOAT4 m_VertexColor = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);

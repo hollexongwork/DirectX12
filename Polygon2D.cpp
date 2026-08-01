@@ -8,21 +8,33 @@
 //  UPolygon2DComponent のレンダー側ミラー。頂点バッファは
 //  ゲーム側 TickComponent が毎フレーム書き込む共有 GPU リソースを
 //  参照する (頂点色の反映はバッファ経由なので再生成不要)。
+//
+//  ※ 既知の例外 (意図的な設計):
+//    他のプロキシ (FStaticMeshSceneProxy / FFieldQuadSceneProxy) は
+//    shared_ptr による値スナップショットでコンポーネントから独立
+//    しているが、本プロキシはコンポーネント所有の VB / テクスチャを
+//    生ポインタで参照し続ける。ゲーム側が毎フレーム頂点を書き込む
+//    「CPU 動的バッファ」なのでスナップショット化できないため。
+//    コンポーネント破棄時は FScene::RemovePrimitive がプロキシも
+//    同時に破棄するためダングリングにはならない。
 // ============================================================
 
 class FPolygon2DSceneProxy : public FPrimitiveSceneProxy
 {
 private:
-	const VERTEX_BUFFER* m_VertexBuffer = nullptr;
-	const TEXTURE*       m_Texture = nullptr;
+	// フレーム毎のダブルバッファ (描画時に現在フレーム側を選択)
+	const VERTEX_BUFFER* m_VertexBuffer[2] = {};
+	const TEXTURE* m_Texture = nullptr;
 
 public:
 	FPolygon2DSceneProxy(const UPrimitiveComponent* Component,
-		const VERTEX_BUFFER* VertexBuffer, const TEXTURE* Texture)
+		const VERTEX_BUFFER* VertexBuffer0, const VERTEX_BUFFER* VertexBuffer1,
+		const TEXTURE* Texture)
 		: FPrimitiveSceneProxy(Component)
-		, m_VertexBuffer(VertexBuffer)
 		, m_Texture(Texture)
 	{
+		m_VertexBuffer[0] = VertexBuffer0;
+		m_VertexBuffer[1] = VertexBuffer1;
 	}
 
 	void DrawPrimitive(RenderManager* RM) const override
@@ -54,8 +66,9 @@ public:
 			RM->SetConstant(RenderManager::CONSTANT_TYPE::VIEW, &constant, sizeof(constant));
 		}
 
-		// Vertex Buffer Setting
-		RM->SetVertexBuffer(m_VertexBuffer);
+		// Vertex Buffer Setting (現在フレーム側を選択。
+		// TickComponent が書いたのと同じ側になる)
+		RM->SetVertexBuffer(m_VertexBuffer[RM->GetCurrentFrameIndex()]);
 
 		// Texture Setting
 		RM->SetTexture(RenderManager::TEXTURE_TYPE::BASE_COLOR, m_Texture);
@@ -72,25 +85,25 @@ public:
 //  UPolygon2DComponent
 // ------------------------------------------------------------
 
-UPolygon2DComponent::UPolygon2DComponent()
+// ------------------------------------------------------------
+//  4頂点クワッドの書き込み (コンストラクタ / TickComponent 共用)
+// ------------------------------------------------------------
+static void WriteQuadVertices(const VERTEX_BUFFER* VertexBuffer, const XMFLOAT4& Color)
 {
-	RenderManager* renderManager = RenderManager::GetInstance();
-
-	m_VertexBuffer = renderManager->CreateVertexBuffer(sizeof(VERTEX_3D), 4);
-
 	VERTEX_3D* buffer{};
-	HRESULT hr = m_VertexBuffer->Resource->Map(0, nullptr, (void**)&buffer);
+	HRESULT hr = VertexBuffer->Resource->Map(0, nullptr, (void**)&buffer);
 	assert(SUCCEEDED(hr));
+	if (FAILED(hr)) return;
 
 	buffer[0].Position = { 0.0f,0.0f,0.0f };
 	buffer[1].Position = { 200.0f,0.0f,0.0f };
 	buffer[2].Position = { 0.0f,200.0f,0.0f };
 	buffer[3].Position = { 200.0f,200.0f,0.0f };
 
-	buffer[0].Color = { 1.0f,1.0f,1.0f,1.0f };
-	buffer[1].Color = { 1.0f,1.0f,1.0f,1.0f };
-	buffer[2].Color = { 1.0f,1.0f,1.0f,1.0f };
-	buffer[3].Color = { 1.0f,1.0f,1.0f,1.0f };
+	buffer[0].Color = Color;
+	buffer[1].Color = Color;
+	buffer[2].Color = Color;
+	buffer[3].Color = Color;
 
 	buffer[0].Normal = { 0.0f,1.0f,0.0f };
 	buffer[1].Normal = { 0.0f,1.0f,0.0f };
@@ -102,37 +115,30 @@ UPolygon2DComponent::UPolygon2DComponent()
 	buffer[2].TexCoord = { 0.0f,1.0f };
 	buffer[3].TexCoord = { 1.0f,1.0f };
 
-	m_VertexBuffer->Resource->Unmap(0, nullptr);
+	VertexBuffer->Resource->Unmap(0, nullptr);
+}
+
+UPolygon2DComponent::UPolygon2DComponent()
+{
+	RenderManager* renderManager = RenderManager::GetInstance();
+
+	// フレーム毎にダブルバッファ (in-flight フレームとの書き込み競合防止)。
+	// 両方を初期データで埋めておく。
+	for (int i = 0; i < 2; ++i)
+	{
+		m_VertexBuffer[i] = renderManager->CreateVertexBuffer(sizeof(VERTEX_3D), 4);
+		WriteQuadVertices(m_VertexBuffer[i].get(), m_VertexColor);
+	}
 
 	m_Texture = renderManager->LoadTexture("Asset/Texture/field004.dds");
 }
 
 void UPolygon2DComponent::TickComponent(float DeltaTime)
 {
-	VERTEX_3D* buffer{};
-	m_VertexBuffer->Resource->Map(0, nullptr, (void**)&buffer);
-
-	buffer[0].Position = { 0.0f,0.0f,0.0f };
-	buffer[1].Position = { 200.0f,0.0f,0.0f };
-	buffer[2].Position = { 0.0f,200.0f,0.0f };
-	buffer[3].Position = { 200.0f,200.0f,0.0f };
-
-	buffer[0].Color = m_VertexColor;
-	buffer[1].Color = m_VertexColor;
-	buffer[2].Color = m_VertexColor;
-	buffer[3].Color = m_VertexColor;
-
-	buffer[0].Normal = { 0.0f,1.0f,0.0f };
-	buffer[1].Normal = { 0.0f,1.0f,0.0f };
-	buffer[2].Normal = { 0.0f,1.0f,0.0f };
-	buffer[3].Normal = { 0.0f,1.0f,0.0f };
-
-	buffer[0].TexCoord = { 0.0f,0.0f };
-	buffer[1].TexCoord = { 1.0f,0.0f };
-	buffer[2].TexCoord = { 0.0f,1.0f };
-	buffer[3].TexCoord = { 1.0f,1.0f };
-
-	m_VertexBuffer->Resource->Unmap(0, nullptr);
+	// 現在フレーム側のバッファのみ書き換える。もう一方は前フレームの
+	// in-flight 描画が GPU で読んでいる可能性があるため触らない。
+	const unsigned int frameIndex = RenderManager::GetInstance()->GetCurrentFrameIndex();
+	WriteQuadVertices(m_VertexBuffer[frameIndex].get(), m_VertexColor);
 }
 
 FBoxSphereBounds UPolygon2DComponent::CalcBounds(const XMMATRIX& LocalToWorld) const
@@ -148,7 +154,8 @@ FBoxSphereBounds UPolygon2DComponent::CalcBounds(const XMMATRIX& LocalToWorld) c
 
 FPrimitiveSceneProxy* UPolygon2DComponent::CreateSceneProxy()
 {
-	return new FPolygon2DSceneProxy(this, m_VertexBuffer.get(), m_Texture.get());
+	return new FPolygon2DSceneProxy(this,
+		m_VertexBuffer[0].get(), m_VertexBuffer[1].get(), m_Texture.get());
 }
 
 // ------------------------------------------------------------

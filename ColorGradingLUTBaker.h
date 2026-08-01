@@ -63,8 +63,11 @@ private:
 	ComPtr<ID3D12PipelineState> m_PSO;
 
 	// Upload buffer for GRADING_PARAMS (b0).
-	ComPtr<ID3D12Resource>      m_ParamBuffer;
-	void* m_ParamPtr = nullptr;
+	// 2フレーム・イン・フライトのため、連続フレームでの再ベイク時
+	// (ImGui スライダードラッグ中) に in-flight フレームの GPU 読みと
+	// CPU 書き込みが競合しないようフレーム毎にダブルバッファする。
+	ComPtr<ID3D12Resource>      m_ParamBuffer[2];
+	void* m_ParamPtr[2] = {};
 
 	bool          m_Dirty = true;      // bake on first frame
 	bool          m_BakedOnce = false; // tracks LUT state (UAV vs SRV)

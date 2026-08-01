@@ -24,7 +24,7 @@ class UWorld;
 class AActor
 {
 protected:
-	UWorld*          m_World = nullptr;
+	UWorld* m_World = nullptr;
 	USceneComponent* m_RootComponent = nullptr;
 
 	std::vector<std::unique_ptr<UActorComponent>> m_OwnedComponents;
@@ -48,6 +48,13 @@ public:
 	virtual void EndPlay() {}
 
 	void DispatchBeginPlay();
+
+	// アクター本体 → コンポーネントの順で EndPlay を配送する
+	// (BeginPlay の逆順)。BeginPlay 済みの場合のみ1回だけ実行。
+	// アクター破棄 / ワールド終了時は EndPlay() 直呼びではなく
+	// 必ずこちらを使うこと (コンポーネントの EndPlay が漏れる)。
+	void DispatchEndPlay();
+
 	void TickComponents(float DeltaTime);
 
 	// ---- コンポーネント生成 (CreateDefaultSubobject) ----
