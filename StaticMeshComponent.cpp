@@ -1,18 +1,22 @@
 #include "Main.h"
 #include "RenderManager.h"
+#include "AssetManager.h"
 #include "StaticMeshComponent.h"
 #include "PrimitiveSceneProxy.h"
 
 // ============================================================
 //  FStaticMeshSceneProxy
 //  UStaticMeshComponent のレンダー側ミラー (
-//  FStaticMeshSceneProxy 相当)。生成時にマテリアルスロットを
-//  スナップショットする:
+//  FStaticMeshSceneProxy 相当)。生成時に全てを値スナップショット
+//  するため、以後コンポーネントには一切触れない:
 //    - Material   : 値コピー (以後コンポーネント側の編集は
 //                    MarkRenderStateDirty による再生成で反映)
-//    - テクスチャ : GPU リソースへの参照 (ロード後は不変)
-//    - メッシュ   : 共有レンダーデータへの参照
-//                    (UStaticMesh::RenderData 相当)
+//    - テクスチャ : shared_ptr のコピー (FAssetManager のキャッシュと
+//                    共有。プロキシ自身が参照カウントで生存を保証する)
+//    - メッシュ   : shared_ptr のコピー (UE5 の FStaticMeshSceneProxy が
+//                    レンダーデータを参照カウントで保持するのに相当。
+//                    コンポーネント側でメッシュが差し替えられても、
+//                    旧プロキシが in-flight の間は旧メッシュが生存する)
 //
 //  Blend Mode / Two Sided:
 //    - Opaque / Masked サブセット -> DrawPrimitive (ベースパス)
@@ -27,14 +31,16 @@ class FStaticMeshSceneProxy : public FPrimitiveSceneProxy
 private:
 	struct FSlot
 	{
-		Material       Mat;
-		const TEXTURE* BaseColor = nullptr;
-		const TEXTURE* Normal = nullptr;
-		const TEXTURE* ARM = nullptr;
+		Material                 Mat;
+		std::shared_ptr<TEXTURE> BaseColor;
+		std::shared_ptr<TEXTURE> Normal;
+		std::shared_ptr<TEXTURE> ARM;
 	};
 
-	FBXModel*          m_Mesh = nullptr;
-	std::vector<FSlot> m_Slots;
+	// 共有メッシュレンダーデータ (UStaticMesh::RenderData 相当)。
+	// メッシュ未設定のコンポーネントでは nullptr。
+	std::shared_ptr<FBXModel> m_Mesh;
+	std::vector<FSlot>        m_Slots;
 
 	// サブセット -> マテリアルスロット解決 (範囲外は末尾へクランプ)
 	const FSlot& ResolveSlot(unsigned int SubsetIndex) const
@@ -51,17 +57,19 @@ private:
 	void BindSlot(RenderManager* RM, const FSlot& Slot) const
 	{
 		// テクスチャは存在するものだけバインド (従来挙動を踏襲)
-		if (Slot.BaseColor) RM->SetTexture(RenderManager::TEXTURE_TYPE::BASE_COLOR, Slot.BaseColor);
-		if (Slot.Normal)    RM->SetTexture(RenderManager::TEXTURE_TYPE::NORMAL, Slot.Normal);
-		if (Slot.ARM)       RM->SetTexture(RenderManager::TEXTURE_TYPE::MSRA, Slot.ARM);
+		if (Slot.BaseColor) RM->SetTexture(RenderManager::TEXTURE_TYPE::BASE_COLOR, Slot.BaseColor.get());
+		if (Slot.Normal)    RM->SetTexture(RenderManager::TEXTURE_TYPE::NORMAL, Slot.Normal.get());
+		if (Slot.ARM)       RM->SetTexture(RenderManager::TEXTURE_TYPE::MSRA, Slot.ARM.get());
 
 		Slot.Mat.Bind(RM);
 	}
 
+	bool IsMeshValid() const { return m_Mesh != nullptr && m_Mesh->IsLoaded(); }
+
 public:
 	FStaticMeshSceneProxy(UStaticMeshComponent* Component)
 		: FPrimitiveSceneProxy(Component)
-		, m_Mesh(&Component->GetStaticMesh())
+		, m_Mesh(Component->GetStaticMesh())
 	{
 		const unsigned int num = Component->GetNumMaterialSlots();
 		m_Slots.resize(num);
@@ -70,17 +78,17 @@ public:
 		{
 			const FMaterialSlot& src = Component->GetMaterialSlot(i);
 			m_Slots[i].Mat = src.Mat;
-			m_Slots[i].BaseColor = src.BaseColor.get();
-			m_Slots[i].Normal = src.Normal.get();
-			m_Slots[i].ARM = src.ARM.get();
+			m_Slots[i].BaseColor = src.BaseColor;	// shared_ptr コピー (参照カウント +1)
+			m_Slots[i].Normal = src.Normal;
+			m_Slots[i].ARM = src.ARM;
 		}
 	}
 
 	// Distance Field Shadows: 有効な SDF を持つメッシュを返す
 	const FBXModel* GetDistanceFieldMesh() const override
 	{
-		return (m_Mesh != nullptr && m_Mesh->IsLoaded() && m_Mesh->GetDistanceField().bValid)
-			? m_Mesh : nullptr;
+		return (IsMeshValid() && m_Mesh->GetDistanceField().bValid)
+			? m_Mesh.get() : nullptr;
 	}
 
 	// ---- FPrimitiveViewRelevance (全マテリアルスロットの OR 集約) ----
@@ -112,7 +120,7 @@ public:
 	// ---- ベースパス (Opaque / Masked サブセット -> G-Buffer) ----
 	void DrawPrimitive(RenderManager* RM) const override
 	{
-		if (!m_Mesh->IsLoaded()) return;
+		if (!IsMeshValid()) return;
 
 		// ---- PRIMITIVE 定数 (プロキシに積まれたワールド行列) ----
 		UploadPrimitiveConstant(RM);
@@ -146,7 +154,7 @@ public:
 	void DrawTranslucency(RenderManager* RM,
 		ETranslucencyDrawMode Mode = ETranslucencyDrawMode::Standard) const override
 	{
-		if (!m_Mesh->IsLoaded()) return;
+		if (!IsMeshValid()) return;
 
 		UploadPrimitiveConstant(RM);
 
@@ -208,7 +216,7 @@ public:
 	// Translucent / Additive : シャドウマップに描かない (UE5 既定)
 	void DrawShadowDepth(RenderManager* RM) const override
 	{
-		if (!m_Mesh->IsLoaded()) return;
+		if (!IsMeshValid()) return;
 
 		UploadPrimitiveConstant(RM);
 
@@ -230,7 +238,7 @@ public:
 			if (IsMaskedBlendMode(blendMode) && slot.BaseColor != nullptr)
 			{
 				RM->SetPipelineState(bTwoSided ? "ShadowDepthMaskedTwoSided" : "ShadowDepthMasked");
-				RM->SetTexture(RenderManager::TEXTURE_TYPE::BASE_COLOR, slot.BaseColor);
+				RM->SetTexture(RenderManager::TEXTURE_TYPE::BASE_COLOR, slot.BaseColor.get());
 				slot.Mat.Bind(RM);	// b2 (OpacityMaskClipValue)
 			}
 			else
@@ -255,9 +263,11 @@ UStaticMeshComponent::UStaticMeshComponent()
 
 bool UStaticMeshComponent::SetStaticMesh(const char* FilePath, bool FlipUV)
 {
-	bool result = m_Mesh.Load(FilePath, FlipUV);
+	// FAssetManager のキャッシュから共有メッシュを取得する
+	// (同じパスを使う他コンポーネントと GPU バッファを共有する)
+	m_Mesh = FAssetManager::GetInstance()->LoadStaticMesh(FilePath, FlipUV);
 	MarkRenderStateDirty();
-	return result;
+	return m_Mesh != nullptr && m_Mesh->IsLoaded();
 }
 
 void UStaticMeshComponent::SetNumMaterialSlots(unsigned int Num)
@@ -283,22 +293,23 @@ void UStaticMeshComponent::SetBaseColorTexture(unsigned int SlotIndex, const cha
 {
 	assert(SlotIndex < m_MaterialSlots.size());
 
-	// BaseColor は sRGB として読む (DDS_LOADER_FORCE_SRGB)
-	m_MaterialSlots[SlotIndex].BaseColor = RenderManager::GetInstance()->LoadTexture(FilePath, true);
+	// BaseColor は sRGB として読む (DDS_LOADER_FORCE_SRGB)。
+	// FAssetManager のキャッシュ経由で共有テクスチャを取得する。
+	m_MaterialSlots[SlotIndex].BaseColor = FAssetManager::GetInstance()->LoadTexture(FilePath, true);
 	MarkRenderStateDirty();
 }
 
 void UStaticMeshComponent::SetNormalTexture(unsigned int SlotIndex, const char* FilePath)
 {
 	assert(SlotIndex < m_MaterialSlots.size());
-	m_MaterialSlots[SlotIndex].Normal = RenderManager::GetInstance()->LoadTexture(FilePath);
+	m_MaterialSlots[SlotIndex].Normal = FAssetManager::GetInstance()->LoadTexture(FilePath);
 	MarkRenderStateDirty();
 }
 
 void UStaticMeshComponent::SetARMTexture(unsigned int SlotIndex, const char* FilePath)
 {
 	assert(SlotIndex < m_MaterialSlots.size());
-	m_MaterialSlots[SlotIndex].ARM = RenderManager::GetInstance()->LoadTexture(FilePath);
+	m_MaterialSlots[SlotIndex].ARM = FAssetManager::GetInstance()->LoadTexture(FilePath);
 	MarkRenderStateDirty();
 }
 
@@ -306,9 +317,9 @@ FBoxSphereBounds UStaticMeshComponent::CalcBounds(const XMMATRIX& LocalToWorld) 
 {
 	// メッシュのローカル AABB をワールドへ変換して返す
 	// (UStaticMeshComponent::CalcBounds 相当)
-	if (m_Mesh.IsLoaded())
+	if (m_Mesh && m_Mesh->IsLoaded())
 	{
-		return m_Mesh.GetLocalBounds().TransformBy(LocalToWorld);
+		return m_Mesh->GetLocalBounds().TransformBy(LocalToWorld);
 	}
 
 	// メッシュ未設定時は基底の点境界
