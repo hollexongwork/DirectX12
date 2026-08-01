@@ -17,10 +17,12 @@ using namespace DirectX;
 //                  │   └ USpotLightComponent  … Inner / OuterConeAngle
 //                  └ URectLightComponent       … SourceWidth / Height / BarnDoor
 //
-//  結合は UPrimitiveComponent と同じ一方向データフロー:
+//  結合は UPrimitiveComponent と同じ一方向データフロー (プッシュ型):
 //    OnRegister -> FScene::AddLight -> CreateLightSceneProxy()
-//    プロパティ変更 -> MarkRenderStateDirty -> 次フレームでプロキシ再生成
-//    トランスフォーム -> SendRenderTransform (毎フレームプッシュ)
+//    プロパティ変更 -> MarkRenderStateDirty -> ダーティリスト経由で
+//                     次フレームにプロキシ再生成
+//    トランスフォーム変更 -> MarkRenderTransformDirty -> ダーティリスト
+//                     経由で次フレームに SendRenderTransform
 //
 //  ※ 距離の単位はメートル
 //  ※ 発光方向はコンポーネント +Z 。
@@ -54,13 +56,16 @@ protected:
 	// (bUseRayTracedDistanceFieldShadows)。CastShadows が前提。
 	bool     m_bUseRayTracedDistanceFieldShadows = false;
 
-	// レンダーステート変更フラグ。立っていると次の
-	// FScene::UpdateAllLightSceneInfos でプロキシが再生成される。
+	// レンダーステート変更フラグ。立っている = FScene の
+	// レンダーステートダーティリストにエンキュー済み (登録中のみ)。
+	// 次の FScene::UpdateAllLightSceneInfos でプロキシが再生成される。
 	bool m_RenderStateDirty = false;
 
 public:
 	// ---- レンダーステート更新 (MarkRenderStateDirty) ----
-	void MarkRenderStateDirty() { m_RenderStateDirty = true; }
+	// 基底はフラグのみ。ULightComponent がオーバーライドして
+	// FScene のダーティリストへ自分を積む (プッシュ型更新)。
+	virtual void MarkRenderStateDirty() { m_RenderStateDirty = true; }
 	bool IsRenderStateDirty() const { return m_RenderStateDirty; }
 	void ClearRenderStateDirty() { m_RenderStateDirty = false; }
 
@@ -115,6 +120,12 @@ public:
 
 	FLightSceneProxy* GetSceneProxy() const { return m_SceneProxy; }
 	void SetSceneProxy(FLightSceneProxy* Proxy) { m_SceneProxy = Proxy; }
+
+	// ---- ダーティ通知 (プッシュ型更新) ----
+	// フラグを立て、登録済みなら FScene のダーティリストへ自分を積む
+	// (フラグが既に立っていれば積まない = 二重登録防止)
+	void MarkRenderStateDirty() override;
+	void MarkRenderTransformDirty() override;
 
 	// トランスフォーム (位置 / 発光方向 / 幅軸) をプロキシへプッシュ
 	// (SendRenderTransform)

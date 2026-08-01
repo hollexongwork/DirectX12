@@ -22,7 +22,7 @@ class APostProcessVolume;
 
 struct FPrimitiveSceneInfo
 {
-	UPrimitiveComponent*                  Component = nullptr;
+	UPrimitiveComponent* Component = nullptr;
 	std::unique_ptr<FPrimitiveSceneProxy> Proxy;
 };
 
@@ -60,35 +60,57 @@ class FScene
 private:
 	std::vector<FPrimitiveSceneInfo>  m_Primitives;
 
-	// ライト登録簿 
+	// ライト登録簿
 	// Directional / Point / Spot / Rect すべてここに登録され、
 	// FSceneRenderer::SetupLightConstants が毎フレーム
 	// ENV 定数 (directional) + ライトバッファ (local) に解決する。
 	std::vector<FLightSceneInfo>      m_Lights;
 
-	UCameraComponent*                 m_ActiveCamera = nullptr;
-	APostProcessVolume*               m_PostProcessVolume = nullptr;
+	// ---- ダーティリスト (プッシュ型更新) ----
+	// 全コンポーネントを毎フレームポーリングする代わりに、変更された
+	// コンポーネントだけがセッター経由 (MarkRenderStateDirty /
+	// MarkRenderTransformDirty) で自分をここへ積む。
+	// 二重登録はコンポーネント側のダーティフラグで防止される
+	// (フラグが既に立っていれば積まない)。
+	// UpdateAll*SceneInfos がリストだけを処理してクリアする。
+	std::vector<UPrimitiveComponent*> m_PrimitiveRenderStateDirtyList;
+	std::vector<UPrimitiveComponent*> m_PrimitiveTransformDirtyList;
+	std::vector<ULightComponent*>     m_LightRenderStateDirtyList;
+	std::vector<ULightComponent*>     m_LightTransformDirtyList;
+
+	UCameraComponent* m_ActiveCamera = nullptr;
+	APostProcessVolume* m_PostProcessVolume = nullptr;
 
 public:
-	// 登録時に CreateSceneProxy() でレンダー側ミラーを生成・所有する
+	// 登録時に CreateSceneProxy() でレンダー側ミラーを生成・所有する。
+	// 初回フレームのトランスフォームプッシュも予約する。
 	void AddPrimitive(UPrimitiveComponent* Primitive);
 	void RemovePrimitive(UPrimitiveComponent* Primitive);
 
-	// ダーティなプロキシの再生成 (その場・描画順不変) と
-	// 全プリミティブのトランスフォーム / 可視性プッシュ。
+	// ダーティリストにあるプリミティブだけを処理する:
+	// レンダーステートダーティ -> プロキシ再生成 (その場・描画順不変)、
+	// トランスフォームダーティ -> トランスフォーム / 境界 / 可視性プッシュ。
 	// UWorld::SendAllEndOfFrameUpdates から毎フレーム呼ばれる。
 	// (FScene::UpdateAllPrimitiveSceneInfos)
 	void UpdateAllPrimitiveSceneInfos();
 
 	const std::vector<FPrimitiveSceneInfo>& GetPrimitives() const { return m_Primitives; }
 
+	// ---- ダーティリストへのエンキュー ----
+	// コンポーネント側の MarkRenderStateDirty / MarkRenderTransformDirty
+	// だけが呼ぶこと (二重登録防止フラグはコンポーネント側が管理する)。
+	void AddPrimitiveRenderStateDirty(UPrimitiveComponent* Primitive) { m_PrimitiveRenderStateDirtyList.push_back(Primitive); }
+	void AddPrimitiveTransformDirty(UPrimitiveComponent* Primitive) { m_PrimitiveTransformDirtyList.push_back(Primitive); }
+	void AddLightRenderStateDirty(ULightComponent* Light) { m_LightRenderStateDirtyList.push_back(Light); }
+	void AddLightTransformDirty(ULightComponent* Light) { m_LightTransformDirtyList.push_back(Light); }
+
 	// ---- ライト (FScene::AddLight / RemoveLight) ----
 	// 登録時に CreateLightSceneProxy() でレンダー側ミラーを生成・所有する
 	void AddLight(ULightComponent* Light);
 	void RemoveLight(ULightComponent* Light);
 
-	// ダーティなライトプロキシの再生成と全ライトのトランスフォーム
-	// プッシュ。UWorld::SendAllEndOfFrameUpdates から毎フレーム呼ばれる。
+	// ダーティリストにあるライトだけを処理する (プリミティブと同じ
+	// プッシュ型)。UWorld::SendAllEndOfFrameUpdates から毎フレーム呼ばれる。
 	void UpdateAllLightSceneInfos();
 
 	const std::vector<FLightSceneInfo>& GetLights() const { return m_Lights; }

@@ -4,11 +4,13 @@
 // ============================================================
 //  UCameraComponent
 //  UCameraComponent に相当。ビュー/プロジェクション情報を
-//  保持し、FSceneRenderer がビュー定数 (VIEW_CONSTANT, b0) を
-//  構築する際に参照する。カメラ自身はもう描画パスに関与しない。
+//  保持する。レンダラはカメラを直接読まず、ゲーム側の
+//  UWorld::CalcSceneView がフレーム先頭で FSceneView (値
+//  スナップショット) を構築して渡す。カメラ自身はもう描画パスに
+//  関与しない。
 // ============================================================
 
-struct VIEW_CONSTANT;
+struct FSceneView;
 
 class UCameraComponent : public USceneComponent
 {
@@ -21,10 +23,11 @@ public:
 	void OnRegister() override;
 	void OnUnregister() override;
 
-	// FSceneRenderer::RenderBasePass がビュー定数を構築する際に呼ぶ。
-	// カメラ由来のフィールドのみ書き込む (ディレクショナルライト系は
-	// SetupLightConstants が担当するため触らない)。
-	void GetViewConstants(VIEW_CONSTANT& OutConstant, float AspectRatio) const;
+	// UWorld::CalcSceneView がフレーム先頭に 1 回呼ぶ。
+	// ビュー / 射影行列とカメラパラメータを FSceneView へ書き込み、
+	// bValid を立てる (ディレクショナルライト系のビュー定数解決は
+	// SetupLightConstants が担当するため関与しない)。
+	void GetSceneView(FSceneView& OutView, float AspectRatio) const;
 
 	float GetFieldOfView() const { return m_FOV; }
 	void  SetFieldOfView(float FieldOfView) { m_FOV = FieldOfView; }

@@ -48,8 +48,10 @@ protected:
 	FPrimitiveSceneProxy* m_SceneProxy = nullptr;
 
 	// レンダーステート (マテリアル / メッシュ / テクスチャ) 変更フラグ。
-	// 立っていると次の FScene::UpdateAllPrimitiveSceneInfos でプロキシが
-	// その場で再生成される (描画順は変わらない)。
+	// 立っている = FScene のレンダーステートダーティリストに
+	// エンキュー済み (登録中のみ)。次の
+	// FScene::UpdateAllPrimitiveSceneInfos でプロキシがその場で
+	// 再生成される (描画順は変わらない)。
 	bool m_RenderStateDirty = false;
 
 public:
@@ -66,15 +68,24 @@ public:
 	// ---- レンダーステート更新 (MarkRenderStateDirty) ----
 	// GetMaterial() 経由で直接マテリアルを書き換えた場合は呼ぶこと。
 	// (Set*Texture / SetStaticMesh 等のセッターは内部で呼ぶ)
-	void MarkRenderStateDirty() { m_RenderStateDirty = true; }
+	// フラグを立て、登録済みなら FScene のダーティリストへ自分を積む
+	// (プッシュ型更新。フラグが既に立っていれば積まない = 二重登録防止)
+	void MarkRenderStateDirty();
 	bool IsRenderStateDirty() const { return m_RenderStateDirty; }
 	void ClearRenderStateDirty() { m_RenderStateDirty = false; }
+
+	// ---- レンダートランスフォーム更新 (プッシュ型) ----
+	// フラグを立てて FScene のトランスフォームダーティリストへ自分を
+	// 積んだ後、基底実装でアタッチ子へ再帰伝搬する。
+	void MarkRenderTransformDirty() override;
 
 	// トランスフォーム + 境界 + 可視性をプロキシへプッシュ
 	// (SendRenderTransform。境界は UpdateBounds で再計算してから送る)
 	void SendRenderTransform();
 
-	void SetVisibility(bool Visible) { m_Visible = Visible; }
+	// 可視性 / ソート優先度は SendRenderTransform でプロキシへ届くため、
+	// 変更時はトランスフォームダーティで再プッシュを予約する
+	void SetVisibility(bool Visible) { m_Visible = Visible; MarkRenderTransformDirty(); }
 	bool IsVisible() const { return m_Visible; }
 
 	// シャドウキャスト (変更はプロキシ再生成で反映される)
@@ -94,7 +105,8 @@ public:
 
 	// ---- トランスルーセンシーソート優先度 ----
 	// (SetTranslucentSortPriority 相当。SendRenderTransform 経由で
-	//  毎フレームプロキシへ反映されるため dirty フラグ不要)
-	void SetTranslucentSortPriority(int NewPriority) { m_TranslucencySortPriority = NewPriority; }
+	//  プロキシへ反映されるため、変更時はトランスフォームダーティで
+	//  再プッシュを予約する)
+	void SetTranslucentSortPriority(int NewPriority) { m_TranslucencySortPriority = NewPriority; MarkRenderTransformDirty(); }
 	int  GetTranslucentSortPriority() const { return m_TranslucencySortPriority; }
 };

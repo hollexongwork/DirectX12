@@ -39,6 +39,40 @@ void ULightComponent::OnUnregister()
 	}
 }
 
+// ============================================================
+//  ダーティ通知 (プッシュ型更新)
+//  フラグの立ち上がり (false -> true) のときだけ FScene の
+//  ダーティリストへ自分を積む (二重登録防止)。未登録時はフラグのみ
+//  立て、FScene::AddLight が登録時に処理する。
+// ============================================================
+
+void ULightComponent::MarkRenderStateDirty()
+{
+	const bool bWasDirty = m_RenderStateDirty;
+	ULightComponentBase::MarkRenderStateDirty();
+
+	if (!bWasDirty && IsRegistered() && GetWorld())
+	{
+		GetWorld()->GetScene()->AddLightRenderStateDirty(this);
+	}
+}
+
+void ULightComponent::MarkRenderTransformDirty()
+{
+	if (!m_RenderTransformDirty)
+	{
+		m_RenderTransformDirty = true;
+
+		if (IsRegistered() && GetWorld())
+		{
+			GetWorld()->GetScene()->AddLightTransformDirty(this);
+		}
+	}
+
+	// アタッチ子への再帰伝搬
+	USceneComponent::MarkRenderTransformDirty();
+}
+
 void ULightComponent::SendRenderTransform()
 {
 	if (m_SceneProxy)
@@ -74,9 +108,9 @@ XMFLOAT3 ULightComponent::ColorTemperatureToRGB(float TemperatureKelvin)
 	const float t = fmaxf(fminf(TemperatureKelvin, 15000.0f), 1000.0f);
 
 	const float u = (0.860117757f + 1.54118254e-4f * t + 1.28641212e-7f * t * t)
-				/ (1.0f + 8.42420235e-4f * t + 7.08145163e-7f * t * t);
+		/ (1.0f + 8.42420235e-4f * t + 7.08145163e-7f * t * t);
 	const float v = (0.317398726f + 4.22806245e-5f * t + 4.20481691e-8f * t * t)
-				/ (1.0f - 2.89741816e-5f * t + 1.61456053e-7f * t * t);
+		/ (1.0f - 2.89741816e-5f * t + 1.61456053e-7f * t * t);
 
 	const float x = 3.0f * u / (2.0f * u - 8.0f * v + 4.0f);
 	const float y = 2.0f * v / (2.0f * u - 8.0f * v + 4.0f);
@@ -88,9 +122,9 @@ XMFLOAT3 ULightComponent::ColorTemperatureToRGB(float TemperatureKelvin)
 
 	// XYZ -> リニア sRGB (D65)
 	XMFLOAT3 color;
-	color.x =  3.2404542f * X - 1.5371385f * Y - 0.4985314f * Z;
+	color.x = 3.2404542f * X - 1.5371385f * Y - 0.4985314f * Z;
 	color.y = -0.9692660f * X + 1.8760108f * Y + 0.0415560f * Z;
-	color.z =  0.0556434f * X - 0.2040259f * Y + 1.0572252f * Z;
+	color.z = 0.0556434f * X - 0.2040259f * Y + 1.0572252f * Z;
 
 	color.x = fmaxf(color.x, 0.0f);
 	color.y = fmaxf(color.y, 0.0f);

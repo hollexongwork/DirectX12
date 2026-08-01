@@ -11,13 +11,15 @@ using namespace DirectX;
 //  (FPrimitiveSceneInfo) が所有する。レンダラ (FSceneRenderer)
 //  はこのプロキシだけを読み、ゲーム側オブジェクトには触れない。
 //
-//  データフロー (一方向):
+//  データフロー (一方向・プッシュ型):
 //    - トランスフォーム / 境界 / 可視性:
+//        MarkRenderTransformDirty -> FScene のダーティリスト ->
 //        UWorld::SendAllEndOfFrameUpdates ->
 //        UPrimitiveComponent::SendRenderTransform -> SetTransform
+//        (変更されたコンポーネントだけがプッシュされる)
 //    - マテリアル / メッシュ / テクスチャ変更:
-//        MarkRenderStateDirty -> 次フレーム頭でプロキシ再生成
-//          (FScene::UpdateAllPrimitiveSceneInfos)
+//        MarkRenderStateDirty -> ダーティリスト経由で次フレーム頭に
+//        プロキシ再生成 (FScene::UpdateAllPrimitiveSceneInfos)
 //
 //  フラスタムカリング: m_Bounds (FBoxSphereBounds) を
 //  FSceneRenderer::ComputeViewVisibility とシャドウ深度パスが読む。
@@ -132,13 +134,14 @@ public:
 	{
 		Standard,		// 従来: 1 パス合成 (深度テストのみ)
 		DepthPrepass,	// 深度のみ: プリミティブの最前面を深度へ焼く
-						// (BLEND_Translucent のみ。Additive は何も描かない)
+		// (BLEND_Translucent のみ。Additive は何も描かない)
 		ColorEqual,		// 着色: EQUAL 比較で最前面のみ合成
-						// (Additive はここで従来 PSO のまま描く)
+		// (Additive はここで従来 PSO のまま描く)
 	};
 
 	virtual void DrawTranslucency(RenderManager* RHI,
-		ETranslucencyDrawMode Mode = ETranslucencyDrawMode::Standard) const {}
+		ETranslucencyDrawMode Mode = ETranslucencyDrawMode::Standard) const {
+	}
 
 	// シャドウ深度パス (FShadowSceneRenderer::RenderShadowDepthMaps) から
 	// 呼ばれる深度のみの描画。マテリアル / テクスチャはバインドしない。

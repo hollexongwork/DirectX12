@@ -1,31 +1,34 @@
 #include "Main.h"
 #include "RenderManager.h"
+#include "AssetManager.h"
 #include "Field.h"
 #include "PrimitiveSceneProxy.h"
 
 // ============================================================
 //  FFieldQuadSceneProxy
 //  UFieldQuadComponent のレンダー側ミラー。頂点バッファ /
-//  テクスチャは GPU リソースへの参照、マテリアルは値スナップショット。
+//  テクスチャは shared_ptr の値スナップショット (プロキシ自身が
+//  参照カウントで生存を保証する)、マテリアルも値スナップショット。
+//  生成後はコンポーネントに一切触れない。
 // ============================================================
 
 class FFieldQuadSceneProxy : public FPrimitiveSceneProxy
 {
 private:
-	const VERTEX_BUFFER* m_VertexBuffer = nullptr;
-	const TEXTURE*       m_Diffuse = nullptr;
-	const TEXTURE*       m_Normal = nullptr;
-	const TEXTURE*       m_ARM = nullptr;
-	Material             m_Material;
+	std::shared_ptr<VERTEX_BUFFER> m_VertexBuffer;
+	std::shared_ptr<TEXTURE>       m_Diffuse;
+	std::shared_ptr<TEXTURE>       m_Normal;
+	std::shared_ptr<TEXTURE>       m_ARM;
+	Material                       m_Material;
 
 	// テクスチャ + マテリアル定数 (b2) + クアッド VB / トポロジをバインド
 	void BindQuad(RenderManager* RM) const
 	{
-		RM->SetVertexBuffer(m_VertexBuffer);
+		RM->SetVertexBuffer(m_VertexBuffer.get());
 
-		RM->SetTexture(RenderManager::TEXTURE_TYPE::BASE_COLOR, m_Diffuse);
-		RM->SetTexture(RenderManager::TEXTURE_TYPE::NORMAL, m_Normal);
-		RM->SetTexture(RenderManager::TEXTURE_TYPE::MSRA, m_ARM);
+		RM->SetTexture(RenderManager::TEXTURE_TYPE::BASE_COLOR, m_Diffuse.get());
+		RM->SetTexture(RenderManager::TEXTURE_TYPE::NORMAL, m_Normal.get());
+		RM->SetTexture(RenderManager::TEXTURE_TYPE::MSRA, m_ARM.get());
 
 		RM->GetGraphicsCommandList()->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
 
@@ -34,14 +37,14 @@ private:
 
 public:
 	FFieldQuadSceneProxy(const UPrimitiveComponent* Component,
-		const VERTEX_BUFFER* VertexBuffer,
-		const TEXTURE* Diffuse, const TEXTURE* Normal, const TEXTURE* ARM,
+		std::shared_ptr<VERTEX_BUFFER> VertexBuffer,
+		std::shared_ptr<TEXTURE> Diffuse, std::shared_ptr<TEXTURE> Normal, std::shared_ptr<TEXTURE> ARM,
 		const Material& Mat)
 		: FPrimitiveSceneProxy(Component)
-		, m_VertexBuffer(VertexBuffer)
-		, m_Diffuse(Diffuse)
-		, m_Normal(Normal)
-		, m_ARM(ARM)
+		, m_VertexBuffer(std::move(VertexBuffer))
+		, m_Diffuse(std::move(Diffuse))
+		, m_Normal(std::move(Normal))
+		, m_ARM(std::move(ARM))
 		, m_Material(Mat)
 	{
 	}
@@ -146,10 +149,10 @@ public:
 
 		const bool bTwoSided = m_Material.IsTwoSided();
 
-		if (IsMaskedBlendMode(blendMode) && m_Diffuse != nullptr)
+		if (IsMaskedBlendMode(blendMode) && m_Diffuse)
 		{
 			RM->SetPipelineState(bTwoSided ? "ShadowDepthMaskedTwoSided" : "ShadowDepthMasked");
-			RM->SetTexture(RenderManager::TEXTURE_TYPE::BASE_COLOR, m_Diffuse);
+			RM->SetTexture(RenderManager::TEXTURE_TYPE::BASE_COLOR, m_Diffuse.get());
 			m_Material.Bind(RM);	// b2 (OpacityMaskClipValue)
 		}
 		else
@@ -157,7 +160,7 @@ public:
 			RM->SetPipelineState(bTwoSided ? "ShadowDepthTwoSided" : "ShadowDepth");
 		}
 
-		RM->SetVertexBuffer(m_VertexBuffer);
+		RM->SetVertexBuffer(m_VertexBuffer.get());
 		RM->GetGraphicsCommandList()->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
 		RM->GetGraphicsCommandList()->DrawInstanced(4, 1, 0, 0);
 	}
@@ -199,9 +202,11 @@ UFieldQuadComponent::UFieldQuadComponent()
 
 	m_VertexBuffer->Resource->Unmap(0, nullptr);
 
-	m_Diffuse = renderManager->LoadTexture("Asset/Texture/wood_table_diff_4k_1.dds", true);
-	m_Normal = renderManager->LoadTexture("Asset/Texture/wood_table_nor_dx_4k_1.dds");
-	m_ARM = renderManager->LoadTexture("Asset/Texture/wood_table_arm_4k_1.dds");
+	// テクスチャは FAssetManager のキャッシュ経由で共有取得する
+	// (BaseColor のみ sRGB として読む)
+	m_Diffuse = FAssetManager::GetInstance()->LoadTexture("Asset/Texture/wood_table_diff_4k_1.dds", true);
+	m_Normal = FAssetManager::GetInstance()->LoadTexture("Asset/Texture/wood_table_nor_dx_4k_1.dds");
+	m_ARM = FAssetManager::GetInstance()->LoadTexture("Asset/Texture/wood_table_arm_4k_1.dds");
 }
 
 FBoxSphereBounds UFieldQuadComponent::CalcBounds(const XMMATRIX& LocalToWorld) const
@@ -209,16 +214,17 @@ FBoxSphereBounds UFieldQuadComponent::CalcBounds(const XMMATRIX& LocalToWorld) c
 	// コンストラクタで組んだクアッド頂点 (±10m, Y=0) のローカル AABB
 	const FBoxSphereBounds localBounds = FBoxSphereBounds::FromMinMax(
 		{ -10.0f, 0.0f, -10.0f },
-		{  10.0f, 0.0f,  10.0f });
+		{ 10.0f, 0.0f,  10.0f });
 
 	return localBounds.TransformBy(LocalToWorld);
 }
 
 FPrimitiveSceneProxy* UFieldQuadComponent::CreateSceneProxy()
 {
+	// shared_ptr を値コピーで渡す (プロキシが参照カウントで保持する)
 	return new FFieldQuadSceneProxy(this,
-		m_VertexBuffer.get(),
-		m_Diffuse.get(), m_Normal.get(), m_ARM.get(),
+		m_VertexBuffer,
+		m_Diffuse, m_Normal, m_ARM,
 		m_Material);
 }
 

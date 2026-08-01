@@ -15,11 +15,14 @@
 class UFieldQuadComponent : public UPrimitiveComponent
 {
 private:
-	std::unique_ptr<VERTEX_BUFFER> m_VertexBuffer;
+	// 手組みクアッドの VB。プロキシと shared_ptr で共有し、
+	// プロキシ側が参照カウントで生存を保証する (スナップショット共有)
+	std::shared_ptr<VERTEX_BUFFER> m_VertexBuffer;
 
-	std::unique_ptr<TEXTURE> m_Diffuse;
-	std::unique_ptr<TEXTURE> m_Normal;
-	std::unique_ptr<TEXTURE> m_ARM;
+	// テクスチャは FAssetManager のキャッシュと共有する (UTexture2D 相当)
+	std::shared_ptr<TEXTURE> m_Diffuse;
+	std::shared_ptr<TEXTURE> m_Normal;
+	std::shared_ptr<TEXTURE> m_ARM;
 
 	Material m_Material;
 

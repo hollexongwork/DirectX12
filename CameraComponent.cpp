@@ -1,6 +1,7 @@
 #include "Main.h"
 #include "RenderManager.h"
 #include "CameraComponent.h"
+#include "SceneView.h"
 #include "World.h"
 
 void UCameraComponent::OnRegister()
@@ -20,7 +21,7 @@ void UCameraComponent::OnUnregister()
 	}
 }
 
-void UCameraComponent::GetViewConstants(VIEW_CONSTANT& OutConstant, float AspectRatio) const
+void UCameraComponent::GetSceneView(FSceneView& OutView, float AspectRatio) const
 {
 	XMMATRIX world = GetComponentToWorld();
 
@@ -31,15 +32,16 @@ void UCameraComponent::GetViewConstants(VIEW_CONSTANT& OutConstant, float Aspect
 	XMMATRIX View = XMMatrixLookToLH(position, forward, up);
 	XMMATRIX Projection = XMMatrixPerspectiveFovLH(XMConvertToRadians(m_FOV), AspectRatio, m_NearClip, m_FarClip);
 
-	XMMATRIX viewProjection = View * Projection;
-	XMMATRIX invViewProjection = XMMatrixInverse(nullptr, viewProjection);
+	// 行列は転置前で渡す (VIEW 定数への転置はレンダラ側で行う)
+	XMStoreFloat4x4(&OutView.ViewMatrix, View);
+	XMStoreFloat4x4(&OutView.ProjectionMatrix, Projection);
 
-	XMStoreFloat4x4(&OutConstant.View, XMMatrixTranspose(View));
-	XMStoreFloat4x4(&OutConstant.Projection, XMMatrixTranspose(Projection));
-	XMStoreFloat4x4(&OutConstant.InvViewProjection, XMMatrixTranspose(invViewProjection));
+	XMStoreFloat3(&OutView.ViewOrigin, position);
+	XMStoreFloat3(&OutView.ViewForward, forward);
+	OutView.FOV = m_FOV;
+	OutView.NearClip = m_NearClip;
+	OutView.FarClip = m_FarClip;
+	OutView.AspectRatio = AspectRatio;
 
-	XMFLOAT3 pos;
-	XMStoreFloat3(&pos, position);
-	OutConstant.WorldCameraOrigin = { pos.x, pos.y, pos.z, 1.0f };
-	OutConstant.NearFar = { m_NearClip, m_FarClip, 0.0f, 0.0f };
+	OutView.bValid = true;
 }

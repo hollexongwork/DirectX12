@@ -8,6 +8,15 @@
 //  UPolygon2DComponent のレンダー側ミラー。頂点バッファは
 //  ゲーム側 TickComponent が毎フレーム書き込む共有 GPU リソースを
 //  参照する (頂点色の反映はバッファ経由なので再生成不要)。
+//
+//  ※ 既知の例外 (意図的な設計):
+//    他のプロキシ (FStaticMeshSceneProxy / FFieldQuadSceneProxy) は
+//    shared_ptr による値スナップショットでコンポーネントから独立
+//    しているが、本プロキシはコンポーネント所有の VB / テクスチャを
+//    生ポインタで参照し続ける。ゲーム側が毎フレーム頂点を書き込む
+//    「CPU 動的バッファ」なのでスナップショット化できないため。
+//    コンポーネント破棄時は FScene::RemovePrimitive がプロキシも
+//    同時に破棄するためダングリングにはならない。
 // ============================================================
 
 class FPolygon2DSceneProxy : public FPrimitiveSceneProxy

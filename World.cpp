@@ -1,5 +1,7 @@
 ﻿#include "Main.h"
 #include "World.h"
+#include "CameraComponent.h"
+#include "PostProcessVolume.h"
 
 #include <cctype>
 #include <cstring>
@@ -74,6 +76,37 @@ void UWorld::SendAllEndOfFrameUpdates()
 {
 	m_Scene.UpdateAllPrimitiveSceneInfos();
 	m_Scene.UpdateAllLightSceneInfos();
+}
+
+// ------------------------------------------------------------
+//  FSceneView 構築 (ゲーム側フェーズ)
+//  レンダラがゲームオブジェクト (UCameraComponent /
+//  APostProcessVolume) を直接読まないよう、フレームに 1 回だけ
+//  ここで値スナップショットへ解決する。
+// ------------------------------------------------------------
+FSceneView UWorld::CalcSceneView(float AspectRatio) const
+{
+	FSceneView view;
+
+	// ---- カメラ (アクティブビュー) ----
+	// 不在時は bValid = false のまま (レンダラは前フレームの
+	// ビュー定数を保持し、CSM をスキップする = 従来挙動)
+	if (const UCameraComponent* camera = m_Scene.GetActiveCamera())
+	{
+		camera->GetSceneView(view, AspectRatio);
+	}
+
+	// ---- ポストプロセス (FFinalPostProcessSettings 解決に相当) ----
+	// ボリュームが登録されていればその設定を、無ければ既定値を使う。
+	// (bUnbound=false の範囲判定 / BlendWeight による多段ブレンドは
+	//  あたり判定フェーズで有効化)
+	APostProcessVolume* volume = m_Scene.GetPostProcessVolume();
+	if (volume && volume->bEnabled && volume->bUnbound)
+	{
+		view.FinalPostProcessSettings = volume->Settings();
+	}
+
+	return view;
 }
 
 void UWorld::DestroyActor(AActor* Actor)

@@ -9,9 +9,12 @@ USceneComponent::~USceneComponent()
 
 	// 子の親ポインタを無効化 (子側が解放済みの親を辿らないようにする)。
 	// 以後、子の GetComponentToWorld はローカル行列をワールドとして扱う。
+	// 親が消える = 子のワールドトランスフォームが変わるため、
+	// 生き残る子はダーティにしてプロキシへ再プッシュさせる。
 	for (USceneComponent* child : m_AttachChildren)
 	{
 		child->m_AttachParent = nullptr;
+		child->MarkRenderTransformDirty();
 	}
 	m_AttachChildren.clear();
 }
@@ -32,6 +35,9 @@ void USceneComponent::SetupAttachment(USceneComponent* Parent)
 
 	m_AttachParent = Parent;
 	Parent->m_AttachChildren.push_back(this);
+
+	// 親が変わる = ワールドトランスフォームが変わる (自分と子孫)
+	MarkRenderTransformDirty();
 }
 
 void USceneComponent::DetachFromParent()
@@ -42,6 +48,24 @@ void USceneComponent::DetachFromParent()
 	siblings.erase(std::remove(siblings.begin(), siblings.end(), this), siblings.end());
 
 	m_AttachParent = nullptr;
+
+	// 親が外れる = ワールドトランスフォームが変わる (自分と子孫)
+	MarkRenderTransformDirty();
+}
+
+// ============================================================
+//  レンダートランスフォームダーティ (プッシュ型更新)
+//  既定実装はアタッチ子への再帰伝搬のみ。描画に関与する派生
+//  (UPrimitiveComponent / ULightComponent) がオーバーライドして
+//  FScene のトランスフォームダーティリストへ自分を積む。
+// ============================================================
+void USceneComponent::MarkRenderTransformDirty()
+{
+	// 親の移動は子のワールドトランスフォームも変えるため再帰伝搬する
+	for (USceneComponent* child : m_AttachChildren)
+	{
+		child->MarkRenderTransformDirty();
+	}
 }
 
 XMMATRIX USceneComponent::GetLocalMatrix() const

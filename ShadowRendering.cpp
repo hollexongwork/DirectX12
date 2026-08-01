@@ -4,7 +4,7 @@
 #include "ConvexVolume.h"
 #include "Scene.h"
 #include "PrimitiveSceneProxy.h"
-#include "CameraComponent.h"
+#include "SceneView.h"
 #include "FBXModel.h"
 #include "DistanceFieldAtlas.h"
 
@@ -193,7 +193,7 @@ void FShadowSceneRenderer::InitShadowParamBuffers()
 void FShadowSceneRenderer::InitDynamicShadows(
 	const FLightSceneProxy* Directional,
 	const std::vector<const FLightSceneProxy*>& LocalLights,
-	UCameraComponent* Camera, float AspectRatio)
+	const FSceneView& View)
 {
 	// 書き込み先をフリップ (GPU が読んでいる前フレーム分を避ける)
 	m_ShadowParamFrame ^= 1;
@@ -228,9 +228,10 @@ void FShadowSceneRenderer::InitDynamicShadows(
 	}
 
 	// ---- ディレクショナル (Whole-Scene CSM) ----
-	if (Directional && Directional->AffectsWorld() && Directional->CastsShadows() && Camera)
+	// View.bValid = false (カメラ不在) のフレームはスキップする
+	if (Directional && Directional->AffectsWorld() && Directional->CastsShadows() && View.bValid)
 	{
-		SetupDirectionalShadows(Directional, Camera, AspectRatio);
+		SetupDirectionalShadows(Directional, View);
 	}
 
 	// ---- ローカル (Spot / Rect / Point) ----
@@ -246,12 +247,12 @@ void FShadowSceneRenderer::InitDynamicShadows(
 //  ライトビューのテクセルグリッドへスナップして安定化する。
 // ------------------------------------------------------------
 void FShadowSceneRenderer::SetupDirectionalShadows(const FLightSceneProxy* Directional,
-	UCameraComponent* Camera, float AspectRatio)
+	const FSceneView& View)
 {
 	// ---- カメラ基底 (LookToLH と同じ構成 = 描画ビューと一致) ----
-	XMMATRIX camWorld = Camera->GetComponentToWorld();
-	XMVECTOR camPos = camWorld.r[3];
-	XMVECTOR camFwd = XMVector3Normalize(camWorld.r[2]);
+	// FSceneView のスナップショット (位置 / 前方) から再構成する
+	XMVECTOR camPos = XMLoadFloat3(&View.ViewOrigin);
+	XMVECTOR camFwd = XMVector3Normalize(XMLoadFloat3(&View.ViewForward));
 
 	XMVECTOR worldUp = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
 	if (fabsf(XMVectorGetY(camFwd)) > 0.99f)
@@ -261,14 +262,14 @@ void FShadowSceneRenderer::SetupDirectionalShadows(const FLightSceneProxy* Direc
 	XMVECTOR camRight = XMVector3Normalize(XMVector3Cross(worldUp, camFwd));
 	XMVECTOR camUp = XMVector3Cross(camFwd, camRight);
 
-	const float nearClip = Camera->GetNearClip();
-	const float shadowDistance = fminf(Directional->GetDynamicShadowDistance(), Camera->GetFarClip());
+	const float nearClip = View.NearClip;
+	const float shadowDistance = fminf(Directional->GetDynamicShadowDistance(), View.FarClip);
 	const int   numCascades = max(1, min(Directional->GetNumDynamicShadowCascades(), (int)MAX_SHADOW_CASCADES));
 	const float exponent = fmaxf(Directional->GetCascadeDistributionExponent(), 1.0f);
 	const float fadeFraction = fmaxf(fminf(Directional->GetShadowDistanceFadeoutFraction(), 0.9f), 0.0f);
 
-	const float tanHalfFovY = tanf(XMConvertToRadians(Camera->GetFieldOfView()) * 0.5f);
-	const float tanHalfFovX = tanHalfFovY * AspectRatio;
+	const float tanHalfFovY = tanf(XMConvertToRadians(View.FOV) * 0.5f);
+	const float tanHalfFovX = tanHalfFovY * View.AspectRatio;
 
 	// ---- ライト方向 (発光方向) ----
 	const XMFLOAT3& lightDirection = Directional->GetDirection();
@@ -418,12 +419,12 @@ void FShadowSceneRenderer::SetupLocalShadows(const std::vector<const FLightScene
 	// キューブ 6 面の基底 (HLSL 側 ShadowFilteringCommon.hlsl と 1:1 必須)
 	static const XMVECTOR CubeFaceForward[6] =
 	{
-		XMVectorSet( 1.0f, 0.0f, 0.0f, 0.0f),
+		XMVectorSet(1.0f, 0.0f, 0.0f, 0.0f),
 		XMVectorSet(-1.0f, 0.0f, 0.0f, 0.0f),
-		XMVectorSet( 0.0f, 1.0f, 0.0f, 0.0f),
-		XMVectorSet( 0.0f,-1.0f, 0.0f, 0.0f),
-		XMVectorSet( 0.0f, 0.0f, 1.0f, 0.0f),
-		XMVectorSet( 0.0f, 0.0f,-1.0f, 0.0f),
+		XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f),
+		XMVectorSet(0.0f,-1.0f, 0.0f, 0.0f),
+		XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f),
+		XMVectorSet(0.0f, 0.0f,-1.0f, 0.0f),
 	};
 	static const XMVECTOR CubeFaceUp[6] =
 	{

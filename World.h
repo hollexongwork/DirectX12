@@ -5,6 +5,7 @@
 #include <type_traits>
 #include "Actor.h"
 #include "Scene.h"
+#include "SceneView.h"
 
 // ============================================================
 //  UWorld
@@ -113,6 +114,13 @@ public:
 	// 毎フレーム、Tick の後・描画の前に呼ぶこと。
 	// (UWorld::SendAllEndOfFrameUpdates)
 	void SendAllEndOfFrameUpdates();
+
+	// ---- FSceneView 構築 (ゲーム側フェーズ) ----
+	// アクティブカメラと APostProcessVolume をフレームに 1 回だけ
+	// 値スナップショットする。カメラ不在時は bValid = false のまま
+	// 返し、レンダラはビュー定数 / CSM の更新をスキップする。
+	// GameManager::Draw が毎フレーム呼び、レンダラのパス列へ渡す。
+	FSceneView CalcSceneView(float AspectRatio) const;
 
 	FScene* GetScene() { return &m_Scene; }
 };

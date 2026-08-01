@@ -20,9 +20,8 @@ InputManager::~InputManager()
 void InputManager::Update()
 {
 	Input::Update();
-	Mouse_UpdatePrevState();
 
-	if (IsRightClick()||IsMiddleClick())
+	if (IsRightClick() || IsMiddleClick())
 	{
 		Mouse_SetMode(MOUSE_POSITION_MODE_RELATIVE);
 	}

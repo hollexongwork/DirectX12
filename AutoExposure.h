@@ -34,14 +34,14 @@ public:
     // SettingsManager が Default スナップショットを保持するため public 型にしている。
     struct Params
     {
-        float MinLogLuminance      = -10.0f;  // histogram low  end (log2)
-        float MaxLogLuminance      = 1.0f;    // histogram high end (log2)
-        float LowPercent           = 0.25f;   // clip darkest
-        float HighPercent          = 0.75f;   // clip above
-        float MinBrightness        = 0.03f;   // exposure clamp (lo)
-        float MaxBrightness        = 0.25f;   // exposure clamp (hi)
-        float SpeedUp              = 10.0f;   // adapt speed (scene brighter)
-        float SpeedDown            = 10.0f;   // adapt speed (scene darker)
+        float MinLogLuminance = -10.0f;  // histogram low  end (log2)
+        float MaxLogLuminance = 1.0f;    // histogram high end (log2)
+        float LowPercent = 0.25f;   // clip darkest
+        float HighPercent = 0.75f;   // clip above
+        float MinBrightness = 0.03f;   // exposure clamp (lo)
+        float MaxBrightness = 0.25f;   // exposure clamp (hi)
+        float SpeedUp = 10.0f;   // adapt speed (scene brighter)
+        float SpeedDown = 10.0f;   // adapt speed (scene darker)
         float ExposureCompensation = 0.0f;    // EV bias on the auto result
     };
 
@@ -152,7 +152,7 @@ public:
 
     // ---- Tunable parameters (driven by ImGui / PostProcessVolume) ----
 
-    Params&       GetParams()       { return m_Params; }
+    Params& GetParams() { return m_Params; }
     const Params& GetParams() const { return m_Params; }
 
     static const unsigned int HISTOGRAM_BINS = 256;
