@@ -8,7 +8,7 @@ struct TEXTURE;
 
 // ============================================================
 //  FAssetManager
-//  UE5 のアセット共有 (UStaticMesh / UTexture2D が複数の
+//  アセット共有 (UStaticMesh / UTexture2D が複数の
 //  コンポーネントから参照カウントで共有される仕組み) に相当する
 //  最小のアセットキャッシュ。
 //  パスをキーに FBXModel / TEXTURE を shared_ptr で共有し、
