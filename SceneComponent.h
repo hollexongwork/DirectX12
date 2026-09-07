@@ -49,7 +49,7 @@ public:
 	// 自分自身・自分の子孫へのアタッチ (循環) は無視される。
 	void SetupAttachment(USceneComponent* Parent);
 
-	// 親から切り離す (UE5 の DetachFromComponent に相当)。
+	// 親から切り離す (DetachFromComponent に相当)。
 	// 親の子リストからも自分を除去する。未アタッチなら何もしない。
 	void DetachFromParent();
 

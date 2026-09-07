@@ -94,7 +94,7 @@ PS_OUTPUT_GEOMETRY main(PS_INPUT input, bool bIsFrontFace : SV_IsFrontFace)
     if (Material.bUseSubstrate)
     {
         // ------------------------------------------------------------
-        //  Substrate Slab BSDF (UE5.8)
+        //  Substrate Slab BSDF 
         //  呼出規約はサンプル逐語:
         //    MFP -> SSSMFP ピン / Thickness -> SSSMFPScale ピン
         //    (SSS 評価厚 [cm]) / Slab の Thickness 引数 = 0.01cm 固定

@@ -1008,7 +1008,7 @@ bool ImGuiManager::DrawMaterialEditor(Material& Mat)
 {
 	bool changed = false;
 
-	// ---- Blend Mode / Two Sided (UE5 マテリアル Details の Material カテゴリ相当) ----
+	// ---- Blend Mode / Two Sided ----
 	// Opaque / Masked はベースパス (G-Buffer)、Translucent / Additive は
 	// トランスルーセンシーパス (SceneColor へフォワード合成) で描かれる。
 	static const char* blendModeNames[] = { "Opaque", "Masked", "Translucent", "Additive" };
@@ -1053,11 +1053,11 @@ bool ImGuiManager::DrawMaterialEditor(Material& Mat)
 	}
 
 	// ============================================================
-	//  Substrate Slab BSDF (UE5.8)
+	//  Substrate Slab BSDF 
 	//  bUseSubstrate で Slab ワークフローに切り替える。レガシーの
 	//  Metallic / Specular は無視され、F0 / F90 が界面を定義する。
 	// ============================================================
-	if (CollapsingHeader("Substrate (UE5.8 Slab BSDF)"))
+	if (CollapsingHeader("Substrate (Slab BSDF)"))
 	{
 		bool useSubstrate = Mat.IsSubstrateEnabled();
 		if (Checkbox("Use Substrate", &useSubstrate))
@@ -1075,7 +1075,7 @@ bool ImGuiManager::DrawMaterialEditor(Material& Mat)
 
 			// ---- Sub-Surface (SUBSTRATE_SSS_TYPE_* と 1:1) ----
 			// Diffusion / Diffusion Profile はスクリーン空間拡散パス
-			// 非対応環境のため非散乱にフォールバックする (UE5.8 仕様)。
+			// 非対応環境のため非散乱にフォールバックする。
 			static const char* sssTypeNames[] =
 			{
 				"None", "Wrap", "Two Sided Wrap",
@@ -1121,10 +1121,10 @@ bool ImGuiManager::DrawMaterialEditor(Material& Mat)
 	}
 
 	// ============================================================
-	//  Refraction (UE5.8)
+	//  Refraction 
 	//  BLEND_Translucent のみ有効 (Additive は対象外)。
 	// ============================================================
-	if (CollapsingHeader("Refraction (UE5.8)"))
+	if (CollapsingHeader("Refraction"))
 	{
 		static const char* refractionNames[] =
 		{
@@ -1148,7 +1148,7 @@ bool ImGuiManager::DrawMaterialEditor(Material& Mat)
 			{
 			case ERefractionMethod::IndexOfRefraction:
 			{
-				// ---- Index Of Refraction From F0 (UE5.8) ----
+				// ---- Index Of Refraction From F0 ----
 				// Substrate では界面を F0 が定義するため、IOR も同じ F0
 				// から導出して整合させられる (誘電体逆変換)
 				bool useF0 = Mat.IsRefractionUseF0();

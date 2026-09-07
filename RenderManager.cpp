@@ -693,7 +693,7 @@ void RenderManager::InitPipelines()
 	// ---- シャドウ深度バリアント ----
 	// TwoSided はカリング無効 (両面が影を落とす)。Masked は
 	// ShadowDepthMaskedPS が OpacityMask を clip する。
-	// Translucent / Additive はシャドウマップに描かない (UE5 既定)。
+	// Translucent / Additive はシャドウマップに描かない。
 	m_PipelineState["ShadowDepthTwoSided"] =
 		CreatePipeline("Shader/cso/ShadowDepthVS.cso", "Shader/cso/ShadowDepthPS.cso", nullptr, 0, 1000, 1.5f,
 			EBlendStatePreset::Opaque, ECullModePreset::None);

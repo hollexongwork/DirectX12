@@ -9,7 +9,7 @@
 //  ヘッダレイアウト・パッキング補助をまとめる。
 //
 //  デファードでは Slab を SubstrateMaterial0/1 (RGBA32_UINT x 2,
-//  SV_TARGET3/4) にパックする。UE5.8 の Substrate.MaterialTextureArray
+//  SV_TARGET3/4) にパックする。Substrate.MaterialTextureArray
 //  (uint スロット列) 相当の固定 8 スロット簡易版:
 //    [0] ヘッダ (BSDF 種別 / SSSType / フラグ)
 //    [1] F0.rgb (unorm8) | SSSMFPScale (unorm8)
@@ -36,12 +36,12 @@
 // 壊れて見た目が不連続に変化する。
 #define SUBSTRATE_MIN_THICKNESS_CM 0.001f
 
-// ---- Sub-Surface Type (UE5.8 Slab の SubSurface Type と 1:1) ----
+// ---- Sub-Surface Type (Slab の SubSurface Type と 1:1) ----
 //   NONE              : 散乱なし (標準 Lambert)
 //   WRAP              : ラップライティング (レガシー Subsurface 相当)
 //   TWO_SIDED_WRAP    : 両面ラップ (レガシー Two Sided Foliage 相当)
 //   DIFFUSION         : スクリーン空間拡散。拡散パス非対応環境では
-//                       UE5.8 仕様どおり非散乱ディフューズへフォールバック
+//                       仕様どおり非散乱ディフューズへフォールバック
 //   DIFFUSION_PROFILE : プロファイル版 (同上フォールバック)
 //   SIMPLEVOLUME      : 透過 = Beer-Lambert / 散乱 = 単散乱スラブ近似
 #define SUBSTRATE_SSS_TYPE_NONE              0
@@ -63,13 +63,13 @@
 #define SUBSTRATE_HEADER_FLAG_HASEMISSIVE    (1u << 11)  // Emissive != 0
 #define SUBSTRATE_HEADER_FLAG_HASANISOTROPY  (1u << 12)  // Anisotropy != 0
 
-// ---- レイヤー既定値 (UE5.8: 最下層スラブの暗黙厚は 0.01 cm) ----
+// ---- レイヤー既定値 (最下層スラブの暗黙厚は 0.01 cm) ----
 #define SUBSTRATE_LAYER_DEFAULT_THICKNESS_CM 0.01f
 
-// F0 がこの値を下回ると F90 は黒へフェードする (UE5.8 仕様)
+// F0 がこの値を下回ると F90 は黒へフェードする 
 #define SUBSTRATE_MIN_F0_FOR_F90 0.02f
 
-// SharedLocalBases (UE5.8 API パリティ用。本エンジンは単一基底)
+// SharedLocalBases (API パリティ用。本エンジンは単一基底)
 #define SHAREDLOCALBASIS_INDEX_0   0
 #define SHAREDLOCALBASIS_INDEX_0_0 0
 #define SHAREDLOCALBASIS_INDEX_0_1 0

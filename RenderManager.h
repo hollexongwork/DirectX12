@@ -265,7 +265,7 @@ private:
 	// 2フレーム・イン・フライトのため、破棄要求されたリソース /
 	// デスクリプタ枠は「破棄時点で記録中のフレームの Signal 値」を
 	// 添えて保留し、GPU がそのフェンス値へ到達してから実解放する。
-	// (UE5 の FRHIResource 遅延削除に相当。即時解放すると in-flight の
+	// (FRHIResource 遅延削除に相当。即時解放すると in-flight の
 	//  コマンドリストが解放済みリソース / 上書きされたデスクリプタを
 	//  参照して DEVICE_REMOVED になる)
 	struct DEFERRED_RELEASE_ENTRY

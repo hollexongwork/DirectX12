@@ -596,7 +596,7 @@ SettingsManager::MaterialSnapshot SettingsManager::CaptureMaterial(const Materia
 	snap.Opacity = Mat.Params.Opacity;
 	snap.OpacityMaskClipValue = Mat.Params.OpacityMaskClipValue;
 
-	// ---- Substrate Slab BSDF (UE5.8) ----
+	// ---- Substrate Slab BSDF ----
 	snap.bUseSubstrate = Mat.IsSubstrateEnabled();
 	snap.SubstrateDiffuseAlbedo = Mat.Params.SubstrateDiffuseAlbedo;
 	snap.SubstrateF0 = Mat.Params.SubstrateF0;
@@ -612,7 +612,7 @@ SettingsManager::MaterialSnapshot SettingsManager::CaptureMaterial(const Materia
 	snap.SubstrateFuzzRoughness = Mat.Params.SubstrateFuzzRoughness;
 	snap.SubstrateIsThin = (Mat.Params.SubstrateIsThin != FALSE);
 
-	// ---- Refraction (UE5.8) ----
+	// ---- Refraction ----
 	snap.RefractionMethod = (int)Mat.Params.RefractionMethod;
 	snap.RefractionUseF0 = Mat.IsRefractionUseF0();
 	snap.RefractionDataX = Mat.Params.RefractionData.x;
@@ -641,7 +641,7 @@ void SettingsManager::ApplyMaterial(Material& Mat, const MaterialSnapshot& Snap)
 	Mat.Params.Opacity = Snap.Opacity;
 	Mat.Params.OpacityMaskClipValue = Snap.OpacityMaskClipValue;
 
-	// ---- Substrate Slab BSDF (UE5.8) ----
+	// ---- Substrate Slab BSDF ----
 	Mat.SetUseSubstrate(Snap.bUseSubstrate);
 	Mat.Params.SubstrateDiffuseAlbedo = Snap.SubstrateDiffuseAlbedo;
 	Mat.Params.SubstrateF0 = Snap.SubstrateF0;
@@ -920,7 +920,7 @@ void SettingsManager::WriteComponent(ConfigFile& Ini, const std::string& Section
 			Ini.SetFloat(Section, mp + "Opacity", mat.Opacity);
 			Ini.SetFloat(Section, mp + "OpacityMaskClipValue", mat.OpacityMaskClipValue);
 
-			// ---- Substrate Slab BSDF (UE5.8) ----
+			// ---- Substrate Slab BSDF ----
 			Ini.SetBool(Section, mp + "UseSubstrate", mat.bUseSubstrate);
 			Ini.SetFloat4(Section, mp + "SubstrateDiffuseAlbedo", mat.SubstrateDiffuseAlbedo);
 			Ini.SetFloat4(Section, mp + "SubstrateF0", mat.SubstrateF0);
@@ -936,7 +936,7 @@ void SettingsManager::WriteComponent(ConfigFile& Ini, const std::string& Section
 			Ini.SetFloat(Section, mp + "SubstrateFuzzRoughness", mat.SubstrateFuzzRoughness);
 			Ini.SetBool(Section, mp + "SubstrateIsThin", mat.SubstrateIsThin);
 
-			// ---- Refraction (UE5.8) ----
+			// ---- Refraction ----
 			Ini.SetInt(Section, mp + "RefractionMethod", mat.RefractionMethod);
 			Ini.SetBool(Section, mp + "RefractionUseF0", mat.RefractionUseF0);
 			Ini.SetFloat(Section, mp + "RefractionDataX", mat.RefractionDataX);
@@ -1049,7 +1049,7 @@ void SettingsManager::ReadComponent(const ConfigFile& Ini, const std::string& Se
 		Ini.GetFloat(Section, mp + "Opacity", mat.Opacity);
 		Ini.GetFloat(Section, mp + "OpacityMaskClipValue", mat.OpacityMaskClipValue);
 
-		// ---- Substrate Slab BSDF (UE5.8) ----
+		// ---- Substrate Slab BSDF ----
 		// キーが無い場合は既定値のまま (旧 INI との後方互換)
 		Ini.GetBool(Section, mp + "UseSubstrate", mat.bUseSubstrate);
 		Ini.GetFloat4(Section, mp + "SubstrateDiffuseAlbedo", mat.SubstrateDiffuseAlbedo);
@@ -1066,7 +1066,7 @@ void SettingsManager::ReadComponent(const ConfigFile& Ini, const std::string& Se
 		Ini.GetFloat(Section, mp + "SubstrateFuzzRoughness", mat.SubstrateFuzzRoughness);
 		Ini.GetBool(Section, mp + "SubstrateIsThin", mat.SubstrateIsThin);
 
-		// ---- Refraction (UE5.8) ----
+		// ---- Refraction ----
 		Ini.GetInt(Section, mp + "RefractionMethod", mat.RefractionMethod);
 		Ini.GetBool(Section, mp + "RefractionUseF0", mat.RefractionUseF0);
 		Ini.GetFloat(Section, mp + "RefractionDataX", mat.RefractionDataX);

@@ -61,14 +61,14 @@ cbuffer PrimitiveConstantBuffer : register(b1)
 //    BlendMode            : BLEND_* (上記)
 //    TwoSided             : 裏面の法線反転 (SV_IsFrontFace 判定)
 //
-//  ---- Substrate Slab BSDF (UE5.8) ----
+//  ---- Substrate Slab BSDF ----
 //    bUseSubstrate = true のときレガシー Metallic/Specular ワーク
 //    フローの代わりに Slab (DiffuseAlbedo / F0 / F90 / SSS) で
 //    シェーディングする。MFP は TransmittanceColor + Thickness から
 //    TransmittanceToMeanFreePath で導出 (Substrate.hlsl)。
 //    Thickness は UE 準拠の cm 単位オーサリング。
 //
-//  ---- Refraction (UE5.8) ----
+//  ---- Refraction ----
 //    RefractionMethod = REFRACTION_METHOD_* (RefractionCommon.hlsl)。
 //    RefractionData.x = IOR / 法線強度, xy = 2D オフセット [pixel]。
 // -------------------------------------------------------------
@@ -89,7 +89,7 @@ cbuffer MaterialConstantBuffer : register(b2)
         bool TwoSided;
         float3 pad;
 
-        // ---- Substrate Slab BSDF (UE5.8) ----
+        // ---- Substrate Slab BSDF ----
         float4 SubstrateDiffuseAlbedo; // rgb (w 未使用)
         float4 SubstrateF0; // rgb (w 未使用)
         float4 SubstrateF90; // rgb (w 未使用)
@@ -111,7 +111,7 @@ cbuffer MaterialConstantBuffer : register(b2)
         float2 RefractionData; // IOR / 法線強度 / 2D オフセット
 
         float RefractionDepthBias; // [m]
-        // Index Of Refraction From F0 (UE5.8):
+        // Index Of Refraction From F0 :
         // TRUE のとき IOR を手入力値でなく Slab F0 から導出する
         // (DielectricF0ToIor(F0RGBToF0(F0))。Substrate + IOR 方式のみ)
         bool bRefractionUseF0;

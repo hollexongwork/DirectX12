@@ -13,7 +13,7 @@ static const float EPSILON = 1e-7f;
 #define METER_TO_CENTIMETER 100.0f
 
 // Substrate: Transmittance Color を実現する固定参照厚 [cm]。
-// 【意図的乖離】UE5.8 サンプルは MFP 導出距離にノードの Thickness を
+// サンプルは MFP 導出距離にノードの Thickness を
 // そのまま使うため、SSS 評価厚 (同じ Thickness) と厳密に相殺して
 // τ = -log(T) 恒等となり、Thickness がマテリアルの見た目に影響しない。
 // 本エンジンは MFP 導出距離のみをこの固定参照厚に変更し、

@@ -342,7 +342,7 @@ PS_OUTPUT main(PS_INPUT input, bool bIsFrontFace : SV_IsFrontFace)
         }
         refractionRoughness = SlabBSDF.Roughness;
 
-        // ---- Index Of Refraction From F0 (UE5.8) ----
+        // ---- Index Of Refraction From F0 ----
         // Substrate では界面を F0 が定義するため、屈折 IOR も
         // 同じ F0 から導出できる (誘電体逆変換)。手入力 IOR と
         // F0 由来のスペキュラが食い違わないのが利点。

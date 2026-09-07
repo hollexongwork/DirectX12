@@ -5,11 +5,11 @@
 
 // =============================================================
 //  RefractionCommon
-//  UE5.8 の屈折 (Refraction) 実装。半透明マテリアル
+//  屈折 (Refraction) 実装。半透明マテリアル
 //  (BLEND_Translucent) がシーンカラーコピー (t21) を屈折オフセット
 //  付きでサンプルし、背景を置換合成する。
 //
-//  屈折方式 (UE5.8 ドキュメント / ERefractionMode と 1:1):
+//  屈折方式 (ドキュメント / ERefractionMode と 1:1):
 //    NONE                : 屈折なし (従来のハードウェアブレンド)
 //    INDEX_OF_REFRACTION : 屈折率。ビュー空間法線 x (IOR - 1) の
 //                          画面空間オフセット (スクリーン空間近似)
@@ -56,7 +56,7 @@ static const float2 RefractionPoissonTaps[4] =
 
 // -------------------------------------------------------------
 //  FMaterialRefractionData
-//  UE5.8 マテリアルテンプレートの同名構造体と 1:1:
+//  マテリアルテンプレートの同名構造体と 1:1:
 //    Data.x  = IOR (INDEX_OF_REFRACTION) / 法線強度 (PIXEL_NORMAL_OFFSET)
 //    Data.xy = 画面オフセット [pixel] (2D_OFFSET)
 // -------------------------------------------------------------
