@@ -220,6 +220,7 @@ void GameManager::Draw()
 	m_SceneRenderer.BeginFrame();                                     // RHI 準備 + G-Buffer オープン + ImGui NewFrame
 	m_SceneRenderer.RenderBasePass(m_World.GetScene(), sceneView);    // ビュー/環境定数 + プリミティブ -> G-Buffer
 	m_SceneRenderer.RenderShadowDepths(m_World.GetScene(), sceneView);// CSM + ローカルシャドウ深度 -> シャドウマップ
+	m_SceneRenderer.RenderLumenScene(m_World.GetScene());             // Lumen: カードキャプチャ + Surface Cache ライティング (Emissive 光源化)
 	m_SceneRenderer.RenderLighting();                                 // LinearDepth + デファード -> SceneColor
 	m_SceneRenderer.RenderTranslucency(m_World.GetScene());           // Translucent/Additive -> SceneColor (後→前フォワード合成)
 	m_SceneRenderer.RenderPostProcessing();                           // DOF -> AutoExposure -> Bloom -> LUT -> Tonemap

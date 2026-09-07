@@ -132,8 +132,50 @@ void RenderManager::InitDevice()
 	hr = m_Factory->EnumAdapters(0, (IDXGIAdapter**)m_Adapter.GetAddressOf());
 	assert(SUCCEEDED(hr));
 
-	hr = D3D12CreateDevice(m_Adapter.Get(), D3D_FEATURE_LEVEL_11_1, IID_PPV_ARGS(&m_Device));
-	assert(SUCCEEDED(hr));
+	// ---- フィーチャーレベルは 12_1 -> 12_0 -> 11_1 の順で試行 ----
+	// (DXR / SM6 系の機能判定のため可能なら 12 系で作る。11_1 は
+	//  従来どおりの最終フォールバック)
+	{
+		const D3D_FEATURE_LEVEL featureLevels[] = {
+			D3D_FEATURE_LEVEL_12_1,
+			D3D_FEATURE_LEVEL_12_0,
+			D3D_FEATURE_LEVEL_11_1,
+		};
+
+		hr = E_FAIL;
+		for (D3D_FEATURE_LEVEL level : featureLevels)
+		{
+			hr = D3D12CreateDevice(m_Adapter.Get(), level, IID_PPV_ARGS(&m_Device));
+			if (SUCCEEDED(hr))
+			{
+				break;
+			}
+		}
+		assert(SUCCEEDED(hr));
+	}
+
+	// ---- DXR (インラインレイトレーシング) サポート判定 ----
+	// ID3D12Device5 + RaytracingTier 1.1 (RayQuery) が揃えば
+	// Lumen の HWRT トレースパスが利用可能 (LumenHardwareRayTracing.h)。
+	// 非対応環境では SWRT (メッシュ SDF + Global Distance Field) のみ。
+	{
+		m_bRayTracingSupported = false;
+
+		if (SUCCEEDED(m_Device.As(&m_Device5)) && m_Device5)
+		{
+			D3D12_FEATURE_DATA_D3D12_OPTIONS5 options5{};
+			if (SUCCEEDED(m_Device->CheckFeatureSupport(
+				D3D12_FEATURE_D3D12_OPTIONS5, &options5, sizeof(options5))))
+			{
+				m_bRayTracingSupported =
+					(options5.RaytracingTier >= D3D12_RAYTRACING_TIER_1_1);
+			}
+		}
+
+		OutputDebugStringA(m_bRayTracingSupported
+			? "[RenderManager] DXR inline raytracing: supported (Tier 1.1+)\n"
+			: "[RenderManager] DXR inline raytracing: not supported (SWRT only)\n");
+	}
 
 #if defined(_DEBUG)
 	// デバッグレイヤーのエラーメッセージが出た瞬間にブレークさせる。
@@ -185,6 +227,8 @@ void RenderManager::InitCommandObjects()
 		m_GraphicsCommandAllocator[1]->SetName(L"GraphicsCommandAllocator[1]");
 
 		hr = m_Device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_GraphicsCommandAllocator[0].Get(), nullptr, IID_PPV_ARGS(&m_GraphicsCommandList));
+		// DXR (加速構造ビルド) 用インターフェース。非対応環境では null のまま
+		m_GraphicsCommandList.As(&m_GraphicsCommandList4);
 		assert(SUCCEEDED(hr));
 		m_GraphicsCommandList->SetName(L"GraphicsCommandList");
 	}
@@ -467,7 +511,7 @@ static void BuildStaticSamplerDescs(D3D12_STATIC_SAMPLER_DESC(&OutSamplers)[3])
 void RenderManager::InitRootSignature()
 {
 	const unsigned int ROOT_PARAM_COUNT = (unsigned int)TEXTURE_TYPE::COUNT;
-	const unsigned int CBV_COUNT = (unsigned int)CONSTANT_TYPE::SHADOW + 1; // VIEW/PRIMITIVE/MATERIAL/FORWARD_LIGHT/POST_PROCESS/SHADOW
+	const unsigned int CBV_COUNT = (unsigned int)CONSTANT_TYPE::LUMEN + 1; // VIEW/PRIMITIVE/MATERIAL/FORWARD_LIGHT/POST_PROCESS/SHADOW/LUMEN
 
 	D3D12_ROOT_PARAMETER  rootParameters[ROOT_PARAM_COUNT]{};
 	D3D12_DESCRIPTOR_RANGE range[ROOT_PARAM_COUNT]{};
@@ -657,6 +701,23 @@ void RenderManager::InitPipelines()
 		CreatePipeline("Shader/cso/ShadowDepthVS.cso", "Shader/cso/ShadowDepthMaskedPS.cso", nullptr, 0, 1000, 1.5f);
 	m_PipelineState["ShadowDepthMaskedTwoSided"] =
 		CreatePipeline("Shader/cso/ShadowDepthVS.cso", "Shader/cso/ShadowDepthMaskedPS.cso", nullptr, 0, 1000, 1.5f,
+			EBlendStatePreset::Opaque, ECullModePreset::None);
+
+	// ---- Lumen カードキャプチャ (Surface Cache, LumenScene.h) ----
+	// メッシュをカードのオルソ投影でアトラスタイルへ焼く MRT パス:
+	//   RT0 = Albedo (RGBA8) / RT1 = Normal (RGBA8) /
+	//   RT2 = Emissive (R11G11B10F) + 深度アトラス (D32)
+	// VS はベースパスと共通 (b1 = 単位行列でローカル空間描画)。
+	// 面の欠け防止のため常にカリング無効 (裏面は PS で法線反転)。
+	const DXGI_FORMAT lumenCard[] =
+	{
+		DXGI_FORMAT_R8G8B8A8_UNORM,
+		DXGI_FORMAT_R8G8B8A8_UNORM,
+		DXGI_FORMAT_R11G11B10_FLOAT,
+	};
+	m_PipelineState["LumenCardCapture"] =
+		CreatePipeline("Shader/cso/GeometryVS.cso", "Shader/cso/LumenCardCapturePS.cso",
+			lumenCard, _countof(lumenCard), 0, 0.0f,
 			EBlendStatePreset::Opaque, ECullModePreset::None);
 
 	// ---- 全 PSO の生成結果を検証 ----

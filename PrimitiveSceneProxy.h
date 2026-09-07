@@ -148,6 +148,13 @@ public:
 	// 既定は何も描かない (2D オーバーレイなどは影を落とさない)。
 	virtual void DrawShadowDepth(RenderManager* RHI) const {}
 
+	// Lumen カードキャプチャパス (FLumenSceneData::RenderCardCaptures) から
+	// 呼ばれる描画。b0 にはカードビュー (ローカル空間オルソ) が積まれて
+	// いるため、b1 へ単位行列を積んでローカル空間のままマテリアル付きで
+	// 描くこと (Opaque / Masked サブセットのみ)。
+	// 既定は何も描かない (SDF を持つ FStaticMeshSceneProxy が実装する)。
+	virtual void DrawCardCapture(RenderManager* RHI) const {}
+
 protected:
 	// OBJECT 定数 (ワールド行列) を転置してアップロードする共通処理
 	// PRIMITIVE 定数 (b1, FPrimitiveUniformShaderParameters 相当) を

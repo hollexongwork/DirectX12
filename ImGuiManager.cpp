@@ -13,6 +13,7 @@
 #include "SceneRenderer.h"
 #include "ShadowRendering.h"
 #include "LightGridInjection.h"
+#include "LumenScene.h"
 #include "ColorGradingLUTBaker.h"
 #include "AutoExposure.h"
 #include "World.h"
@@ -67,6 +68,8 @@ void ImGuiManager::Draw()
 	BufferWindow();
 
 	LightGridWindow();
+
+	LumenWindow();
 
 	CullingWindow();
 }
@@ -129,6 +132,154 @@ void ImGuiManager::LightGridWindow()
 	if (ImGui::Combo("Debug View", &debugMode, debugModes, 3))
 	{
 		params.DebugMode = (unsigned int)debugMode;
+	}
+
+	ImGui::End();
+}
+
+
+// ============================================================
+//  Lumen (Surface Cache / スクリーン GI) デバッグウィンドウ
+// ============================================================
+void ImGuiManager::LumenWindow()
+{
+	ImGui::Begin("Lumen");
+
+	FLumenSceneData* lumen = m_SceneRenderer ? m_SceneRenderer->GetLumenScene() : nullptr;
+	if (lumen == nullptr)
+	{
+		ImGui::TextUnformatted("Lumen scene is not available.");
+		ImGui::End();
+		return;
+	}
+
+	FLumenSceneData::Params& params = lumen->GetParams();
+	const FLumenSceneData::Stats& stats = lumen->GetStats();
+
+	// ---- 統計 ----
+	ImGui::Text("Objects    : %u / %u", stats.NumObjects, MAX_LUMEN_OBJECTS);
+	ImGui::Text("Cards      : %u valid / %u pending capture",
+		stats.NumValidCards, stats.NumPendingCaptures);
+	ImGui::Text("Captured   : %u this frame", stats.NumCapturedThisFrame);
+	ImGui::Text("Atlas      : %u x %u (%u px cards)",
+		LUMEN_ATLAS_WIDTH, LUMEN_ATLAS_HEIGHT, LUMEN_CARD_RESOLUTION);
+	ImGui::Text("Probes     : %u x %u (16px, octa 8x8)",
+		stats.NumProbesX, stats.NumProbesY);
+
+	if (lumen->IsHardwareRayTracingSupported())
+	{
+		ImGui::Text("HWRT       : %s (%u TLAS instances)",
+			stats.bHardwareRayTracingActive ? "ACTIVE (RayQuery)" : "idle (SWRT)",
+			stats.NumTLASInstances);
+	}
+	else
+	{
+		ImGui::TextDisabled("HWRT       : not supported (SWRT: Mesh SDF + Global SDF)");
+	}
+
+	ImGui::Separator();
+
+	// ---- 制御 ----
+	ImGui::Checkbox("Enable Lumen", &params.bEnabled);
+
+	const char* gatherModes[] = { "Off", "Per-Pixel Cone Trace", "Screen Probe Gather" };
+	ImGui::Combo("Gather Mode", &params.GatherMode, gatherModes, 3);
+
+	if (lumen->IsHardwareRayTracingSupported())
+	{
+		ImGui::Checkbox("Hardware Ray Tracing (DXR)", &params.bUseHardwareRayTracing);
+	}
+
+	ImGui::SliderFloat("GI Intensity", &params.GIIntensity, 0.0f, 4.0f);
+	ImGui::SliderFloat("Emissive Boost", &params.EmissiveBoost, 0.0f, 8.0f);
+	ImGui::SliderFloat("Max Trace Distance", &params.MaxTraceDistance, 1.0f, 100.0f);
+	ImGui::SliderFloat("Surface Bias", &params.SurfaceBias, 0.0f, 0.3f);
+	ImGui::SliderFloat("Sky Occlusion", &params.SkyOcclusionStrength, 0.0f, 1.0f);
+
+	const char* debugModes[] = { "Off", "GI Radiance", "Sky Visibility", "GI Diffuse" };
+	int debugMode = (int)params.DebugMode;
+	if (ImGui::Combo("Debug View", &debugMode, debugModes, 4))
+	{
+		params.DebugMode = (unsigned int)debugMode;
+	}
+
+	// ---- Surface Cache ----
+	if (ImGui::CollapsingHeader("Surface Cache"))
+	{
+		ImGui::SliderInt("Radiosity Rays", &params.NumRadiosityRays, 1, 16);
+		ImGui::SliderInt("Radiosity Cards/Frame", &params.RadiosityCardsPerFrame, 1, (int)MAX_LUMEN_CARDS);
+		ImGui::SliderInt("Capture Budget/Frame", &params.CaptureBudgetPerFrame, 1, 64);
+	}
+
+	// ---- トレース (Global SDF / Screen Trace) ----
+	if (ImGui::CollapsingHeader("Tracing"))
+	{
+		ImGui::Checkbox("Global Distance Field", &params.bGlobalSDF);
+		ImGui::SliderFloat("Clipmap0 Extent [m]", &params.GlobalSDFExtent0, 4.0f, 50.0f);
+		ImGui::SliderFloat("Detail Trace Distance [m]", &params.DetailTraceDistance, 0.5f, 10.0f);
+		ImGui::Checkbox("Screen Space Trace", &params.bScreenSpaceTrace);
+		ImGui::SliderFloat("Screen Trace Thickness [m]", &params.ScreenTraceThickness, 0.05f, 1.0f);
+		ImGui::SliderInt("Per-Pixel Cones", &params.NumScreenCones, 1, 8);
+	}
+
+	// ---- Screen Probe Gather ----
+	if (ImGui::CollapsingHeader("Screen Probe Gather"))
+	{
+		ImGui::SliderFloat("Temporal Alpha", &params.TemporalAlpha, 0.02f, 1.0f);
+		ImGui::SliderFloat("Sky Sample Mip", &params.SkySampleMip, 0.0f, 4.0f);
+	}
+
+	// ---- Reflections ----
+	if (ImGui::CollapsingHeader("Reflections"))
+	{
+		ImGui::Checkbox("Enable Reflections", &params.bReflections);
+		ImGui::SliderFloat("Max Roughness", &params.ReflectionMaxRoughness, 0.05f, 1.0f);
+		ImGui::SliderFloat("Fade Start", &params.ReflectionFadeStart, 0.0f, 1.0f);
+		ImGui::SliderFloat("Reflection Intensity", &params.ReflectionIntensity, 0.0f, 2.0f);
+	}
+
+	// ---- Radiance Cache / Translucency GI ----
+	if (ImGui::CollapsingHeader("Radiance Cache"))
+	{
+		ImGui::Checkbox("Enable Radiance Cache", &params.bRadianceCache);
+		ImGui::Checkbox("Translucency GI", &params.bTranslucencyGI);
+		ImGui::SliderFloat("Translucency GI Intensity", &params.TranslucencyGIIntensity, 0.0f, 4.0f);
+		ImGui::SliderFloat("Probe Spacing [m]", &params.RadianceCacheSpacing, 0.25f, 4.0f);
+		ImGui::SliderInt("Probes/Frame", &params.RadianceCacheProbesPerFrame, 16, 1024);
+	}
+
+	// ---- プレビュー ----
+	if (ImGui::CollapsingHeader("Surface Cache Atlas"))
+	{
+		const float previewWidth = 320.0f;
+		const float previewHeight = previewWidth *
+			(float)LUMEN_ATLAS_HEIGHT / (float)LUMEN_ATLAS_WIDTH;
+
+		ImGui::Text("Albedo");
+		ImGui::Image((void*)lumen->GetAlbedoAtlasSRVHandle().ptr, ImVec2(previewWidth, previewHeight));
+
+		ImGui::Text("Normal (card space)");
+		ImGui::Image((void*)lumen->GetNormalAtlasSRVHandle().ptr, ImVec2(previewWidth, previewHeight));
+
+		ImGui::Text("Emissive");
+		ImGui::Image((void*)lumen->GetEmissiveAtlasSRVHandle().ptr, ImVec2(previewWidth, previewHeight));
+
+		ImGui::Text("Final Lighting (Direct + Radiosity + Emissive)");
+		ImGui::Image((void*)lumen->GetFinalLightingSRVHandle().ptr, ImVec2(previewWidth, previewHeight));
+	}
+
+	if (ImGui::CollapsingHeader("Screen GI Buffers"))
+	{
+		const float previewWidth = 320.0f;
+
+		ImGui::Text("Probe Radiance (filtered)");
+		ImGui::Image((void*)lumen->GetProbeRadianceSRVHandle().ptr, ImVec2(previewWidth, 180.0f));
+
+		ImGui::Text("Diffuse Indirect (integrated)");
+		ImGui::Image((void*)lumen->GetDiffuseIndirectSRVHandle().ptr, ImVec2(previewWidth, 180.0f));
+
+		ImGui::Text("Reflections");
+		ImGui::Image((void*)lumen->GetReflectionSRVHandle().ptr, ImVec2(previewWidth, 180.0f));
 	}
 
 	ImGui::End();

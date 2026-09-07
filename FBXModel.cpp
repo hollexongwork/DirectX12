@@ -2,10 +2,123 @@
 #include "RenderManager.h"
 #include "FBXModel.h"
 
+#include "D3DX12.h"
+
 #include <filesystem>
 #include <cassert>
 
 namespace fs = std::filesystem;
+
+
+// ================================================================
+//  DXR BLAS 構築
+//  全サブセットの三角形ジオメトリから Bottom Level AS を一度だけ
+//  ビルドする。頂点はアップロードヒープの VERTEX_3D (Position が
+//  先頭 / ストライド 60B)、インデックスは R32_UINT。
+//  ビルドは即時フラッシュ (DF ベイク / IBL と同じ初期化時パターン)
+//  なのでスクラッチはこのスコープで解放できる。
+// ================================================================
+void FBXModel::BuildRayTracingGeometry()
+{
+	RenderManager* rm = RenderManager::GetInstance();
+	if (rm == nullptr || !rm->IsRayTracingSupported() || m_Subsets.empty())
+	{
+		return;
+	}
+
+	ID3D12Device5* device5 = rm->GetDevice5();
+	ID3D12GraphicsCommandList4* cl4 = rm->GetGraphicsCommandList4();
+	if (device5 == nullptr || cl4 == nullptr)
+	{
+		return;
+	}
+
+	// ---- サブセット -> ジオメトリ記述 ----
+	std::vector<D3D12_RAYTRACING_GEOMETRY_DESC> geometries;
+	geometries.reserve(m_Subsets.size());
+
+	for (const FBX_SUBSET& subset : m_Subsets)
+	{
+		if (!subset.VertexBuffer || !subset.IndexBuffer || subset.IndexCount == 0)
+		{
+			continue;
+		}
+
+		D3D12_RAYTRACING_GEOMETRY_DESC geometry{};
+		geometry.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
+		// マテリアルの Masked / TwoSided はトレース側では扱わない
+		// (SDF 経路と同じく不透明ジオメトリとして遮蔽させる)
+		geometry.Flags = D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
+		geometry.Triangles.Transform3x4 = 0;
+		geometry.Triangles.IndexFormat = DXGI_FORMAT_R32_UINT;
+		geometry.Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
+		geometry.Triangles.IndexCount = subset.IndexCount;
+		geometry.Triangles.VertexCount = subset.VertexBuffer->Size;
+		geometry.Triangles.IndexBuffer = subset.IndexBuffer->Resource->GetGPUVirtualAddress();
+		geometry.Triangles.VertexBuffer.StartAddress = subset.VertexBuffer->Resource->GetGPUVirtualAddress();
+		geometry.Triangles.VertexBuffer.StrideInBytes = subset.VertexBuffer->Stride;
+
+		geometries.push_back(geometry);
+	}
+
+	if (geometries.empty())
+	{
+		return;
+	}
+
+	// ---- プレビルド情報 ----
+	D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS inputs{};
+	inputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
+	inputs.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
+	inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+	inputs.NumDescs = (UINT)geometries.size();
+	inputs.pGeometryDescs = geometries.data();
+
+	D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO prebuild{};
+	device5->GetRaytracingAccelerationStructurePrebuildInfo(&inputs, &prebuild);
+	if (prebuild.ResultDataMaxSizeInBytes == 0)
+	{
+		return;
+	}
+
+	// ---- スクラッチ / 結果バッファ ----
+	ComPtr<ID3D12Resource> scratch;
+	HRESULT hr = rm->GetDevice()->CreateCommittedResource(
+		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+		D3D12_HEAP_FLAG_NONE,
+		&CD3DX12_RESOURCE_DESC::Buffer(prebuild.ScratchDataSizeInBytes,
+			D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS),
+		D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+		nullptr,
+		IID_PPV_ARGS(&scratch));
+	assert(SUCCEEDED(hr));
+
+	hr = rm->GetDevice()->CreateCommittedResource(
+		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+		D3D12_HEAP_FLAG_NONE,
+		&CD3DX12_RESOURCE_DESC::Buffer(prebuild.ResultDataMaxSizeInBytes,
+			D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS),
+		D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE,
+		nullptr,
+		IID_PPV_ARGS(&m_BLAS));
+	assert(SUCCEEDED(hr));
+	m_BLAS->SetName(L"LumenBLAS");
+
+	// ---- ビルド + 即時フラッシュ ----
+	D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC build{};
+	build.Inputs = inputs;
+	build.ScratchAccelerationStructureData = scratch->GetGPUVirtualAddress();
+	build.DestAccelerationStructureData = m_BLAS->GetGPUVirtualAddress();
+
+	cl4->BuildRaytracingAccelerationStructure(&build, 0, nullptr);
+
+	cl4->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::UAV(m_BLAS.Get()));
+
+	// スクラッチをこのスコープで解放するため即時完了させる
+	rm->FlushAndResetCommandList();
+
+	m_bBLASBuilt = true;
+}
 
 
 // ================================================================
@@ -75,6 +188,12 @@ bool FBXModel::Load(const char* filePath, bool flipUV)
 	}
 	m_DFTriangles.clear();
 	m_DFTriangles.shrink_to_fit();
+
+	// ---- DXR BLAS 構築 (対応環境のみ) ----
+	// Lumen の HWRT トレース (LumenHardwareRayTracing.h) が TLAS の
+	// インスタンスとして参照する。頂点 / インデックスバッファは
+	// アップロードヒープ (GENERIC_READ) のままビルド入力にできる。
+	BuildRayTracingGeometry();
 
 	m_Loaded = true;
 	return true;

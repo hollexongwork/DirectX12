@@ -493,15 +493,19 @@ void IBLBaker::Bake(ID3D12Resource* EquirectResource, unsigned int equirectSRVIn
 		D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
 		D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
 
+	// irradiance はデファード (t6, ピクセル) に加えて Lumen Radiosity の
+	// スカイ項 (t11, コンピュート) からも読まれるため (PIXEL | NON_PIXEL)
 	cl->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
 		m_IrradianceCube.Resource.Get(),
 		D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-		D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
+		D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE));
 
+	// prefilter もデファード (t7) に加えて Lumen のスカイ / 反射ミス
+	// (コンピュート, t14) から読まれるため (PIXEL | NON_PIXEL)
 	cl->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
 		m_PrefilterCube.Resource.Get(),
 		D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-		D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
+		D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE));
 
 	cl->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
 		m_BRDFLut.Get(),

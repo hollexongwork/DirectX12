@@ -160,6 +160,8 @@
     <ClCompile Include="LightComponent.cpp" />
     <ClCompile Include="LightGridInjection.cpp" />
     <ClCompile Include="LightSceneProxy.cpp" />
+    <ClCompile Include="LumenHardwareRayTracing.cpp" />
+    <ClCompile Include="LumenScene.cpp" />
     <ClCompile Include="Main.cpp" />
     <ClCompile Include="Mouse.cpp" />
     <ClCompile Include="PointLight.cpp" />
@@ -205,6 +207,8 @@
     <ClInclude Include="LightComponent.h" />
     <ClInclude Include="LightGridInjection.h" />
     <ClInclude Include="LightSceneProxy.h" />
+    <ClInclude Include="LumenHardwareRayTracing.h" />
+    <ClInclude Include="LumenScene.h" />
     <ClInclude Include="Material.h" />
     <ClInclude Include="Field.h" />
     <ClInclude Include="GameManager.h" />

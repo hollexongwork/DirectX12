@@ -7,6 +7,7 @@
 #include "LightSceneProxy.h"
 #include "ShadowRendering.h"
 #include "LightGridInjection.h"
+#include "LumenScene.h"
 #include "IBLBaker.h"
 #include "AutoExposure.h"
 #include "ColorGradingLUTBaker.h"
@@ -41,6 +42,10 @@ FSceneRenderer::FSceneRenderer(RenderManager* RHI)
 
 	// シャドウマップ描画系 (CSM + ローカルシャドウアトラス)
 	m_ShadowRenderer = std::make_unique<FShadowSceneRenderer>(m_RHI);
+
+	// Lumen Surface Cache (カード + アトラス + ライティングコンピュート)
+	m_LumenScene = std::make_unique<FLumenSceneData>(m_RHI);
+	m_LumenScene->Init();
 }
 
 
@@ -334,7 +339,7 @@ void FSceneRenderer::BeginFrame()
 		cl->ResourceBarrier(1,
 			&CD3DX12_RESOURCE_BARRIER::Transition(
 				buf->Resource.Get(),
-				D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+				D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
 				D3D12_RESOURCE_STATE_RENDER_TARGET));
 	}
 
@@ -579,6 +584,140 @@ void FSceneRenderer::RenderShadowDepths(FScene* Scene, const FSceneView& View)
 
 
 // ============================================================
+//  Lumen: シーン更新 -> カードキャプチャ -> Surface Cache ライティング
+//  (UpdateLumenScene / RenderLumenSceneLighting 相当)。
+//  キャプチャが b0 (カードビュー) / b1 (単位行列) を上書きするため
+//  RenderShadowDepths の後 / RenderLighting の前に呼ぶこと。
+//  Surface Cache の FinalLighting には Emissive が合成され、
+//  デファードパスのスクリーン GI が「発光面の光」として採光する。
+// ============================================================
+void FSceneRenderer::RenderLumenScene(FScene* Scene)
+{
+	if (m_LumenScene == nullptr)
+	{
+		return;
+	}
+
+	// プロキシ列 -> スロット同期 + オブジェクト / カードバッファ更新
+	// (HWRT 有効時は TLAS 再構築も記録される)
+	m_LumenScene->UpdateLumenScene(Scene);
+
+	// カードキャプチャ (フレーム予算制)
+	m_LumenScene->RenderCardCaptures();
+
+	// Global SDF 再構築 -> Direct -> Radiosity -> Combine -> Radiance
+	// Cache (Emissive は Combine で光源化される)。ライト情報は
+	// SetupLightConstants が解決済みの VIEW 定数の値をそのまま使う。
+	m_LumenScene->RenderLumenSceneLighting(MakeLumenFrameInputs());
+}
+
+
+// ============================================================
+//  MakeLumenFrameInputs
+//  今フレームの解決済みビュー / ライト / シーンテクスチャを
+//  Lumen へ渡す入力へまとめる (Lumen はゲーム側に触れない)。
+// ============================================================
+FLumenFrameInputs FSceneRenderer::MakeLumenFrameInputs() const
+{
+	FLumenFrameInputs inputs;
+
+	inputs.DirectionalLightDirection = m_ViewConstant.DirectionalLightDirection;
+	inputs.DirectionalLightColor = m_ViewConstant.DirectionalLightColor;
+	inputs.LightBufferSRVIndex = m_LightBufferSRVIndex[m_LightBufferFrame];
+	inputs.NumLocalLights = m_ForwardLightConstant.NumLocalLights;
+
+	if (m_IBLBaker)
+	{
+		inputs.IrradianceSRVIndex = m_IBLBaker->GetIrradianceSRVIndex();
+		inputs.PrefilterSRVIndex = m_IBLBaker->GetPrefilterSRVIndex();
+	}
+
+	inputs.CameraOrigin = m_ViewConstant.WorldCameraOrigin;
+
+	// (V x P)^T = P^T x V^T (格納は転置済み)
+	const XMMATRIX viewT = XMLoadFloat4x4(&m_ViewConstant.View);
+	const XMMATRIX projT = XMLoadFloat4x4(&m_ViewConstant.Projection);
+	XMStoreFloat4x4(&inputs.ViewProjectionT, XMMatrixMultiply(projT, viewT));
+	inputs.InvViewProjectionT = m_ViewConstant.InvViewProjection;
+
+	inputs.ScreenWidth = (unsigned int)m_RHI->GetBackBufferWidth();
+	inputs.ScreenHeight = (unsigned int)m_RHI->GetBackBufferHeight();
+
+	inputs.PrevViewProjectionT = m_PrevViewProjectionT;
+	inputs.PrevCameraOrigin = m_PrevViewOrigin;
+	inputs.bHistoryValid = m_bHistoryValid;
+
+	inputs.SceneDepthSRVIndex = m_SceneTextures.DepthSRVIndex;
+	if (m_SceneTextures.LinearDepth) { inputs.LinearDepthSRVIndex = m_SceneTextures.LinearDepth->SRVIndex; }
+	if (m_SceneTextures.GBufferA) { inputs.GBufferNormalSRVIndex = m_SceneTextures.GBufferA->SRVIndex; }
+	if (m_SceneTextures.GBufferB) { inputs.GBufferBSRVIndex = m_SceneTextures.GBufferB->SRVIndex; }
+	if (m_SceneTextures.PrevSceneColor) { inputs.PrevSceneColorSRVIndex = m_SceneTextures.PrevSceneColor->SRVIndex; }
+
+	return inputs;
+}
+
+
+// ============================================================
+//  CopySceneColorHistory
+//  ライティング + 半透明合成後の線形 HDR SceneColor を
+//  PrevSceneColor へ確定し、そのフレームのビュー行列を保存する。
+//  RenderPostProcessing 先頭 (SceneColor が加工される前) に呼ぶ。
+//  Lumen のスクリーンスペーストレース (スクリーンプローブ / 反射) が
+//  次フレームにリプロジェクションで採光する (UE の Prev SceneColor)。
+// ============================================================
+void FSceneRenderer::CopySceneColorHistory()
+{
+	if (m_SceneTextures.PrevSceneColor == nullptr)
+	{
+		return;
+	}
+
+	ID3D12GraphicsCommandList* cl = m_RHI->GetGraphicsCommandList();
+
+	const D3D12_RESOURCE_STATES readState =
+		D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+
+	D3D12_RESOURCE_BARRIER toCopy[2] =
+	{
+		CD3DX12_RESOURCE_BARRIER::Transition(
+			m_SceneTextures.SceneColor->Resource.Get(),
+			D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+			D3D12_RESOURCE_STATE_COPY_SOURCE),
+		CD3DX12_RESOURCE_BARRIER::Transition(
+			m_SceneTextures.PrevSceneColor->Resource.Get(),
+			readState,
+			D3D12_RESOURCE_STATE_COPY_DEST),
+	};
+	cl->ResourceBarrier(_countof(toCopy), toCopy);
+
+	cl->CopyResource(
+		m_SceneTextures.PrevSceneColor->Resource.Get(),
+		m_SceneTextures.SceneColor->Resource.Get());
+
+	D3D12_RESOURCE_BARRIER fromCopy[2] =
+	{
+		CD3DX12_RESOURCE_BARRIER::Transition(
+			m_SceneTextures.SceneColor->Resource.Get(),
+			D3D12_RESOURCE_STATE_COPY_SOURCE,
+			D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE),
+		CD3DX12_RESOURCE_BARRIER::Transition(
+			m_SceneTextures.PrevSceneColor->Resource.Get(),
+			D3D12_RESOURCE_STATE_COPY_DEST,
+			readState),
+	};
+	cl->ResourceBarrier(_countof(fromCopy), fromCopy);
+
+	// ---- 前フレーム行列 / カメラ位置の確定 ----
+	// 格納は転置済み: (V x P)^T = P^T x V^T (XMMatrixMultiply(A, B) = A x B)
+	const XMMATRIX viewT = XMLoadFloat4x4(&m_ViewConstant.View);
+	const XMMATRIX projT = XMLoadFloat4x4(&m_ViewConstant.Projection);
+	XMStoreFloat4x4(&m_PrevViewProjectionT, XMMatrixMultiply(projT, viewT));
+	m_PrevViewOrigin = m_ViewConstant.WorldCameraOrigin;
+	m_bHistoryValid = true;
+}
+
+
+// ============================================================
 //  Lighting: LinearDepth -> Deferred lighting -> HDR SceneColor
 // ============================================================
 void FSceneRenderer::RenderLighting()
@@ -605,22 +744,24 @@ void FSceneRenderer::RenderLighting()
 			m_ForwardLightConstant.NumLocalLights);
 	}
 
-	// G-Buffer: RENDER_TARGET -> SRV (デファードパスで読む)
+	// G-Buffer: RENDER_TARGET -> 読み取り (PIXEL | NON_PIXEL)。
+	// デファードパス (ピクセル) に加え、Lumen のスクリーンプローブ /
+	// 反射コンピュートパスも法線 / ラフネスを読むため複合状態にする。
 	for (auto* buf : m_SceneTextures.GBuffers)
 	{
 		cl->ResourceBarrier(1,
 			&CD3DX12_RESOURCE_BARRIER::Transition(
 				buf->Resource.Get(),
 				D3D12_RESOURCE_STATE_RENDER_TARGET,
-				D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
+				D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE));
 	}
 
-	// 深度バッファ: DEPTH_WRITE -> SRV (線形深度パス / デファードで読む)
+	// 深度バッファ: DEPTH_WRITE -> 読み取り (PIXEL | NON_PIXEL)
 	cl->ResourceBarrier(1,
 		&CD3DX12_RESOURCE_BARRIER::Transition(
 			m_RHI->GetDepthBufferResource(),
 			D3D12_RESOURCE_STATE_DEPTH_WRITE,
-			D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
+			D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE));
 
 	//======================================================
 	// LinearDepth Pass : 深度 SRV を読んで線形深度バッファに書き出す
@@ -629,7 +770,7 @@ void FSceneRenderer::RenderLighting()
 		cl->ResourceBarrier(1,
 			&CD3DX12_RESOURCE_BARRIER::Transition(
 				m_SceneTextures.LinearDepth->Resource.Get(),
-				D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+				D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
 				D3D12_RESOURCE_STATE_RENDER_TARGET));
 
 		cl->OMSetRenderTargets(1, &m_SceneTextures.LinearDepth->RTVHandle, TRUE, nullptr);
@@ -643,12 +784,26 @@ void FSceneRenderer::RenderLighting()
 
 		DrawScreenPass();
 
-		// RENDER_TARGET -> SRV (以降のパス / ImGui から読めるように戻す)
+		// RENDER_TARGET -> 読み取り (PIXEL | NON_PIXEL)。
+		// 以降のパス / ImGui に加え、Lumen スクリーンプローブの
+		// スクリーンスペーストレース (コンピュート) も読む。
 		cl->ResourceBarrier(1,
 			&CD3DX12_RESOURCE_BARRIER::Transition(
 				m_SceneTextures.LinearDepth->Resource.Get(),
 				D3D12_RESOURCE_STATE_RENDER_TARGET,
-				D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
+				D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE));
+	}
+
+	//======================================================
+	// Lumen スクリーン GI (Screen Probe Gather + Reflections)
+	//  G-Buffer / 深度 / LinearDepth が読み取り状態になり、
+	//  Surface Cache の FinalLighting が確定したこの時点で記録する。
+	//  結果はデファードパスが t28 (DiffuseIndirect) / t29
+	//  (Reflections) で読む。
+	//======================================================
+	if (m_LumenScene)
+	{
+		m_LumenScene->RenderLumenScreenGI(MakeLumenFrameInputs());
 	}
 
 	//======================================================
@@ -712,6 +867,20 @@ void FSceneRenderer::RenderLighting()
 		if (m_ShadowRenderer)
 		{
 			m_ShadowRenderer->BindShadowResources();
+		}
+
+		// Lumen スクリーン GI (b6: LUMEN 定数 / t24: オブジェクト /
+		// t25: カード / t26: FinalLighting / t27: 深度アトラス)。
+		// SDF アトラス (t17) はシャドウ側 BindShadowResources が
+		// バインド済みのものを共用する。
+		if (m_LumenScene)
+		{
+			LUMEN_CONSTANT lumenConstant{};
+			m_LumenScene->FillLumenConstant(lumenConstant);
+			m_RHI->SetConstant(RenderManager::CONSTANT_TYPE::LUMEN,
+				&lumenConstant, sizeof(lumenConstant));
+
+			m_LumenScene->BindLumenResources();
 		}
 
 		DrawScreenPass();
@@ -878,7 +1047,7 @@ void FSceneRenderer::RenderTranslucency(FScene* Scene)
 	cl->ResourceBarrier(1,
 		&CD3DX12_RESOURCE_BARRIER::Transition(
 			m_RHI->GetDepthBufferResource(),
-			D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+			D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
 			D3D12_RESOURCE_STATE_DEPTH_WRITE));
 
 	D3D12_CPU_DESCRIPTOR_HANDLE dsvHandle = m_RHI->GetDepthStencilViewHandle();
@@ -887,6 +1056,17 @@ void FSceneRenderer::RenderTranslucency(FScene* Scene)
 	// ---- 定数 (b0 カメラ / b3 フォワードライト) を積み直す ----
 	m_RHI->SetConstant(RenderManager::CONSTANT_TYPE::VIEW, &m_ViewConstant, sizeof(m_ViewConstant));
 	m_RHI->SetConstant(RenderManager::CONSTANT_TYPE::FORWARD_LIGHT, &m_ForwardLightConstant, sizeof(m_ForwardLightConstant));
+
+	// ---- Lumen (b6 + t30-t32): 半透明の Radiance Cache GI ----
+	if (m_LumenScene)
+	{
+		LUMEN_CONSTANT lumenConstant{};
+		m_LumenScene->FillLumenConstant(lumenConstant);
+		m_RHI->SetConstant(RenderManager::CONSTANT_TYPE::LUMEN,
+			&lumenConstant, sizeof(lumenConstant));
+
+		m_LumenScene->BindTranslucencyResources();
+	}
 
 	// ---- b4 (PostProcess): 屈折 UV 計算が SceneTexelSize を参照 ----
 	// フル解像度のテクセルサイズを持つ通常の内容をそのまま積む。
@@ -953,13 +1133,13 @@ void FSceneRenderer::RenderTranslucency(FScene* Scene)
 			D3D12_RESOURCE_STATE_RENDER_TARGET,
 			D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
 
-	// ---- 深度: DEPTH_WRITE -> SRV に戻す ----
-	// (RenderPostProcessing 末尾の SRV -> DEPTH_WRITE 遷移と対にする)
+	// ---- 深度: DEPTH_WRITE -> 読み取り (PIXEL | NON_PIXEL) に戻す ----
+	// (RenderPostProcessing 末尾の 読み取り -> DEPTH_WRITE 遷移と対にする)
 	cl->ResourceBarrier(1,
 		&CD3DX12_RESOURCE_BARRIER::Transition(
 			m_RHI->GetDepthBufferResource(),
 			D3D12_RESOURCE_STATE_DEPTH_WRITE,
-			D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
+			D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE));
 }
 
 
@@ -969,6 +1149,11 @@ void FSceneRenderer::RenderTranslucency(FScene* Scene)
 void FSceneRenderer::RenderPostProcessing()
 {
 	ID3D12GraphicsCommandList* cl = m_RHI->GetGraphicsCommandList();
+
+	//======================================================
+	// Lumen 用シーンカラー履歴の確定 (SceneColor が加工される前)
+	//======================================================
+	CopySceneColorHistory();
 
 	//======================================================
 	// Depth of Field (Gaussian). SceneColor in/out SRV.
@@ -1062,7 +1247,7 @@ void FSceneRenderer::RenderPostProcessing()
 	cl->ResourceBarrier(1,
 		&CD3DX12_RESOURCE_BARRIER::Transition(
 			m_RHI->GetDepthBufferResource(),
-			D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+			D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
 			D3D12_RESOURCE_STATE_DEPTH_WRITE));
 }
 
