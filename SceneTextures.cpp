@@ -1,6 +1,7 @@
 #include "Main.h"
 #include "RenderManager.h"
 #include "SceneTextures.h"
+#include "D3DX12.h"
 
 void FSceneTextures::Init(RenderManager* RHI)
 {
@@ -39,6 +40,10 @@ void FSceneTextures::Init(RenderManager* RHI)
 	SceneColorCopy = RHI->CreateRenderTarget(width, height, DXGI_FORMAT_R16G16B16A16_FLOAT);
 	SceneColorCopy->Resource->SetName(L"SceneColorCopyBuffer");
 
+	// 前フレーム SceneColor 履歴 (Lumen スクリーンスペーストレース用)
+	PrevSceneColor = RHI->CreateRenderTarget(width, height, DXGI_FORMAT_R16G16B16A16_FLOAT);
+	PrevSceneColor->Resource->SetName(L"PrevSceneColorBuffer");
+
 	// MRT 順 = RT0..RT4 (ベースパス出力 / RenderManager の gbuffer[] と 1:1)
 	GBuffers =
 	{
@@ -65,6 +70,35 @@ void FSceneTextures::Init(RenderManager* RHI)
 		RHI->GetDevice()->CreateShaderResourceView(RHI->GetDepthBufferResource(), &srvDesc, srvHandle);
 
 		DepthSRVHandle = RHI->GetGPUDescriptorHandle(DepthSRVIndex);
+	}
+
+	// ---- 常在読み取り状態を (PIXEL | NON_PIXEL) へ引き上げる ----
+	// G-Buffer / LinearDepth / PrevSceneColor は Lumen のコンピュート
+	// パス (スクリーンプローブ / 反射) からも読まれるため、
+	// 「読み取り状態」を PIXEL 単独から (PIXEL | NON_PIXEL) に統一する。
+	// (CreateRenderTarget の初期状態は PIXEL のみ。以降の全遷移は
+	//  SceneRenderer.cpp 側がこの複合状態を before/after に使う)
+	{
+		const D3D12_RESOURCE_STATES readState =
+			D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+
+		D3D12_RESOURCE_BARRIER barriers[7] = {
+			CD3DX12_RESOURCE_BARRIER::Transition(GBufferC->Resource.Get(),
+				D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, readState),
+			CD3DX12_RESOURCE_BARRIER::Transition(GBufferA->Resource.Get(),
+				D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, readState),
+			CD3DX12_RESOURCE_BARRIER::Transition(GBufferB->Resource.Get(),
+				D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, readState),
+			CD3DX12_RESOURCE_BARRIER::Transition(SubstrateMaterial0->Resource.Get(),
+				D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, readState),
+			CD3DX12_RESOURCE_BARRIER::Transition(SubstrateMaterial1->Resource.Get(),
+				D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, readState),
+			CD3DX12_RESOURCE_BARRIER::Transition(LinearDepth->Resource.Get(),
+				D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, readState),
+			CD3DX12_RESOURCE_BARRIER::Transition(PrevSceneColor->Resource.Get(),
+				D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, readState),
+		};
+		RHI->GetGraphicsCommandList()->ResourceBarrier(_countof(barriers), barriers);
 	}
 
 	// ImGui 表示用の線形深度 SRV (R チャンネルをグレースケール表示)

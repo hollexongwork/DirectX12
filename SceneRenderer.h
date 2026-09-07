@@ -6,6 +6,8 @@
 class FScene;
 class FShadowSceneRenderer;
 class FLightSceneProxy;
+class FLumenSceneData;
+struct FLumenFrameInputs;
 struct FSceneView;
 
 // ============================================================
@@ -112,6 +114,28 @@ private:
 	std::vector<const FLightSceneProxy*>  m_FrameLocalLights;
 	const FLightSceneProxy* m_FrameDirectionalLight = nullptr;
 
+	// ---- Lumen Surface Cache (FLumenSceneData, LumenScene.h) ----
+	// RenderLumenScene がカードキャプチャ + Surface Cache ライティングを
+	// 記録し、RenderLighting のデファードパスが b6 + t24-t27 で
+	// スクリーン GI (エミッシブ光源化を含む) を読む。
+	std::unique_ptr<FLumenSceneData> m_LumenScene;
+
+	// ---- Lumen スクリーンスペーストレース用の履歴 ----
+	// CopySceneColorHistory (RenderPostProcessing 先頭) が毎フレーム
+	// 確定する: PrevSceneColor (ライティング + 半透明後の線形 HDR) と
+	// そのフレームのビュー行列 / カメラ位置。Lumen のスクリーンプローブ /
+	// 反射が前フレームリプロジェクションで採光する。
+	XMFLOAT4X4 m_PrevViewProjectionT{};	// 前フレームの View x Projection (転置済み)
+	XMFLOAT4   m_PrevViewOrigin = { 0.0f, 0.0f, 0.0f, 0.0f };
+	bool       m_bHistoryValid = false;
+
+	// SceneColor -> PrevSceneColor コピー + 前フレーム行列の確定
+	void CopySceneColorHistory();
+
+	// Lumen へ渡すフレーム入力 (ビュー / ライト / シーンテクスチャ SRV)
+	// を今フレームの解決済み状態から構築する
+	FLumenFrameInputs MakeLumenFrameInputs() const;
+
 	// ---- ビュー可視性 (ComputeViewVisibility / FrustumCull 相当) ----
 	// FViewInfo::ViewFrustum + FSceneBitArray PrimitiveVisibilityMap。
 	// RenderBasePass 先頭でカメラの ViewProjection からフラスタムを構築し、
@@ -175,6 +199,11 @@ public:
 	// シャドウ深度パス (RenderShadowDepthMaps)。RenderBasePass の後、
 	// RenderLighting の前に呼ぶこと (SetupLightConstants の結果を使う)。
 	void RenderShadowDepths(FScene* Scene, const FSceneView& View);
+	// Lumen シーン更新 (カードキャプチャ + Surface Cache ライティング)。
+	// RenderShadowDepths の後 / RenderLighting の前に呼ぶこと
+	// (b0/b1 を上書きするため。カメラの b0 は RenderLighting 先頭で
+	//  積み直される。ライトバッファは SetupLightConstants の結果を使う)。
+	void RenderLumenScene(FScene* Scene);
 	void RenderLighting();
 	// トランスルーセンシーパス (RenderTranslucency 相当)。
 	// RenderLighting の後 (SceneColor 確定後)、RenderPostProcessing の
@@ -199,6 +228,9 @@ public:
 
 	// Shadow renderer (ImGui のシャドウカリング統計表示用)
 	FShadowSceneRenderer* GetShadowRenderer() { return m_ShadowRenderer.get(); }
+
+	// Lumen Surface Cache (ImGui の Lumen ウィンドウ用)
+	FLumenSceneData* GetLumenScene() { return m_LumenScene.get(); }
 
 	// ---- フラスタムカリング制御 (ImGui デバッグ用) ----
 	struct FCullingParams

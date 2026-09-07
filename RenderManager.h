@@ -14,7 +14,7 @@
 //    - ルートシグネチャ + PSO キャッシュ
 //    - リソース生成 (RT / テクスチャ / VB / IB) とバインド API
 //  ※ CONSTANT_TYPE / TEXTURE_TYPE の enum 値は HLSL レジスタと
-//    1:1 対応 (b0..b5 / t0..t18)。順序変更・挿入は禁止。
+//    1:1 対応 (b0..b6 / t0..t27)。順序変更・挿入は禁止。
 //    新規リソースは COUNT の直前に追加すること。
 // ============================================================
 
@@ -225,6 +225,13 @@ private:
 	ComPtr<IDXGIFactory4>             m_Factory;
 	ComPtr<IDXGIAdapter3>             m_Adapter;
 	ComPtr<ID3D12Device>              m_Device;
+
+	// ---- DXR (Lumen HWRT 用) ----
+	// InitDevice が ID3D12Device5 + RaytracingTier 1.1 (RayQuery) を判定。
+	// 非対応環境では null / false のままで SWRT のみが使われる。
+	ComPtr<ID3D12Device5>              m_Device5;
+	ComPtr<ID3D12GraphicsCommandList4> m_GraphicsCommandList4;
+	bool                               m_bRayTracingSupported = false;
 	ComPtr<ID3D12CommandQueue>        m_CommandQueue;
 	ComPtr<ID3D12Fence>               m_Fence;
 	ComPtr<IDXGISwapChain3>           m_SwapChain;
@@ -300,12 +307,13 @@ public:
 		FORWARD_LIGHT,	// b3  FForwardLightData 相当 (NumLocalLights)
 		POST_PROCESS,	// b4  パス毎ポストプロセスパラメータ (PP_SETTINGS)
 		SHADOW,			// b5  ディレクショナルシャドウ (CSM) 定数 (DIRECTIONAL_SHADOW_CONSTANT)
+		LUMEN,			// b6  Lumen Surface Cache / スクリーン GI 定数 (LUMEN_CONSTANT, LumenScene.h)
 	};
 
 	enum class TEXTURE_TYPE
 	{
 		// ---- G-Buffer / マテリアル共用 (ベースパス=マテリアル, ライティング=G-Buffer) ----
-		BASE_COLOR = (int)CONSTANT_TYPE::SHADOW + 1, // t0 GBufferC / SceneColor 入力
+		BASE_COLOR = (int)CONSTANT_TYPE::LUMEN + 1, // t0 GBufferC / SceneColor 入力
 		NORMAL,           // t1  GBufferA (World Normal)
 		MSRA,             // t2  GBufferB (Metallic/Specular/Roughness/AO) / ARM
 		DEPTH,            // t3  非線形深度 SRV
@@ -341,6 +349,19 @@ public:
 		// ---- Substrate (Substrate.hlsl) ----
 		SUBSTRATE_MATERIAL0, // t22 (Texture2D<uint4>: Slab パック 0。x = ヘッダ, 0 = 非 Substrate)
 		SUBSTRATE_MATERIAL1, // t23 (Texture2D<uint4>: Slab パック 1)
+
+		// ---- Lumen Surface Cache (LumenScene.h / LumenTracingCommon.hlsl) ----
+		LUMEN_SCENE_OBJECTS,   // t24 (StructuredBuffer<FLumenSceneObject> LumenSceneObjects)
+		LUMEN_CARDS,           // t25 (StructuredBuffer<FLumenCardData> LumenCardBuffer)
+		LUMEN_FINAL_LIGHTING,  // t26 (Texture2D<float4>: Surface Cache FinalLighting)
+		LUMEN_DEPTH_ATLAS,     // t27 (Texture2D<float>: カードキャプチャ深度)
+
+		// ---- Lumen Final Gather / Reflections / Radiance Cache ----
+		LUMEN_DIFFUSE_INDIRECT,// t28 (Texture2D<float4>: Screen Probe Gather 積分結果。rgb=平均入射ラディアンス, a=スカイ可視率)
+		LUMEN_REFLECTIONS,     // t29 (Texture2D<float4>: 反射ラディアンス。a=適用ウェイト)
+		LUMEN_RC_SH_R,         // t30 (Texture3D<float4>: Radiance Cache SH L1 (R チャンネル係数))
+		LUMEN_RC_SH_G,         // t31 (Texture3D<float4>: 同 G)
+		LUMEN_RC_SH_B,         // t32 (Texture3D<float4>: 同 B)
 
 		// ---- Count ----
 		COUNT,
@@ -403,6 +424,11 @@ public:
 	// ------------------------------------------------------------
 	ID3D12Device* GetDevice() { return m_Device.Get(); }
 	ID3D12GraphicsCommandList* GetGraphicsCommandList() { return m_GraphicsCommandList.Get(); }
+
+	// ---- DXR (Lumen HWRT 用) ----
+	ID3D12Device5* GetDevice5() { return m_Device5.Get(); }
+	ID3D12GraphicsCommandList4* GetGraphicsCommandList4() { return m_GraphicsCommandList4.Get(); }
+	bool IsRayTracingSupported() const { return m_bRayTracingSupported; }
 	int                        GetBackBufferWidth() { return m_BackBufferWidth; }
 	int                        GetBackBufferHeight() { return m_BackBufferHeight; }
 

@@ -102,6 +102,12 @@
     <Filter Include="Shader\LightGrid">
       <UniqueIdentifier>{71ee00b2-f808-4d84-9363-5299ffe4284a}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Shader\Lumen">
+      <UniqueIdentifier>{b06d86bc-00a3-40e8-8fd9-20554f6edcd8}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ソース ファイル\System\Render\Lumen">
+      <UniqueIdentifier>{e83d55f2-ea53-4f1f-8946-e8035c9396ba}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="ImGUI\imgui.cpp">
@@ -250,6 +256,15 @@
     </ClCompile>
     <ClCompile Include="StaticMeshActor.cpp">
       <Filter>ソース ファイル\GameObject\Base</Filter>
+    </ClCompile>
+    <ClCompile Include="LumenHardwareRayTracing.cpp">
+      <Filter>ソース ファイル\System\Render\Lumen</Filter>
+    </ClCompile>
+    <ClCompile Include="LumenScene.cpp">
+      <Filter>ソース ファイル\System\Render\Lumen</Filter>
+    </ClCompile>
+    <ClCompile Include="AssetManager.cpp">
+      <Filter>ソース ファイル\System</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -421,6 +436,18 @@
     <ClInclude Include="StaticMeshActor.h">
       <Filter>ソース ファイル\GameObject\Base</Filter>
     </ClInclude>
+    <ClInclude Include="LumenHardwareRayTracing.h">
+      <Filter>ソース ファイル\System\Render\Lumen</Filter>
+    </ClInclude>
+    <ClInclude Include="LumenScene.h">
+      <Filter>ソース ファイル\System\Render\Lumen</Filter>
+    </ClInclude>
+    <ClInclude Include="AssetManager.h">
+      <Filter>ソース ファイル\System</Filter>
+    </ClInclude>
+    <ClInclude Include="SceneView.h">
+      <Filter>ソース ファイル\System</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="Shader\DeferredPS.hlsl">
@@ -554,6 +581,72 @@
     </FxCompile>
     <FxCompile Include="Shader\LightGridInjection_CS.hlsl">
       <Filter>Shader\LightGrid</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\LumenCardCapturePS.hlsl">
+      <Filter>Shader\Lumen</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\LumenGlobalDistanceField_CS.hlsl">
+      <Filter>Shader\Lumen</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\LumenProbeCommon.hlsl">
+      <Filter>Shader\Lumen</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\LumenRadianceCache_CS.hlsl">
+      <Filter>Shader\Lumen</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\LumenRadianceCacheRT_CS.hlsl">
+      <Filter>Shader\Lumen</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\LumenRadianceCacheSH_CS.hlsl">
+      <Filter>Shader\Lumen</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\LumenRadiosity_CS.hlsl">
+      <Filter>Shader\Lumen</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\LumenRadiosityRT_CS.hlsl">
+      <Filter>Shader\Lumen</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\LumenReflections_CS.hlsl">
+      <Filter>Shader\Lumen</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\LumenReflectionsRT_CS.hlsl">
+      <Filter>Shader\Lumen</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\LumenSceneCombine_CS.hlsl">
+      <Filter>Shader\Lumen</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\LumenSceneDirectLighting_CS.hlsl">
+      <Filter>Shader\Lumen</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\LumenSceneDirectLightingRT_CS.hlsl">
+      <Filter>Shader\Lumen</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\LumenSceneLightingCommon.hlsl">
+      <Filter>Shader\Lumen</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\LumenScreenProbeIntegrate_CS.hlsl">
+      <Filter>Shader\Lumen</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\LumenScreenProbeFilter_CS.hlsl">
+      <Filter>Shader\Lumen</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\LumenScreenProbeSetup_CS.hlsl">
+      <Filter>Shader\Lumen</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\LumenScreenProbeSH_CS.hlsl">
+      <Filter>Shader\Lumen</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\LumenScreenProbeTraceRT_CS.hlsl">
+      <Filter>Shader\Lumen</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\LumenScreenProbeTrace_CS.hlsl">
+      <Filter>Shader\Lumen</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\LumenTracingCommon.hlsl">
+      <Filter>Shader\Lumen</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\LumenTracingHardware.hlsl">
+      <Filter>Shader\Lumen</Filter>
     </FxCompile>
   </ItemGroup>
   <ItemGroup>

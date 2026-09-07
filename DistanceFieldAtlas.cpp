@@ -168,11 +168,14 @@ FDistanceFieldAtlas::FDistanceFieldAtlas(RenderManager* RHI)
 		desc.SampleDesc.Count = 1;
 		desc.Flags = D3D12_RESOURCE_FLAG_NONE;
 
+		// 常在状態は (PIXEL | NON_PIXEL): ピクセルシェーダ (DF シャドウ /
+		// スクリーン GI) に加え、Lumen の Surface Cache ライティング
+		// コンピュートパス (LumenScene.cpp) も t0 として読むため。
 		HRESULT hr = device->CreateCommittedResource(
 			&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
 			D3D12_HEAP_FLAG_NONE,
 			&desc,
-			D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+			D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
 			nullptr,
 			IID_PPV_ARGS(&m_AtlasTexture));
 		assert(SUCCEEDED(hr));
@@ -459,10 +462,11 @@ void FDistanceFieldAtlas::UploadSlot(unsigned int SlotIndex, const std::vector<f
 		m_UploadScratch->Unmap(0, nullptr);
 	}
 
-	// ---- アトラスへコピー (PSR -> COPY_DEST -> PSR) ----
+	// ---- アトラスへコピー ((PIXEL|NON_PIXEL) -> COPY_DEST -> (PIXEL|NON_PIXEL)) ----
 	cl->ResourceBarrier(1,
 		&CD3DX12_RESOURCE_BARRIER::Transition(m_AtlasTexture.Get(),
-			D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_DEST));
+			D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+			D3D12_RESOURCE_STATE_COPY_DEST));
 
 	D3D12_TEXTURE_COPY_LOCATION src{};
 	src.pResource = m_UploadScratch.Get();
@@ -483,7 +487,8 @@ void FDistanceFieldAtlas::UploadSlot(unsigned int SlotIndex, const std::vector<f
 
 	cl->ResourceBarrier(1,
 		&CD3DX12_RESOURCE_BARRIER::Transition(m_AtlasTexture.Get(),
-			D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
+			D3D12_RESOURCE_STATE_COPY_DEST,
+			D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE));
 
 	// スクラッチを次のメッシュで使い回すため即時完了させる
 	m_RHI->FlushAndResetCommandList();

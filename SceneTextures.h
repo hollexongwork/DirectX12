@@ -38,6 +38,14 @@ public:
 	// 屈折オフセット付きで読む (RefractionCommon.hlsl)。
 	std::unique_ptr<RENDER_TARGET> SceneColorCopy;
 
+	// ---- 前フレーム SceneColor 履歴 (R16G16B16A16_FLOAT) ----
+	// FSceneRenderer::CopySceneColorHistory がポストプロセス直前
+	// (= ライティング + 半透明合成後の線形 HDR) に毎フレーム確定する。
+	// Lumen のスクリーンスペーストレース (スクリーンプローブ / 反射) が
+	// 前フレームリプロジェクションで採光する (UE の Prev SceneColor 相当)。
+	// 常在状態は (PIXEL | NON_PIXEL) — コンピュートからも読むため。
+	std::unique_ptr<RENDER_TARGET> PrevSceneColor;
+
 	// ---- Linear depth (R32G32_FLOAT) ----
 	std::unique_ptr<RENDER_TARGET> LinearDepth;
 

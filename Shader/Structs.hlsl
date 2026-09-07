@@ -112,4 +112,46 @@ struct FDFObjectData
     float4 VolumeUVAdd; // xyz=アトラス UV オフセット, w=未使用
 };
 
+// =============================================================
+//  Lumen Surface Cache (LumenScene.h と 1:1 ミラー必須)
+// =============================================================
+
+// -------------------------------------------------------------
+//  FLumenSceneObject (112 bytes)
+//  Lumen シーンのオブジェクト 1 つ分 (FLumenPrimitiveGroup 相当)。
+//  メッシュ SDF (トレース用) + カード範囲 (Surface Cache 参照用) を
+//  持つ。StructuredBuffer<FLumenSceneObject> (t24, LumenSceneObjects)
+//  として FLumenSceneData が毎フレーム詰め直す。
+//  SDF フィールドの意味は FDFObjectData と同一だが、VolumeUVAdd.w に
+//  「SDF 1 ボクセルのワールド幅 [m]」(レイマーチの歩幅 / バイアス基準)
+//  が入る点だけ異なる。
+// -------------------------------------------------------------
+struct FLumenSceneObject
+{
+    float4x4 WorldToVolume; // ワールド -> SDF ボリューム空間 [-1,1] (転置済み)
+    float4 VolumeUVScaleAndDistance; // xyz=アトラス UV スケール, w=距離値 -> ワールド距離 [m]
+    float4 VolumeUVAdd; // xyz=アトラス UV オフセット, w=SDF 1 ボクセルのワールド幅 [m]
+    uint CardOffset; // LumenCardBuffer 内の先頭カードインデックス
+    uint NumCards; // カード数 (LUMEN_CARDS_PER_OBJECT)
+    uint bValid; // 0 = 空スロット (スキップ)
+    uint Pad0;
+};
+
+// -------------------------------------------------------------
+//  FLumenCardData (176 bytes)
+//  Lumen カード 1 枚分 (FLumenCard 相当)。
+//  カード空間 = キャプチャビュー空間:
+//    原点 = カードカメラ位置, XY = カード平面, +Z = 面へ向かう奥行き
+//    (深度レンジは [0, 2 * CardExtent.z])。
+//  StructuredBuffer<FLumenCardData> (t25, LumenCardBuffer)。
+// -------------------------------------------------------------
+struct FLumenCardData
+{
+    float4x4 WorldToCard; // ワールド -> カード空間 (転置済み)
+    float4x4 CardToWorld; // カード空間 -> ワールド (転置済み)
+    float4 CardExtentAndValid; // xyz=カード半幅 (x,y=平面, z=半深度), w=有効 (0/1)
+    float4 AtlasUVScaleBias; // カード UV [0,1] -> アトラス UV (xy=スケール, zw=オフセット)
+    float4 CardDirection; // xyz=ワールド空間カード法線 (面の外向き), w=未使用
+};
+
 #endif

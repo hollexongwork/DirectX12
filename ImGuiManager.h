@@ -19,6 +19,7 @@ private:
 
 	void BufferWindow();
 	void LightGridWindow();
+	void LumenWindow();
 	void CullingWindow();
 	void OutlinerWindow();
 	void DetailsWindow();

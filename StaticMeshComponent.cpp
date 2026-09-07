@@ -249,6 +249,40 @@ public:
 			m_Mesh->DrawSubset(i);
 		}
 	}
+
+	// ---- Lumen カードキャプチャパス (FLumenSceneData::RenderCardCaptures) ----
+	// b0 = カードビュー (ローカル空間オルソ) は呼び出し側が積み済み。
+	// b1 へ単位行列を積み、マテリアル付きでローカル空間のまま描く。
+	// PSO は常にカリング無効 (LumenCardCapture)。裏面の法線反転と
+	// Masked の clip は LumenCardCapturePS 内の動的分岐が担う。
+	// Translucent / Additive サブセットは Surface Cache に参加しない。
+	void DrawCardCapture(RenderManager* RM) const override
+	{
+		if (!IsMeshValid()) return;
+
+		// b1: 単位行列 (ローカル空間描画。単位行列は転置不要)
+		PRIMITIVE_CONSTANT primitiveConstant{};
+		XMStoreFloat4x4(&primitiveConstant.LocalToWorld, XMMatrixIdentity());
+		RM->SetConstant(RenderManager::CONSTANT_TYPE::PRIMITIVE,
+			&primitiveConstant, sizeof(primitiveConstant));
+
+		RM->SetPipelineState("LumenCardCapture");
+
+		unsigned int subsetCount = m_Mesh->GetSubsetCount();
+		for (unsigned int i = 0; i < subsetCount; ++i)
+		{
+			const FSlot& slot = ResolveSlot(i);
+
+			if (IsTranslucentBlendMode(slot.Mat.GetBlendMode()))
+			{
+				continue;
+			}
+
+			BindSlot(RM, slot);
+
+			m_Mesh->DrawSubset(i);
+		}
+	}
 };
 
 // ============================================================

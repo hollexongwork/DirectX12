@@ -100,6 +100,55 @@ float3 ComputeRefractedSurfaceColor(
     return SurfaceLighting + RefractedBackground * ViewTransmittance;
 }
 
+// -------------------------------------------------------------
+//  Lumen Radiance Cache 拡散 GI (半透明用)
+//  カメラ周囲のワールドプローブ SH L1 ボリューム (t30-t32,
+//  トロイダルアドレッシング) を WRAP サンプラのトライリニアで
+//  採光し、法線 N の平均入射ラディアンスを返す。
+//  半透明は G-Buffer に乗らずスクリーンプローブを持たないため、
+//  UE の Translucency Volume Lighting に相当する経路。
+// -------------------------------------------------------------
+float3 SampleLumenRadianceCacheGI(float3 WorldPos, float3 N)
+{
+    [branch]
+    if (bLumenTranslucencyGI == 0u || LumenRadianceCacheParams1.y < 0.5f)
+    {
+        return float3(0.0f, 0.0f, 0.0f);
+    }
+
+    const float spacing = LumenRadianceCacheParams0.w;
+    const float numProbes = LumenRadianceCacheParams1.x;
+    const float3 volumeMin = LumenRadianceCacheParams0.xyz;
+    const float volumeSize = spacing * numProbes;
+
+    // ボリューム範囲外は採光しない。外周の半セル帯も棄却する
+    // (WRAP トライリニアがトロイダルの反対面テクセルと補間して
+    //  遠方のラディアンスが漏れるため)
+    const float halfCell = 0.5f * spacing;
+    float3 rel = WorldPos - volumeMin;
+    if (any(rel < halfCell) || any(rel > volumeSize - halfCell))
+    {
+        return float3(0.0f, 0.0f, 0.0f);
+    }
+
+    // トロイダル: worldPos / (spacing * N) を WRAP サンプラで読む
+    // (プローブ中心 (W + 0.5) * spacing がテクセル中心に一致する)
+    float3 uvw = WorldPos / volumeSize;
+
+    float4 shR = LumenRCSH_R.SampleLevel(Sampler, uvw, 0.0f);
+    float4 shG = LumenRCSH_G.SampleLevel(Sampler, uvw, 0.0f);
+    float4 shB = LumenRCSH_B.SampleLevel(Sampler, uvw, 0.0f);
+
+    // SH L1 の半球コサイン畳み込み -> 平均入射ラディアンス
+    // (LumenProbeCommon.hlsl の LumenSH1EvaluateMeanRadiance と同一式)
+    float4 eval = float4(0.282095f,
+        0.488603f * N.y, 0.488603f * N.z, 0.488603f * N.x);
+    eval.yzw *= (2.0f / 3.0f);
+
+    return max(float3(dot(shR, eval), dot(shG, eval), dot(shB, eval)),
+        float3(0.0f, 0.0f, 0.0f));
+}
+
 PS_OUTPUT main(PS_INPUT input, bool bIsFrontFace : SV_IsFrontFace)
 {
     PS_OUTPUT output;
@@ -177,6 +226,7 @@ PS_OUTPUT main(PS_INPUT input, bool bIsFrontFace : SV_IsFrontFace)
     float3 surfaceLighting;
     float3 viewTransmittance = float3(1.0f, 1.0f, 1.0f); // 屈折背景に乗る透過色
     float refractionRoughness = 0.0f; // 粗い屈折のブラー量
+    float3 translucentGIAlbedo = float3(0.0f, 0.0f, 0.0f); // Lumen GI 用拡散アルベド
     FMaterialRefractionData refractionData = GetMaterialRefraction();
 
     [branch]
@@ -212,7 +262,7 @@ PS_OUTPUT main(PS_INPUT input, bool bIsFrontFace : SV_IsFrontFace)
             /*SSSMFP*/                           SSSMFP,
             /*SSSMFPScale*/                      SlabThicknessCm,
             /*SSSPhaseAniso*/                    Material.SubstrateSSSPhaseAnisotropy,
-            /*SSSType*/                          (float)Material.SubstrateSSSType,
+            /*SSSType*/                          (float) Material.SubstrateSSSType,
             /*EmissiveColor*/                    Material.EmissionColor.rgb,
             /*SecondRoughness*/                  Material.SubstrateSecondRoughness,
             /*SecondRoughnessWeight*/            Material.SubstrateSecondRoughnessWeight,
@@ -280,6 +330,7 @@ PS_OUTPUT main(PS_INPUT input, bool bIsFrontFace : SV_IsFrontFace)
         float3 iblAmbient = SubstrateEnvLighting(SlabBSDF, normal, viewDir, occlusion);
 
         surfaceLighting = light + localLight + iblAmbient + SlabBSDF.Emissive;
+        translucentGIAlbedo = SlabBSDF.DiffuseAlbedo;
 
         // 屈折背景の着色 (Colored Transmittance): SSS 有効時は
         // 視線方向のスラブ透過。粗い屈折は Slab のラフネス。
@@ -362,7 +413,12 @@ PS_OUTPUT main(PS_INPUT input, bool bIsFrontFace : SV_IsFrontFace)
         // Lit 経路の合成はデファードと同一 (エミッシブは Unlit 経路のみ、
         // GeometryPS / DeferredPS の挙動と一致させる)
         surfaceLighting = light + localLight + iblAmbient;
+        translucentGIAlbedo = baseColor.rgb * (1.0f - metallic);
     }
+
+    // ---- Lumen Radiance Cache GI (半透明拡散) ----
+    surfaceLighting += SampleLumenRadianceCacheGI(worldPos, normal)
+        * translucentGIAlbedo * LumenTranslucencyGIIntensity;
 
     // ---- Refraction 合成 / 通常のハードウェアブレンド ----
     [branch]
