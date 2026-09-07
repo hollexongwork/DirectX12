@@ -78,7 +78,10 @@ void main(uint3 DTid : SV_DispatchThreadID)
             float2 bilinear2 = float2(
                 (dx == 0) ? (1.0f - fracPos.x) : fracPos.x,
                 (dy == 0) ? (1.0f - fracPos.y) : fracPos.y);
-            float bilinearWeight = max(bilinear2.x * bilinear2.y, 0.01f);
+            // 下限を設けない: 深度 / 法線の重みでエッジ越しを棄却する意図を
+            // 1% の床が打ち消してしまうため (全プローブ棄却時は totalWeight
+            // のフォールバックが受ける)
+            float bilinearWeight = bilinear2.x * bilinear2.y;
 
             float depthDelta = abs(probeGeo.w - pixelDist);
             float depthWeight = saturate(1.0f - depthDelta / max(0.1f * pixelDist, 0.05f));

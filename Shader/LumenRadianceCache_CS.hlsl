@@ -51,7 +51,12 @@ void main(uint3 GroupID : SV_GroupID, uint3 GroupThreadID : SV_GroupThreadID)
     FLumenTraceResult trace = TraceLumenRay(
         probePos, rayDir, maxTrace, coneTan, PassNumLumenObjects);
 
-    float3 radiance = ResolveLumenRayRadiance(trace, probePos, rayDir, PassRCParams1.w);
+    // スクリーンプローブと同じ規約: ミスはラディアンス 0 (スカイは
+    // 受光側 TranslucentPS の IBL が担うため二重計上を避ける)。
+    // a = 可視率 (将来のスカイ遮蔽用)。
+    float3 radiance = trace.bHit
+        ? ResolveLumenRayRadiance(trace, probePos, rayDir, PassRCParams1.w)
+        : float3(0.0f, 0.0f, 0.0f);
 
     // アトラスタイル: 64 タイル/行 (512 / 8)
     uint2 tileOrigin = uint2(probeLinear % 64u, probeLinear / 64u) * 8u;

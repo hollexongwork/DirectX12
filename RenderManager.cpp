@@ -227,9 +227,11 @@ void RenderManager::InitCommandObjects()
 		m_GraphicsCommandAllocator[1]->SetName(L"GraphicsCommandAllocator[1]");
 
 		hr = m_Device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_GraphicsCommandAllocator[0].Get(), nullptr, IID_PPV_ARGS(&m_GraphicsCommandList));
-		// DXR (加速構造ビルド) 用インターフェース。非対応環境では null のまま
-		m_GraphicsCommandList.As(&m_GraphicsCommandList4);
 		assert(SUCCEEDED(hr));
+
+		// DXR (加速構造ビルド) 用インターフェース。非対応環境では null のまま。
+		// ComPtr::As は内部ポインタを参照するため、必ず生成成功の確認後に行う
+		m_GraphicsCommandList.As(&m_GraphicsCommandList4);
 		m_GraphicsCommandList->SetName(L"GraphicsCommandList");
 	}
 }
@@ -1370,6 +1372,16 @@ ComPtr<ID3D12PipelineState> RenderManager::CreatePipeline(const char* VertexShad
 // ============================================================
 unsigned int RenderManager::AllocateSRVSlot()
 {
+	// 枯渇時の front() は未定義動作 (空 list の参照) になるため明示的に止める。
+	// Lumen 追加でデスクリプタ消費が増えたので、上限超過を静かに壊れる形では
+	// なくここで検出できるようにする。
+	if (m_SRVDescriptorPool.empty())
+	{
+		OutputDebugStringA("[RenderManager] SRV descriptor pool exhausted (SRV_DESCRIPTOR_MAX)\n");
+		assert(false && "SRV descriptor pool exhausted");
+		return 0;
+	}
+
 	unsigned int index = m_SRVDescriptorPool.front();
 	m_SRVDescriptorPool.pop_front();
 	return index;
@@ -1570,4 +1582,17 @@ void RenderManager::FlushAndResetCommandList()
 	assert(SUCCEEDED(hr));
 	hr = m_GraphicsCommandList->Reset(m_GraphicsCommandAllocator[m_RTIndex].Get(), nullptr);
 	assert(SUCCEEDED(hr));
+
+	// ---- Reset で失われる状態を復帰させる ----
+	// ID3D12GraphicsCommandList::Reset はデスクリプタヒープ / ルート
+	// シグネチャ / ビューポートをクリアする。BeginFrame 前の初期化時に
+	// しか呼ばれない想定だが、実行時のアセットロード (FBXModel::Load の
+	// SDF ベイク / BLAS ビルド) から呼ばれるとフレーム途中で状態が
+	// 失われ、以降の SetConstant / SetTexture が
+	// 「デスクリプタヒープが設定されていない」エラーになる。
+	ID3D12DescriptorHeap* heaps[] = { m_SRVDescriptorHeap.Get() };
+	m_GraphicsCommandList->SetDescriptorHeaps(_countof(heaps), heaps);
+	m_GraphicsCommandList->SetGraphicsRootSignature(m_RootSignature.Get());
+	m_GraphicsCommandList->RSSetViewports(1, &m_Viewport);
+	m_GraphicsCommandList->RSSetScissorRects(1, &m_ScissorRect);
 }

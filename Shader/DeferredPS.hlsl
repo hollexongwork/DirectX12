@@ -51,7 +51,7 @@ void LumenScreenGather(float3 WorldPos, float3 Normal, uint2 PixelPos,
         {
             FLumenSceneObject hitObj = LumenSceneObjects[trace.HitObject];
             float3 hitPos = rayStart + rayDir * trace.HitT;
-            float3 hitNormal = ComputeLumenHitNormal(hitObj, hitPos);
+            float3 hitNormal = ComputeLumenHitNormal(hitObj, hitPos, rayStart);
 
             OutRadiance += SampleLumenSurfaceCache(hitObj, hitPos, hitNormal);
         }

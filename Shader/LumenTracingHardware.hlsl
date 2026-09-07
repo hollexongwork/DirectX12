@@ -50,7 +50,7 @@ FLumenTraceResult TraceLumenSceneHardware(float3 RayStart, float3 RayDir, float 
     {
         result.bHit = true;
         result.HitT = query.CommittedRayT();
-        result.HitObject = min(query.CommittedInstanceID(), NumObjects - 1u);
+        result.HitObject = min(query.CommittedInstanceID(), max(NumObjects, 1u) - 1u);
         result.Visibility = 0.0f;
     }
 

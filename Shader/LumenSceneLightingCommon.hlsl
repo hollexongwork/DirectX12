@@ -185,7 +185,7 @@ float3 ResolveLumenRayRadiance(FLumenTraceResult Trace, float3 RayStart, float3 
     {
         FLumenSceneObject hitObj = LumenSceneObjects[Trace.HitObject];
         float3 hitPos = RayStart + RayDir * Trace.HitT;
-        float3 hitNormal = ComputeLumenHitNormal(hitObj, hitPos);
+        float3 hitNormal = ComputeLumenHitNormal(hitObj, hitPos, RayStart);
         return SampleLumenSurfaceCache(hitObj, hitPos, hitNormal);
     }
 

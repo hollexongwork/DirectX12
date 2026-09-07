@@ -26,6 +26,15 @@ void FBXModel::BuildRayTracingGeometry()
 		return;
 	}
 
+	// TLAS のインスタンスになるのは Lumen スロットを持つメッシュ =
+	// 有効な SDF を持つものだけ (FLumenSceneData::UpdateTLAS)。
+	// SDF 無しのメッシュに BLAS を作ってもトレースされず、
+	// ビルドごとの GPU フラッシュ (ロード時間) が無駄になる。
+	if (!m_DistanceField.bValid)
+	{
+		return;
+	}
+
 	ID3D12Device5* device5 = rm->GetDevice5();
 	ID3D12GraphicsCommandList4* cl4 = rm->GetGraphicsCommandList4();
 	if (device5 == nullptr || cl4 == nullptr)

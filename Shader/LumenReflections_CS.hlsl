@@ -84,16 +84,20 @@ void main(uint3 DTid : SV_DispatchThreadID)
     {
         FLumenSceneObject hitObj = LumenSceneObjects[trace.HitObject];
         float3 hitPos = rayStart + R * trace.HitT;
-        float3 hitNormal = ComputeLumenHitNormal(hitObj, hitPos);
+        float3 hitNormal = ComputeLumenHitNormal(hitObj, hitPos, rayStart);
         radiance = SampleLumenSurfaceCache(hitObj, hitPos, hitNormal);
     }
     else
     {
         // ミス: prefilter 環境をラフネス対応ミップで (IBL と同一写像 =
         // 差し替えても見た目が既存 IBL と一致する)
+        // ミス: prefilter 環境をラフネス対応ミップで (IBL と同一写像 =
+        // 差し替えても見た目が既存 IBL と一致する)。強度は掛けない
+        // (掛けると素の空反射だけが明るさ変化してしまう)。
         const float PREFILTER_MAX_MIP_F = 4.0f;
-        radiance = LumenSkyPrefilter.SampleLevel(
-            LumenTraceSampler, R, roughness * PREFILTER_MAX_MIP_F).rgb;
+        RWReflections[pixel] = float4(LumenSkyPrefilter.SampleLevel(
+            LumenTraceSampler, R, roughness * PREFILTER_MAX_MIP_F).rgb, replaceWeight);
+        return;
     }
 
     RWReflections[pixel] = float4(radiance * intensity, replaceWeight);

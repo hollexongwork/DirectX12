@@ -409,10 +409,10 @@ void FLumenSceneData::InitScreenTextures()
 	// ---- Global Distance Field (128^3 R16F x2) ----
 	CreateComputeTexture(m_GlobalSDF[0], L"LumenGlobalSDF0",
 		LUMEN_GLOBAL_SDF_RESOLUTION, LUMEN_GLOBAL_SDF_RESOLUTION, LUMEN_GLOBAL_SDF_RESOLUTION,
-		DXGI_FORMAT_R16_FLOAT, false);
+		DXGI_FORMAT_R16_FLOAT, true);
 	CreateComputeTexture(m_GlobalSDF[1], L"LumenGlobalSDF1",
 		LUMEN_GLOBAL_SDF_RESOLUTION, LUMEN_GLOBAL_SDF_RESOLUTION, LUMEN_GLOBAL_SDF_RESOLUTION,
-		DXGI_FORMAT_R16_FLOAT, false);
+		DXGI_FORMAT_R16_FLOAT, true);
 
 	// ---- Screen Probe Gather ----
 	m_NumProbesX = (width + LUMEN_PROBE_DOWNSAMPLE - 1) / LUMEN_PROBE_DOWNSAMPLE;
@@ -440,11 +440,11 @@ void FLumenSceneData::InitScreenTextures()
 	}
 
 	CreateComputeTexture(m_DiffuseIndirect, L"LumenDiffuseIndirect",
-		width, height, 1, DXGI_FORMAT_R16G16B16A16_FLOAT, false);
+		width, height, 1, DXGI_FORMAT_R16G16B16A16_FLOAT, true);
 
 	// ---- Reflections ----
 	CreateComputeTexture(m_ReflectionTexture, L"LumenReflections",
-		width, height, 1, DXGI_FORMAT_R16G16B16A16_FLOAT, false);
+		width, height, 1, DXGI_FORMAT_R16G16B16A16_FLOAT, true);
 
 	// ---- Radiance Cache SH ボリューム (16^3 x3) ----
 	for (int i = 0; i < 3; i++)
@@ -453,7 +453,7 @@ void FLumenSceneData::InitScreenTextures()
 			L"LumenRCSH_R", L"LumenRCSH_G", L"LumenRCSH_B" };
 		CreateComputeTexture(m_RCSH[i], names[i],
 			LUMEN_RC_PROBES_PER_AXIS, LUMEN_RC_PROBES_PER_AXIS, LUMEN_RC_PROBES_PER_AXIS,
-			DXGI_FORMAT_R16G16B16A16_FLOAT, false);
+			DXGI_FORMAT_R16G16B16A16_FLOAT, true);
 	}
 }
 
@@ -1037,7 +1037,7 @@ void FLumenSceneData::UpdateTLAS()
 		{
 			for (int c = 0; c < 4; c++)
 			{
-				inst.Transform[r][c] = (&m._11)[c * 4 + r];
+				inst.Transform[r][c] = m.m[c][r];
 			}
 		}
 
@@ -1476,9 +1476,16 @@ void FLumenSceneData::RenderLumenSceneLighting(const FLumenFrameInputs& Inputs)
 	}
 
 	// HWRT の有効判定 (TLAS はこのフレームの UpdateTLAS で構築済み)
+	// RT バリアント PSO が 1 つも無い (SM 6.5 の cso 不在 / 生成失敗) 場合は
+	// TLAS があっても SWRT にしかならないため ACTIVE にしない
+	// (ImGui の表示が実態と食い違うのと、TLAS 再構築が無駄になるのを防ぐ)
+	const bool bHasAnyRTPSO =
+		m_PSODirectLightingRT || m_PSORadiosityRT || m_PSOProbeTraceRT ||
+		m_PSOReflectionsRT || m_PSORCTraceRT;
+
 	m_bHWRTActiveThisFrame =
 		m_HardwareRayTracing && m_HardwareRayTracing->HasTLAS() &&
-		m_Params.bUseHardwareRayTracing;
+		m_Params.bUseHardwareRayTracing && bHasAnyRTPSO;
 	m_Stats.bHardwareRayTracingActive = m_bHWRTActiveThisFrame;
 
 	ID3D12GraphicsCommandList* cl = CommandList();
@@ -1624,6 +1631,7 @@ void FLumenSceneData::RenderLumenScreenGI(const FLumenFrameInputs& Inputs)
 		TransitionComputeTexture(m_ProbeFilteredRadiance, false);
 
 		cl->SetPipelineState(m_PSOProbeFilter.Get());
+		bindSRV(19, m_ProbeGeo.SRVIndex);						// t19
 		bindSRV(20, m_ProbeTraceRadiance.SRVIndex);				// t20
 		bindUAV(4, m_ProbeFilteredRadiance.UAVIndex);			// u4
 		cl->SetComputeRootConstantBufferView(0, WritePassParams(10, params));
@@ -1644,6 +1652,7 @@ void FLumenSceneData::RenderLumenScreenGI(const FLumenFrameInputs& Inputs)
 		TransitionComputeTexture(prevSH.Aux, true);
 
 		cl->SetPipelineState(m_PSOProbeSH.Get());
+		bindSRV(19, m_ProbeGeo.SRVIndex);						// t19
 		bindSRV(20, m_ProbeFilteredRadiance.SRVIndex);			// t20
 		bindSRV(21, prevSH.SHR.SRVIndex);						// t21
 		bindSRV(22, prevSH.SHG.SRVIndex);						// t22
@@ -1667,6 +1676,7 @@ void FLumenSceneData::RenderLumenScreenGI(const FLumenFrameInputs& Inputs)
 		TransitionComputeTexture(m_DiffuseIndirect, false);
 
 		cl->SetPipelineState(m_PSOProbeIntegrate.Get());
+		bindSRV(19, m_ProbeGeo.SRVIndex);						// t19
 		bindSRV(21, curSH.SHR.SRVIndex);						// t21
 		bindSRV(22, curSH.SHG.SRVIndex);						// t22
 		bindSRV(23, curSH.SHB.SRVIndex);						// t23

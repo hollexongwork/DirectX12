@@ -103,7 +103,17 @@ void main(uint3 DTid : SV_DispatchThreadID)
             if (abs(prevNDC.x) < 1.0f && abs(prevNDC.y) < 1.0f)
             {
                 float2 prevUV = float2(prevNDC.x * 0.5f + 0.5f, 0.5f - prevNDC.y * 0.5f);
-                float2 prevProbeUV = prevUV; // プローブグリッドは画面と相似
+
+                // スクリーン UV -> プローブテクスチャ UV。
+                // プローブ i のアンカーピクセルは i * downsample + downsample/2 なので、
+                // プローブテクスチャは画面の単純な相似ではない
+                // (画面サイズが downsample の倍数でないとき、たとえば
+                //  1080 / 16 -> 68 プローブ = 1088px 相当でずれる)。
+                // ここを prevUV のまま使うと画面下側ほど 1 プローブ近く
+                // ずれた履歴を引き、縦方向のゴースト / にじみになる。
+                float2 prevPixel = prevUV * PassProbeParams1.xy;
+                float2 prevProbe = (prevPixel - 0.5f * PassProbeParams0.z) / PassProbeParams0.z;
+                float2 prevProbeUV = (prevProbe + 0.5f) / PassProbeParams0.xy;
 
                 float4 prevAux = PrevAuxTexture.SampleLevel(LumenTraceSampler, prevProbeUV, 0.0f);
 

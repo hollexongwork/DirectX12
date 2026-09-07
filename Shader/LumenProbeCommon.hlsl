@@ -31,13 +31,13 @@ uint LumenHashUint(uint seed)
 
 float LumenHashToFloat01(uint hash)
 {
-    return (float)(hash & 0xFFFFu) / 65536.0f;
+    return (float) (hash & 0xFFFFu) / 65536.0f;
 }
 
 // R2 数列によるフレームジッタ (octa テクセル内サブサンプル)
 float2 LumenGetFrameJitter(uint FrameNumber, uint ProbeSeed)
 {
-    float2 r2 = frac(float2(0.75487767f, 0.56984029f) * (float)(FrameNumber & 1023u));
+    float2 r2 = frac(float2(0.75487767f, 0.56984029f) * (float) (FrameNumber & 1023u));
     float2 scramble = float2(
         LumenHashToFloat01(LumenHashUint(ProbeSeed)),
         LumenHashToFloat01(LumenHashUint(ProbeSeed ^ 0x9E3779B9u)));
@@ -47,11 +47,19 @@ float2 LumenGetFrameJitter(uint FrameNumber, uint ProbeSeed)
 // -------------------------------------------------------------
 //  接空間基底
 // -------------------------------------------------------------
+// Duff et al. "Building an Orthonormal Basis, Revisited" の分岐なし構成。
+// 法線から一意・連続に基底を作る (N.z = -1 の 1 方向を除く)。
+// 素朴な up ベクトル方式だと |N.y| ~ 1 (床/天井) の分岐境界で基底が
+// 90 度飛ぶため、ノーマルマップされた床で隣接プローブ同士の octahedral
+// テクセルが別方向を指し、空間フィルタ (LumenScreenProbeFilter_CS) が
+// 異なる方向の放射輝度を混ぜてしまう。
 void LumenBuildTangentBasis(float3 Normal, out float3 Tangent, out float3 Bitangent)
 {
-    float3 up = (abs(Normal.y) < 0.999f) ? float3(0.0f, 1.0f, 0.0f) : float3(1.0f, 0.0f, 0.0f);
-    Tangent = normalize(cross(up, Normal));
-    Bitangent = cross(Normal, Tangent);
+    float s = (Normal.z >= 0.0f) ? 1.0f : -1.0f;
+    float a = -1.0f / (s + Normal.z);
+    float b = Normal.x * Normal.y * a;
+    Tangent = float3(1.0f + s * Normal.x * Normal.x * a, s * b, -s * Normal.x);
+    Bitangent = float3(b, s + Normal.y * Normal.y * a, -Normal.y);
 }
 
 // -------------------------------------------------------------
@@ -142,7 +150,7 @@ bool LumenScreenSpaceTrace(float3 RayStart, float3 RayDir, float MaxT,
     [loop]
     for (uint stepIndex = 0; stepIndex < LUMEN_SCREEN_TRACE_STEPS; ++stepIndex)
     {
-        float stepRatio = ((float)stepIndex + 1.0f) / (float)LUMEN_SCREEN_TRACE_STEPS;
+        float stepRatio = ((float) stepIndex + 1.0f) / (float) LUMEN_SCREEN_TRACE_STEPS;
         float t = StartOffset + (MaxT - StartOffset) * stepRatio * stepRatio;
 
         float3 p = RayStart + RayDir * t;
@@ -205,7 +213,7 @@ bool LumenScreenSpaceTrace(float3 RayStart, float3 RayDir, float MaxT,
 // -------------------------------------------------------------
 float3 LumenReconstructWorldPosition(uint2 Pixel, float DeviceDepth)
 {
-    float2 uv = ((float2)Pixel + 0.5f) / PassProbeParams1.xy;
+    float2 uv = ((float2) Pixel + 0.5f) / PassProbeParams1.xy;
     float4 ndcPos = float4(
         uv.x * 2.0f - 1.0f,
         (1.0f - uv.y) * 2.0f - 1.0f,
