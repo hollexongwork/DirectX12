@@ -214,4 +214,38 @@ cbuffer DirectionalShadowData : register(b5)
     float4 DFShadowParams1; // x=ディレクショナル DF 有効 (0/1), y=レイ方向オフセット [m] (ShadowBias 由来), z=法線オフセット [m] (ShadowSlopeBias 由来), w=未使用
 };
 
+// -------------------------------------------------------------
+//  b6 : LumenSceneParameters (Lumen Surface Cache / Final Gather /
+//  Reflections / Radiance Cache)
+//  C++ 側 LUMEN_CONSTANT (LumenScene.h) と 1:1 ミラー必須。
+//  デファードライティング / トランスルーセンシーパスが参照する。
+// -------------------------------------------------------------
+cbuffer LumenSceneParameters : register(b6)
+{
+    uint NumLumenObjects; // 有効 Lumen オブジェクト数
+    uint bLumenScreenGI; // 1 = ピクセル毎コーントレース経路 (GatherMode==1)
+    uint LumenNumScreenCones; // 半球あたりのコーン数 (1..8, ピクセル毎経路)
+    uint LumenDebugMode; // 0=off 1=GIのみ 2=スカイ可視率 3=GI(アルベド乗算)
+
+    float LumenGIIntensity; // 拡散 GI の強度スケール
+    float LumenMaxTraceDistance; // トレース最大距離 [m]
+    float LumenConeTanAngle; // コーン半角の tan (C++ がコーン数から導出)
+    float LumenSkyOcclusionStrength; // IBL をスカイ可視率で減衰する率 (0..1)
+
+    float LumenSurfaceBias; // レイ開始の法線方向オフセット [m]
+    uint LumenGatherMode; // 0=off 1=ピクセル毎トレース 2=Screen Probe Gather (t28)
+    uint bLumenReflections; // 1 = 反射テクスチャ (t29) を合成
+    float LumenReflectionMaxRoughness; // これ以上のラフネスは IBL のみ
+
+    float LumenReflectionIntensity; // 反射合成の強度
+    uint bLumenTranslucencyGI; // 1 = 半透明パスで Radiance Cache を採光
+    float LumenTranslucencyGIIntensity; // 半透明 GI の強度
+    float LumenPadA;
+
+    // ---- Radiance Cache (カメラ周囲ワールドプローブ, t30-t32) ----
+    // トロイダルアドレッシング: probeIndex = wrap(floor(worldPos / spacing))
+    float4 LumenRadianceCacheParams0; // xyz = ボリューム最小コーナー [m], w = プローブ間隔 [m]
+    float4 LumenRadianceCacheParams1; // x = プローブ数/軸, y = 有効 (0/1), z = 1/間隔, w = 予約
+};
+
 #endif

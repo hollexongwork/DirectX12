@@ -274,10 +274,12 @@ float3 IntegrateLocalLightSubstrate(
 //    Sub-Surface は背面 irradiance x スラブ透過のアンビエント透過。
 //  エミッシブは呼び出し側で 1 回だけ加算する。
 // -------------------------------------------------------------
-float3 SubstrateEnvLighting(
+float3 SubstrateEnvLightingWithReflection(
     FSubstrateBSDF BSDF,
     float3 N, float3 V,
-    float Occlusion)
+    float Occlusion,
+    float3 ReflectionOverride,
+    float ReflectionWeight)
 {
     float NoV = max(dot(N, V), 1e-4f);
     float3 R = reflect(-V, N);
@@ -289,9 +291,12 @@ float3 SubstrateEnvLighting(
     float3 Diffuse = kD * Irradiance * BSDF.DiffuseAlbedo;
 
     // --- Specular split-sum (F0/F90 一般化) ---
+    // Lumen Reflections はプレフィルタサンプルをトレース結果へ差し替える
+    // (第 1 ローブのみ。BRDF / フレネル重みは既存経路のまま)
     float2 EnvBRDF = BRDFLut.Sample(Sampler2, float2(NoV, BSDF.Roughness)).rg;
     float3 Prefiltered = PrefilterCube.SampleLevel(
         Sampler2, R, BSDF.Roughness * PREFILTER_MAX_MIP).rgb;
+    Prefiltered = lerp(Prefiltered, ReflectionOverride, ReflectionWeight);
     float3 Specular = Prefiltered * (BSDF.F0 * EnvBRDF.x + F90 * EnvBRDF.y);
 
     [branch]
@@ -325,6 +330,16 @@ float3 SubstrateEnvLighting(
     }
 
     return (Diffuse + Specular + SSSAmbient) * Occlusion;
+}
+
+// 従来シグネチャ (差し替えなし = 既存挙動)
+float3 SubstrateEnvLighting(
+    FSubstrateBSDF BSDF,
+    float3 N, float3 V,
+    float Occlusion)
+{
+    return SubstrateEnvLightingWithReflection(BSDF, N, V, Occlusion,
+        float3(0.0f, 0.0f, 0.0f), 0.0f);
 }
 
 // -------------------------------------------------------------

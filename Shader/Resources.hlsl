@@ -80,6 +80,28 @@ Texture2D<float4> SceneColorCopyTexture : register(t21);
 Texture2D<uint4> SubstrateMaterial0 : register(t22);
 Texture2D<uint4> SubstrateMaterial1 : register(t23);
 
+// ---- Lumen Surface Cache (t24-t27) ----
+// FLumenSceneData (LumenScene.h) が毎フレーム更新する。
+// スクリーン GI (DeferredPS) はオブジェクトの SDF (t17 と共用) を
+// コーントレースし、ヒット先の FinalLighting アトラス (直接光 +
+// Radiosity 間接光 + Emissive 合成済み) を採光する。
+// 深度アトラスはカードから見えないテクセルの棄却 (リーク防止) 用。
+StructuredBuffer<FLumenSceneObject> LumenSceneObjects : register(t24); // Lumen オブジェクト列
+StructuredBuffer<FLumenCardData> LumenCardBuffer : register(t25); // Lumen カード列
+Texture2D<float4> LumenFinalLightingAtlas : register(t26); // Surface Cache FinalLighting (a=有効率)
+Texture2D<float> LumenDepthAtlas : register(t27); // カードキャプチャ深度 (0..1)
+
+// ---- Lumen Final Gather / Reflections / Radiance Cache (t28-t32) ----
+// t28: Screen Probe Gather の積分結果 (rgb=平均入射ラディアンス, a=スカイ可視率)
+// t29: 反射ラディアンス (rgb=プレフィルタ差し替え値, a=差し替え率)
+// t30-t32: Radiance Cache SH L1 ボリューム (トロイダル。WRAP サンプラで
+//          トライリニア採光。b6 の LumenRadianceCacheParams 参照)
+Texture2D<float4> LumenDiffuseIndirectTexture : register(t28);
+Texture2D<float4> LumenReflectionTexture : register(t29);
+Texture3D<float4> LumenRCSH_R : register(t30);
+Texture3D<float4> LumenRCSH_G : register(t31);
+Texture3D<float4> LumenRCSH_B : register(t32);
+
 // ---- サンプラー ----
 SamplerState Sampler : register(s0); // ANISOTROPIC, WRAP
 SamplerState Sampler2 : register(s1); // LINEAR, CLAMP

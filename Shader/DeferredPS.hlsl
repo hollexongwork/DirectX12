@@ -4,6 +4,65 @@
 #include "ShadowFilteringCommon.hlsl"
 #include "LightGridCommon.hlsl"
 
+// ---- Lumen スクリーン GI (半球コーントレース + Surface Cache 採光) ----
+// SDF アトラス / サンプラーは既存リソースを共通名へエイリアスして
+// LumenTracingCommon を取り込む (t24-t27 は Resources.hlsl で宣言済み)。
+#define LumenDistanceFieldAtlas DistanceFieldAtlasTexture
+#define LumenTraceSampler Sampler2
+#include "LumenTracingCommon.hlsl"
+
+// -------------------------------------------------------------
+//  LumenScreenGather
+//  G-Buffer ピクセルから半球コーンを Lumen シーン (メッシュ SDF) に
+//  トレースし、ヒット先の Surface Cache FinalLighting (Emissive
+//  合成済み) を採光する (Final Gather のピクセル毎簡易版)。
+//    OutRadiance      : 半球コサイン平均の入射ラディアンス
+//                       (拡散反射は albedo * OutRadiance)
+//    OutSkyVisibility : ミス方向の割合 (IBL の遮蔽 = DFAO 相当)
+// -------------------------------------------------------------
+void LumenScreenGather(float3 WorldPos, float3 Normal, uint2 PixelPos,
+    out float3 OutRadiance, out float OutSkyVisibility)
+{
+    OutRadiance = float3(0.0f, 0.0f, 0.0f);
+    OutSkyVisibility = 1.0f;
+
+    const uint numCones = clamp(LumenNumScreenCones, 1u, 8u);
+
+    // Interleaved Gradient Noise でピクセルごとにコーンリングを回転
+    float ign = frac(52.9829189f *
+        frac(dot(float2(PixelPos), float2(0.06711056f, 0.00583715f))));
+    float randomRotation = ign * 6.2831853f;
+
+    float3 rayStart = WorldPos + Normal * LumenSurfaceBias;
+
+    float visibilitySum = 0.0f;
+
+    [loop]
+    for (uint c = 0; c < numCones; ++c)
+    {
+        float3 rayDir = GetLumenHemisphereRay(Normal, c, numCones, randomRotation);
+
+        FLumenTraceResult trace = TraceLumenScene(
+            rayStart, rayDir, LumenMaxTraceDistance,
+            LumenConeTanAngle, NumLumenObjects);
+
+        [branch]
+        if (trace.bHit)
+        {
+            FLumenSceneObject hitObj = LumenSceneObjects[trace.HitObject];
+            float3 hitPos = rayStart + rayDir * trace.HitT;
+            float3 hitNormal = ComputeLumenHitNormal(hitObj, hitPos);
+
+            OutRadiance += SampleLumenSurfaceCache(hitObj, hitPos, hitNormal);
+        }
+
+        visibilitySum += trace.Visibility;
+    }
+
+    OutRadiance /= (float) numCones;
+    OutSkyVisibility = visibilitySum / (float) numCones;
+}
+
 // =============================================================
 //  DeferredPS
 //  ディファードライティングパス。G-Buffer と Substrate バッファ
@@ -74,7 +133,45 @@ PS_OUTPUT main(PS_INPUT input)
     uint3 GridCoordinate = ComputeLightGridCellCoordinate(uint2(input.Position.xy), viewDepth);
     uint GridIndex = ComputeLightGridCellIndex(GridCoordinate);
 
+    // ---- Lumen スクリーン GI (両経路共通の前計算) ----
+    // lumenRadiance     : 半球コサイン平均の入射ラディアンス
+    //                     (Surface Cache 経由 = Emissive 面の光を含む)
+    // lumenSkyVisibility: スカイ可視率。IBL をこの係数で減衰することで
+    //                     GI との二重計上を抑えつつ DFAO としても機能する
+    // GatherMode 2 = Screen Probe Gather (LumenScreenProbeIntegrate_CS の
+    //                積分結果 t28 を読むだけ)
+    // GatherMode 1 = ピクセル毎コーントレース (フォールバック経路)
+    float3 lumenRadiance = float3(0.0f, 0.0f, 0.0f);
+    float lumenSkyVisibility = 1.0f;
+
+    [branch]
+    if (LumenGatherMode == 2u)
+    {
+        float4 diffuseIndirect = LumenDiffuseIndirectTexture.Load(int3(input.Position.xy, 0));
+        lumenRadiance = diffuseIndirect.rgb;
+        lumenSkyVisibility = diffuseIndirect.a;
+    }
+    else if (bLumenScreenGI != 0u)
+    {
+        LumenScreenGather(worldPos.xyz, normal, uint2(input.Position.xy),
+            lumenRadiance, lumenSkyVisibility);
+    }
+
+    float skyOcclusion = lerp(1.0f, lumenSkyVisibility, LumenSkyOcclusionStrength);
+
+    // ---- Lumen Reflections (プレフィルタ差し替え値, t29) ----
+    // rgb = トレース済みラディアンス, a = 差し替え率。
+    // IBL スペキュラの prefiltered サンプルをこの値で lerp する。
+    float4 lumenReflection = float4(0.0f, 0.0f, 0.0f, 0.0f);
+
+    [branch]
+    if (bLumenReflections != 0u)
+    {
+        lumenReflection = LumenReflectionTexture.Load(int3(input.Position.xy, 0));
+    }
+
     float3 sceneLighting;
+    float3 lumenDiffuseAlbedo; // GI の拡散反射に使うアルベド (経路ごとに解決)
 
     [branch]
     if (SubstrateIsSubstrateMaterial(substrateData0.x))
@@ -136,9 +233,14 @@ PS_OUTPUT main(PS_INPUT input)
         }
 
         // ---- IBL + エミッシブ ----
-        float3 iblAmbient = SubstrateEnvLighting(SlabBSDF, normal, viewDir, occlusion);
+        // IBL はスカイ可視率で減衰 (Lumen GI との二重計上防止 + DFAO)。
+        // スペキュラは Lumen Reflections で prefiltered を差し替える。
+        float3 iblAmbient = SubstrateEnvLightingWithReflection(
+            SlabBSDF, normal, viewDir, occlusion,
+            lumenReflection.rgb, lumenReflection.a) * skyOcclusion;
 
         sceneLighting = light + localLight + iblAmbient + SlabBSDF.Emissive;
+        lumenDiffuseAlbedo = SlabBSDF.DiffuseAlbedo;
     }
     else
     {
@@ -197,15 +299,47 @@ PS_OUTPUT main(PS_INPUT input)
         }
 
         // --- IBL Ambient (diffuse irradiance + specular split-sum) ---
-        float3 iblAmbient = IBL_Ambient(
+        // IBL はスカイ可視率で減衰 (Lumen GI との二重計上防止 + DFAO)。
+        // スペキュラは Lumen Reflections で prefiltered を差し替える。
+        float3 iblAmbient = IBL_AmbientWithReflection(
             baseColor.rgb,
             metallic, roughness, occlusion,
-            normal, viewDir);
+            normal, viewDir,
+            lumenReflection.rgb, lumenReflection.a) * skyOcclusion;
 
         sceneLighting = light + localLight + iblAmbient;
+        lumenDiffuseAlbedo = baseColor.rgb * (1.0f - metallic);
+    }
+
+    // ---- Lumen スクリーン GI の拡散合成 ----
+    // コサイン重点サンプルの拡散反射: Lo = albedo * mean(L_i)
+    // (Surface Cache 経由なのでエミッシブ面 / 多バウンス光を含む)
+    [branch]
+    if (LumenGatherMode != 0u)
+    {
+        sceneLighting += lumenRadiance * lumenDiffuseAlbedo * LumenGIIntensity;
     }
 
     output.Color = float4(sceneLighting, 1.0f);
+
+    // ---- Lumen デバッグ可視化 (ImGui: Lumen ウィンドウ) ----
+    //   1 = GI 入射ラディアンスのみ / 2 = スカイ可視率 / 3 = GI 拡散寄与のみ
+    [branch]
+    if (LumenGatherMode != 0u && LumenDebugMode != 0u)
+    {
+        if (LumenDebugMode == 1u)
+        {
+            output.Color.rgb = lumenRadiance;
+        }
+        else if (LumenDebugMode == 2u)
+        {
+            output.Color.rgb = lumenSkyVisibility.xxx;
+        }
+        else
+        {
+            output.Color.rgb = lumenRadiance * lumenDiffuseAlbedo * LumenGIIntensity;
+        }
+    }
 
     // ---- ライトグリッドデバッグ可視化 (ImGui: Light Grid ウィンドウ) ----
     //   1 = セルのライト数ヒートマップ (緑 -> 黄 -> 赤)

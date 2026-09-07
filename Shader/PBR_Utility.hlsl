@@ -89,14 +89,19 @@ float3 FresnelSchlickRoughness(float cosTheta, float3 F0, float roughness)
     return F0 + (maxF - F0) * pow(clamp(1.0f - cosTheta, 0.0f, 1.0f), 5.0f);
 }
 
-// 完全な IBL アンビエント項 (3 タップ)
-float3 IBL_Ambient(
+// 完全な IBL アンビエント項 (3 タップ)。
+// ReflectionOverride / ReflectionWeight: Lumen Reflections が
+// prefiltered サンプルをトレース結果へ差し替える割合
+// (BRDF / フレネル重みは既存経路のまま = 物理的に一貫)。
+float3 IBL_AmbientWithReflection(
     float3 albedo,
     float metallic,
     float roughness,
     float occlusion,
     float3 N,
-    float3 V)
+    float3 V,
+    float3 ReflectionOverride,
+    float ReflectionWeight)
 {
     float NdotV = max(dot(N, V), 1e-4f);
     float3 R = reflect(-V, N);
@@ -114,10 +119,23 @@ float3 IBL_Ambient(
     // --- Specular split-sum (2 taps) ---
     float mip = roughness * PREFILTER_MAX_MIP;
     float3 prefiltered = PrefilterCube.SampleLevel(Sampler2, R, mip).rgb;
+    prefiltered = lerp(prefiltered, ReflectionOverride, ReflectionWeight);
     float2 envBRDF = BRDFLut.Sample(Sampler2, float2(NdotV, roughness)).rg;
     float3 specular = prefiltered * (F * envBRDF.x + envBRDF.y);
 
     return (kD * diffuse + specular) * occlusion;
+}
+
+float3 IBL_Ambient(
+    float3 albedo,
+    float metallic,
+    float roughness,
+    float occlusion,
+    float3 N,
+    float3 V)
+{
+    return IBL_AmbientWithReflection(albedo, metallic, roughness, occlusion, N, V,
+        float3(0.0f, 0.0f, 0.0f), 0.0f);
 }
 
 #endif
