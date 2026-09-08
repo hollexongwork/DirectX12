@@ -205,6 +205,7 @@ public:
 		float ScreenTraceThickness = 0.3f;	// スクリーントレースの厚み判定 [m]
 		float TemporalAlpha = 0.1f;			// プローブ SH のテンポラルブレンド率
 		float ScreenTemporalAlpha = 0.15f;	// フル解像度 DiffuseIndirect のテンポラルブレンド率 (1 = 蓄積なし)
+		bool  bProbeJitter = true;			// プローブ配置をセル内で毎フレームジッタ (揺らぎ -> ノイズ化してテンポラルで平均)
 		float SkySampleMip = 1.5f;			// スカイ採光の prefilter ミップ
 
 		// ---- Reflections ----
@@ -266,8 +267,10 @@ private:
 		XMFLOAT4X4 PassInvViewProjection;		// 転置済み
 		XMFLOAT4X4 PassPrevViewProjection;		// 転置済み
 		XMFLOAT4X4 PassPrevInvViewProjection;	// 転置済み (前フレームプローブ位置の再構築用)
+
+		XMFLOAT4 PassProbeJitter;				// xy=今フレームのプローブ配置ジッタ [px], zw=前フレーム
 	};
-	static_assert(sizeof(FLumenPassParams) == 496,
+	static_assert(sizeof(FLumenPassParams) == 512,
 		"FLumenPassParams must mirror HLSL cbuffer LumenPassParams (b0)");
 
 	// ---- カードのローカル空間定義 (キャプチャ / 行列構築用 CPU データ) ----
@@ -367,6 +370,9 @@ private:
 	FLumenComputeTexture m_ProbeFilteredRadiance;
 	FLumenProbeSHSet     m_ProbeSH[2];			// テンポラルのピンポン
 	unsigned int         m_ProbeSHFrame = 0;
+	XMFLOAT2             m_ProbeJitter = { 8.0f, 8.0f };		// 今フレームのアンカーオフセット [px]
+	XMFLOAT2             m_PrevProbeJitter = { 8.0f, 8.0f };	// 前フレーム (履歴リプロジェクション用)
+	unsigned int         m_ProbeJitterIndex = 0;
 	FLumenComputeTexture m_DiffuseIndirect[2];	// フル解像度 (t28)。テンポラルのピンポン
 	unsigned int         m_DiffuseIndirectFrame = 0;	// 今フレームの書き込み先
 	unsigned int         m_DiffuseIndirectCurrent = 0;	// 最後に書いた (デファードが読む) 方
@@ -413,7 +419,7 @@ private:
 
 	// b0 アップロードバッファ (16 スロット x 512B x 2 フレーム)
 	static const unsigned int PASS_PARAM_SLOTS = 16;
-	static const unsigned int PASS_PARAM_STRIDE = 512;
+	static const unsigned int PASS_PARAM_STRIDE = 1024;
 	ComPtr<ID3D12Resource> m_PassParamBuffer[2];
 	unsigned char* m_PassParamPointer[2] = {};
 

@@ -36,7 +36,7 @@ void main(uint3 GroupID : SV_GroupID, uint3 GroupThreadID : SV_GroupThreadID)
     // ---- プローブのワールド位置 (アンカーピクセルから再構築) ----
     const uint downsample = (uint) PassProbeParams0.z;
     const uint2 screenSize = (uint2) PassProbeParams1.xy;
-    uint2 anchor = min(probe * downsample + downsample / 2u, screenSize - 1u);
+    uint2 anchor = LumenGetProbeAnchor(probe);
     float deviceDepth = LumenSceneDepth.Load(int3(anchor, 0));
     float3 worldPos = LumenReconstructWorldPosition(anchor, deviceDepth);
 

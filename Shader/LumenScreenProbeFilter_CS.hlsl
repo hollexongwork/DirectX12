@@ -35,7 +35,7 @@ void main(uint3 GroupID : SV_GroupID, uint3 GroupThreadID : SV_GroupThreadID)
     // 中心プローブのワールド位置 (アンカーから再構築。平面距離重み用)
     const uint downsample = (uint) PassProbeParams0.z;
     const uint2 screenSize = (uint2) PassProbeParams1.xy;
-    uint2 centerAnchor = min(probe * downsample + downsample / 2u, screenSize - 1u);
+    uint2 centerAnchor = LumenGetProbeAnchor(probe);
     float3 centerWorldPos = LumenReconstructWorldPosition(
         centerAnchor, LumenSceneDepth.Load(int3(centerAnchor, 0)));
 
@@ -70,8 +70,7 @@ void main(uint3 GroupID : SV_GroupID, uint3 GroupThreadID : SV_GroupThreadID)
             // 視距離差だと斜めの床で隣接プローブが棄却され、フィルタが
             // 効かず (= 1 プローブ 64 レイの生ノイズ) 明部が震えるため、
             // 「隣プローブの接平面から中心プローブまでの距離」で判定する
-            uint2 neighborAnchor = min((uint2) neighbor * downsample + downsample / 2u,
-                screenSize - 1u);
+            uint2 neighborAnchor = LumenGetProbeAnchor((uint2) neighbor);
             float3 neighborWorldPos = LumenReconstructWorldPosition(
                 neighborAnchor, LumenSceneDepth.Load(int3(neighborAnchor, 0)));
             float3 toCenter = centerWorldPos - neighborWorldPos;

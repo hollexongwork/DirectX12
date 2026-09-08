@@ -36,7 +36,7 @@
 #define LUMEN_GLOBAL_SDF_RESOLUTION 128.0f
 
 // -------------------------------------------------------------
-//  b0 : FLumenPassParams (C++ LumenScene.h と 1:1 ミラー必須, 496B)
+//  b0 : FLumenPassParams (C++ LumenScene.h と 1:1 ミラー必須, 512B)
 // -------------------------------------------------------------
 cbuffer LumenPassParams : register(b0)
 {
@@ -64,6 +64,8 @@ cbuffer LumenPassParams : register(b0)
     float4x4 PassInvViewProjection; // クリップ -> ワールド (転置済み)
     float4x4 PassPrevViewProjection; // 前フレームのワールド -> クリップ (転置済み)
     float4x4 PassPrevInvViewProjection; // 前フレームのクリップ -> ワールド (転置済み)
+
+    float4 PassProbeJitter; // xy=今フレームのプローブ配置ジッタ [px], zw=前フレーム (履歴のリプロジェクション用)
 };
 
 // -------------------------------------------------------------
