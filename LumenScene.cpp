@@ -105,6 +105,32 @@ void FLumenSceneData::Init()
 	InitBuffers();
 	InitComputePipelines();
 
+	// Radiosity テンポラル蓄積は IndirectLightingAtlas (RGBA16F) を
+	// 同一パスで UAV から読み戻す。R32 系以外の型付き UAV ロードは
+	// オプション機能なので、フォーマット単位でサポートを確認する
+	{
+		m_bRadiosityTemporalSupported = false;
+
+		D3D12_FEATURE_DATA_D3D12_OPTIONS options{};
+		if (SUCCEEDED(m_RHI->GetDevice()->CheckFeatureSupport(
+			D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options))) &&
+			options.TypedUAVLoadAdditionalFormats)
+		{
+			D3D12_FEATURE_DATA_FORMAT_SUPPORT formatSupport{};
+			formatSupport.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+			if (SUCCEEDED(m_RHI->GetDevice()->CheckFeatureSupport(
+				D3D12_FEATURE_FORMAT_SUPPORT, &formatSupport, sizeof(formatSupport))))
+			{
+				m_bRadiosityTemporalSupported =
+					(formatSupport.Support2 & D3D12_FORMAT_SUPPORT2_UAV_TYPED_LOAD) != 0;
+			}
+		}
+
+		OutputDebugStringA(m_bRadiosityTemporalSupported
+			? "[Lumen] Radiosity temporal accumulation: enabled (RGBA16F typed UAV load)\n"
+			: "[Lumen] Radiosity temporal accumulation: disabled (typed UAV load unsupported)\n");
+	}
+
 	// DXR TLAS (対応環境のみ有効化される)
 	m_HardwareRayTracing = std::make_unique<FLumenHardwareRayTracing>(m_RHI);
 	m_HardwareRayTracing->Init(MAX_LUMEN_OBJECTS);
@@ -1233,6 +1259,13 @@ FLumenSceneData::FLumenPassParams FLumenSceneData::MakeBasePassParams(
 		m_Params.ReflectionMaxRoughness, m_Params.ReflectionFadeStart,
 		m_Params.ReflectionIntensity,
 		m_Params.bScreenSpaceTrace ? 1.0f : 0.0f };
+
+	// Radiosity テンポラル蓄積は自分自身 (RGBA16F UAV) の読み戻しが必要。
+	// 型付き UAV ロード非対応環境では 1.0 (置き換え) に固定する
+	const float radiosityAlpha = m_bRadiosityTemporalSupported
+		? min(max(m_Params.RadiosityTemporalAlpha, 0.02f), 1.0f)
+		: 1.0f;
+	params.PassRadiosityParams = { radiosityAlpha, 0.0f, 0.0f, 0.0f };
 
 	params.PassViewProjection = Inputs.ViewProjectionT;
 	params.PassInvViewProjection = Inputs.InvViewProjectionT;

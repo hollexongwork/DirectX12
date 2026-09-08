@@ -14,6 +14,13 @@
 //  同じ設計)。ミス時はスカイ (IBL irradiance) を採光する。
 //
 //  更新はフレーム予算制 (CardStartIndex から NumCardsToProcess 枚)。
+//
+//  テンポラル蓄積: 1 テクセルあたり数本のレイを ~6 フレームごとに
+//  差し替えるだけだと、発光面の近くでは「レイが当たった / 外れた」で
+//  推定が大きく揺れ、FinalLighting -> スクリーンプローブ経由で画面の
+//  明部がプルプル震える。前回の値 (u1 の自分自身) と
+//  PassRadiosityParams.x でブレンドして分散を抑える
+//  (Radiosity テンポラル蓄積相当。a = 履歴有効マーカー)。
 //  Dispatch: (CARD_RES/8, CARD_RES/8, NumCardsToProcess)
 // =============================================================
 
@@ -38,7 +45,8 @@ void main(uint3 GroupID : SV_GroupID, uint3 GroupThreadID : SV_GroupThreadID)
 
     if (card.CardExtentAndValid.w < 0.5f)
     {
-        // 無効カード: タイルをゼロで確定させる (未初期化値の混入防止)
+        // 無効カード: タイルをゼロで確定させる (未初期化値の混入防止。
+        // a = 0 で履歴も無効化 -> 再有効化時は蓄積なしで書き直す)
         RWIndirectLighting[GetLumenCardTileOrigin(cardIndex) + texelInCard] =
             float4(0.0f, 0.0f, 0.0f, 0.0f);
         return;
@@ -86,6 +94,21 @@ void main(uint3 GroupID : SV_GroupID, uint3 GroupThreadID : SV_GroupThreadID)
 
     // コサイン重点サンプルの irradiance 推定: E = pi * mean(L)
     float3 indirectIrradiance = radianceSum * (LUMEN_PI / (float) numRays);
+
+    // ---- テンポラル蓄積 (前回の自分自身とブレンド) ----
+    // alpha >= 1 (C++ 側で型付き UAV ロード非対応 or 蓄積 OFF) のときは
+    // UAV を読まずに置き換えるだけ
+    const float temporalAlpha = PassRadiosityParams.x;
+
+    [branch]
+    if (temporalAlpha < 1.0f)
+    {
+        float4 prev = RWIndirectLighting[texel.AtlasTexel];
+        if (prev.a > 0.5f) // 履歴有効 (無効カード / 起動直後の 0 は蓄積しない)
+        {
+            indirectIrradiance = lerp(prev.rgb, indirectIrradiance, temporalAlpha);
+        }
+    }
 
     RWIndirectLighting[texel.AtlasTexel] = float4(indirectIrradiance, 1.0f);
 }

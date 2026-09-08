@@ -91,6 +91,22 @@ float3 LumenOctahedronToDirection(float2 UV)
     return normalize(dir);
 }
 
+// 全球方向 -> octahedral [0,1]^2 (LumenOctahedronToDirection の逆。
+// プローブ Aux の zw に法線を保存し、テンポラル履歴の面一致検証に使う)
+float2 LumenDirectionToOctahedron(float3 Dir)
+{
+    float3 n = Dir / max(abs(Dir.x) + abs(Dir.y) + abs(Dir.z), 1e-6f);
+    float2 e = n.xy;
+    if (n.z < 0.0f)
+    {
+        float2 signs = float2(
+            (n.x >= 0.0f) ? 1.0f : -1.0f,
+            (n.y >= 0.0f) ? 1.0f : -1.0f);
+        e = (1.0f - abs(n.yx)) * signs;
+    }
+    return e * 0.5f + 0.5f;
+}
+
 // -------------------------------------------------------------
 //  SH L1 (2 バンド)
 //  係数レイアウト:(c0, c1 = y, c2 = z, c3 = x) - RGBA と 1:1

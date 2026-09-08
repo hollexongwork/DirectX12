@@ -208,6 +208,7 @@ void ImGuiManager::LumenWindow()
 	{
 		ImGui::SliderInt("Radiosity Rays", &params.NumRadiosityRays, 1, 16);
 		ImGui::SliderInt("Radiosity Cards/Frame", &params.RadiosityCardsPerFrame, 1, (int)MAX_LUMEN_CARDS);
+		ImGui::SliderFloat("Radiosity Temporal Alpha", &params.RadiosityTemporalAlpha, 0.02f, 1.0f);
 		ImGui::SliderInt("Capture Budget/Frame", &params.CaptureBudgetPerFrame, 1, 64);
 	}
 
@@ -656,7 +657,7 @@ void ImGuiManager::DetailsWindow()
 	Text("Class : %s", UWorld::GetClassDisplayName(actor).c_str());
 
 	if (InputText("Label", m_LabelBuffer, sizeof(m_LabelBuffer),
-			ImGuiInputTextFlags_EnterReturnsTrue) ||
+		ImGuiInputTextFlags_EnterReturnsTrue) ||
 		IsItemDeactivatedAfterEdit())
 	{
 		if (m_LabelBuffer[0] != '\0')
@@ -1053,7 +1054,7 @@ bool ImGuiManager::DrawMaterialEditor(Material& Mat)
 	}
 
 	// ============================================================
-	//  Substrate Slab BSDF 
+	//  Substrate Slab BSDF
 	//  bUseSubstrate で Slab ワークフローに切り替える。レガシーの
 	//  Metallic / Specular は無視され、F0 / F90 が界面を定義する。
 	// ============================================================
@@ -1121,7 +1122,7 @@ bool ImGuiManager::DrawMaterialEditor(Material& Mat)
 	}
 
 	// ============================================================
-	//  Refraction 
+	//  Refraction
 	//  BLEND_Translucent のみ有効 (Additive は対象外)。
 	// ============================================================
 	if (CollapsingHeader("Refraction"))
