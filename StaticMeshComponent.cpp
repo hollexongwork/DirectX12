@@ -13,7 +13,7 @@
 //                    MarkRenderStateDirty による再生成で反映)
 //    - テクスチャ : shared_ptr のコピー (FAssetManager のキャッシュと
 //                    共有。プロキシ自身が参照カウントで生存を保証する)
-//    - メッシュ   : shared_ptr のコピー (UE5 の FStaticMeshSceneProxy が
+//    - メッシュ   : shared_ptr のコピー (FStaticMeshSceneProxy が
 //                    レンダーデータを参照カウントで保持するのに相当。
 //                    コンポーネント側でメッシュが差し替えられても、
 //                    旧プロキシが in-flight の間は旧メッシュが生存する)
@@ -213,7 +213,7 @@ public:
 	// Masked   : t0 + b2 をバインドし ShadowDepthMaskedPS が
 	//            OpacityMask を clip する
 	// Two Sided: カリング無効 PSO (両面が影を落とす)
-	// Translucent / Additive : シャドウマップに描かない (UE5 既定)
+	// Translucent / Additive : シャドウマップに描かない
 	void DrawShadowDepth(RenderManager* RM) const override
 	{
 		if (!IsMeshValid()) return;

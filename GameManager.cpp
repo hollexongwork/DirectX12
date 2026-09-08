@@ -66,7 +66,7 @@ GameManager::GameManager(HWND hWnd)
 
 	// ---- スタティックメッシュ配置 (AStaticMeshActor) ----
 	// 旧 ATable / ACat / ALion / AHorse (同型ボイラープレート) は
-	// UE5 の AStaticMeshActor へ統合し、レベルロード相当のここで
+	// AStaticMeshActor へ統合し、レベルロード相当のここで
 	// メッシュ / テクスチャ / トランスフォーム / ラベルを構成する。
 	// スポーン順 (Table -> Cat -> Lion -> Horse) は旧実装のまま。
 	{

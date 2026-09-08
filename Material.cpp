@@ -14,12 +14,12 @@ Material::Material()
 
 	// ---- Blend Mode / Two Sided (UMaterial 既定値) ----
 	Params.Opacity              = 1.0f;
-	Params.OpacityMaskClipValue = 0.3333f;	// UE5 既定
+	Params.OpacityMaskClipValue = 0.3333f;	// 既定
 	Params.BlendMode            = EBlendMode::BLEND_Opaque;
 	Params.TwoSided             = FALSE;
 	Params._pad                 = { 0.0f, 0.0f, 0.0f };
 
-	// ---- Substrate Slab BSDF (UE5.8 既定値) ----
+	// ---- Substrate Slab BSDF (既定値) ----
 	// DiffuseAlbedo 0.18 (18% グレー) / F0 0.04 (誘電体 4%) /
 	// F90 白 / Thickness 0.01cm (SUBSTRATE_LAYER_DEFAULT_THICKNESS_CM)
 	Params.SubstrateDiffuseAlbedo      = { 0.18f, 0.18f, 0.18f, 1.0f };

@@ -69,11 +69,17 @@ void main(uint3 GroupID : SV_GroupID, uint3 GroupThreadID : SV_GroupThreadID)
         return;
     }
 
-    // ---- 2. SDF / HWRT トレース -> 3. スカイ ----
+    // ---- 2. SDF / HWRT トレース ----
     FLumenTraceResult trace = TraceLumenRay(
         rayStart, rayDir, maxTrace, coneTan, PassNumLumenObjects);
 
-    radiance = ResolveLumenRayRadiance(trace, rayStart, rayDir, PassRCParams1.w);
+    // ミス方向は「スカイ可視」として a に記録するだけで、ラディアンスは
+    // 加算しない。スカイの拡散寄与は受光側 (DeferredPS) の IBL が
+    // skyOcclusion = スカイ可視率 で減衰した形で担うため、ここで
+    // 採光すると二重計上になる (ピクセル毎コーン経路と同じ規約)。
+    radiance = trace.bHit
+        ? ResolveLumenRayRadiance(trace, rayStart, rayDir, PassRCParams1.w)
+        : float3(0.0f, 0.0f, 0.0f);
 
     RWTraceRadiance[atlasTexel] = float4(radiance, trace.Visibility);
 }

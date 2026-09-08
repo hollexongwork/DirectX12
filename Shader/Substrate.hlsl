@@ -9,10 +9,9 @@
 //  (GetSubstrateSlabBSDF) と、デファード用パック / アンパック
 //  (SubstrateMaterial0/1 = RGBA32_UINT x 2) を提供する。
 //
-//  UE5.8 との対応:
 //    - GetSubstrateSlabBSDF はマテリアルテンプレートの呼び出し
 //      シグネチャと引数順を完全一致させている (サンプル
-//      UE5_8_substrate_Slab_BSDF_Material_Sample.hlsl 準拠)。
+//      substrate_Slab_BSDF_Material_Sample.hlsl 準拠)。
 //    - Glint / SpecularProfile / ClearCoatSecondNormal は API と
 //      して受理するが評価は無効 (意図的乖離。MANIFEST 参照)。
 //    - MFP / Thickness は UE 同様 cm でオーサリングし、本エンジン
@@ -76,7 +75,7 @@ struct FSubstrateBSDF
 
 // -------------------------------------------------------------
 //  透過色 <-> 平均自由行程 (Beer-Lambert)
-//  UE5.8: 指定厚での垂直透過率が TransmittanceColor と一致する
+//  指定厚での垂直透過率が TransmittanceColor と一致する
 //  MFP を返す。MFP == Thickness のとき透過率 36% (1/e)。
 //    T = exp(-Thickness / MFP)  =>  MFP = Thickness / (-ln T)
 // -------------------------------------------------------------
@@ -114,7 +113,7 @@ float F0RGBToF0(float3 F0)
 
 // -------------------------------------------------------------
 //  GetSubstrateSlabBSDF
-//  UE5.8 マテリアルテンプレートと同一の引数順。未対応機能
+//  マテリアルテンプレートと同一の引数順。未対応機能
 //  (Glint / SpecularProfile / ClearCoat 第 2 法線) も API として
 //  受理する (評価は無効)。
 //    SSSType  : float で受ける (テンプレート互換) -> uint へ変換
@@ -162,7 +161,7 @@ FSubstrateBSDF GetSubstrateSlabBSDF(
     BSDF.Anisotropy = clamp(Anisotropy, -1.0f, 1.0f);
 
     BSDF.SSSMFP = max(SSSMFP, 0.0f); // [m]
-    // ---- UE5.8 ノード配線 (Substrate Transmittance-To-MeanFreePath) ----
+    // ---- ノード配線 (Substrate Transmittance-To-MeanFreePath) ----
     //   MFP 出力       -> SSSMFP ピン
     //   Thickness 出力 -> SSSMFPScale ピン  (SSS 評価厚 [cm] を運ぶ)
     // Slab 本体の Thickness 引数は既定レイヤー厚 (0.01cm) 固定。

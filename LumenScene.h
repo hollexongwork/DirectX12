@@ -11,7 +11,7 @@ class FLumenHardwareRayTracing;
 
 // ============================================================
 //  LumenScene
-//  UE5.8 Lumen 相当のグローバルイルミネーションシステム。
+//  グローバルイルミネーションシステム。
 //
 //  ---- Surface Cache (エミッシブ光源化の本体) ----
 //    1. MeshCards 生成 : SDF を持つ各プリミティブに 6 方向のカード
@@ -189,6 +189,7 @@ public:
 		float SkyOcclusionStrength = 1.0f;	// IBL のスカイ可視率減衰 (0..1)
 		int   NumRadiosityRays = 4;			// Radiosity のテクセルあたりレイ数
 		int   RadiosityCardsPerFrame = 32;	// Radiosity のフレームあたり更新カード数
+		float RadiosityTemporalAlpha = 0.2f;	// Radiosity のテンポラルブレンド率 (1 = 蓄積なし)
 		int   CaptureBudgetPerFrame = 12;	// キャプチャのフレームあたりカード数
 		unsigned int DebugMode = 0;			// 0=off 1=GIのみ 2=スカイ可視率 3=GI拡散寄与
 
@@ -255,13 +256,14 @@ private:
 		XMFLOAT4 PassPrevCameraOrigin;			// xyz=前カメラ, w=スクリーントレース厚み
 		XMFLOAT4 PassRCParams0;					// xyz=RC最小コーナー, w=間隔
 		XMFLOAT4 PassRCParams1;					// x=プローブ数/軸, y=更新開始, z=更新数, w=スカイミップ
-		XMFLOAT4 PassReflectionParams;			// x=最大ラフネス, y=フェード開始, z=強度, w=予約
+		XMFLOAT4 PassReflectionParams;			// x=最大ラフネス, y=フェード開始, z=強度, w=スクリーントレース有効
+		XMFLOAT4 PassRadiosityParams;			// x=Radiosity テンポラルα (1=蓄積なし), yzw=予約
 
 		XMFLOAT4X4 PassViewProjection;			// 転置済み
 		XMFLOAT4X4 PassInvViewProjection;		// 転置済み
 		XMFLOAT4X4 PassPrevViewProjection;		// 転置済み
 	};
-	static_assert(sizeof(FLumenPassParams) == 416,
+	static_assert(sizeof(FLumenPassParams) == 432,
 		"FLumenPassParams must mirror HLSL cbuffer LumenPassParams (b0)");
 
 	// ---- カードのローカル空間定義 (キャプチャ / 行列構築用 CPU データ) ----
@@ -375,6 +377,10 @@ private:
 	// ---- HWRT (DXR TLAS) ----
 	std::unique_ptr<FLumenHardwareRayTracing> m_HardwareRayTracing;
 	bool m_bHWRTActiveThisFrame = false;
+
+	// Radiosity テンポラル蓄積の可否 (RGBA16F 型付き UAV ロード対応。
+	// 非対応なら PassRadiosityParams.x = 1 で置き換えのみ)
+	bool m_bRadiosityTemporalSupported = false;
 
 	// ---- コンピュート (独立ルートシグネチャ + PSO 群) ----
 	ComPtr<ID3D12RootSignature> m_ComputeRootSignature;

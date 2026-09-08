@@ -38,8 +38,10 @@ void FLumenHardwareRayTracing::Init(unsigned int MaxInstances)
 		return;
 	}
 
+	// 加速構造のビルドには Device5 と GraphicsCommandList4 の両方が要る
+	// (FBXModel::BuildRayTracingGeometry と同じ判定にそろえる)
 	ID3D12Device5* device5 = m_RHI->GetDevice5();
-	if (device5 == nullptr)
+	if (device5 == nullptr || m_RHI->GetGraphicsCommandList4() == nullptr)
 	{
 		return;
 	}

@@ -36,7 +36,7 @@
 #define LUMEN_GLOBAL_SDF_RESOLUTION 128.0f
 
 // -------------------------------------------------------------
-//  b0 : FLumenPassParams (C++ LumenScene.h と 1:1 ミラー必須, 416B)
+//  b0 : FLumenPassParams (C++ LumenScene.h と 1:1 ミラー必須, 432B)
 // -------------------------------------------------------------
 cbuffer LumenPassParams : register(b0)
 {
@@ -57,7 +57,8 @@ cbuffer LumenPassParams : register(b0)
     float4 PassPrevCameraOrigin; // xyz=前フレームカメラ位置, w=スクリーントレース厚み [m]
     float4 PassRCParams0; // xyz=Radiance Cache 最小コーナー, w=プローブ間隔 [m]
     float4 PassRCParams1; // x=プローブ数/軸, y=更新開始プローブ, z=更新プローブ数, w=スカイサンプルミップ
-    float4 PassReflectionParams; // x=最大ラフネス, y=フェード開始, z=強度, w=予約
+    float4 PassReflectionParams; // x=最大ラフネス, y=フェード開始, z=強度, w=スクリーントレース有効
+    float4 PassRadiosityParams; // x=Radiosity テンポラルα (1 = 蓄積なし), yzw=予約
 
     float4x4 PassViewProjection; // ワールド -> クリップ (転置済み)
     float4x4 PassInvViewProjection; // クリップ -> ワールド (転置済み)
@@ -185,7 +186,7 @@ float3 ResolveLumenRayRadiance(FLumenTraceResult Trace, float3 RayStart, float3 
     {
         FLumenSceneObject hitObj = LumenSceneObjects[Trace.HitObject];
         float3 hitPos = RayStart + RayDir * Trace.HitT;
-        float3 hitNormal = ComputeLumenHitNormal(hitObj, hitPos);
+        float3 hitNormal = ComputeLumenHitNormal(hitObj, hitPos, RayStart);
         return SampleLumenSurfaceCache(hitObj, hitPos, hitNormal);
     }
 

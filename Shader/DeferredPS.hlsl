@@ -51,7 +51,7 @@ void LumenScreenGather(float3 WorldPos, float3 Normal, uint2 PixelPos,
         {
             FLumenSceneObject hitObj = LumenSceneObjects[trace.HitObject];
             float3 hitPos = rayStart + rayDir * trace.HitT;
-            float3 hitNormal = ComputeLumenHitNormal(hitObj, hitPos);
+            float3 hitNormal = ComputeLumenHitNormal(hitObj, hitPos, rayStart);
 
             OutRadiance += SampleLumenSurfaceCache(hitObj, hitPos, hitNormal);
         }
@@ -148,8 +148,22 @@ PS_OUTPUT main(PS_INPUT input)
     if (LumenGatherMode == 2u)
     {
         float4 diffuseIndirect = LumenDiffuseIndirectTexture.Load(int3(input.Position.xy, 0));
-        lumenRadiance = diffuseIndirect.rgb;
-        lumenSkyVisibility = diffuseIndirect.a;
+
+        [branch]
+        if (diffuseIndirect.a < 0.0f)
+        {
+            // a < 0 = プローブ未カバー (シルエット / 16px より細い形状で
+            // 周囲のプローブが全て別物体)。Integrate が黒を書く代わりに
+            // マークするので、ここでピクセル毎コーントレースにフォールバック
+            // する (エッジピクセルのみなのでコストは限定的)
+            LumenScreenGather(worldPos.xyz, normal, uint2(input.Position.xy),
+                lumenRadiance, lumenSkyVisibility);
+        }
+        else
+        {
+            lumenRadiance = diffuseIndirect.rgb;
+            lumenSkyVisibility = diffuseIndirect.a;
+        }
     }
     else if (bLumenScreenGI != 0u)
     {

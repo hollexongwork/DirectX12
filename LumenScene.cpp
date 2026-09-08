@@ -105,6 +105,32 @@ void FLumenSceneData::Init()
 	InitBuffers();
 	InitComputePipelines();
 
+	// Radiosity テンポラル蓄積は IndirectLightingAtlas (RGBA16F) を
+	// 同一パスで UAV から読み戻す。R32 系以外の型付き UAV ロードは
+	// オプション機能なので、フォーマット単位でサポートを確認する
+	{
+		m_bRadiosityTemporalSupported = false;
+
+		D3D12_FEATURE_DATA_D3D12_OPTIONS options{};
+		if (SUCCEEDED(m_RHI->GetDevice()->CheckFeatureSupport(
+			D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options))) &&
+			options.TypedUAVLoadAdditionalFormats)
+		{
+			D3D12_FEATURE_DATA_FORMAT_SUPPORT formatSupport{};
+			formatSupport.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+			if (SUCCEEDED(m_RHI->GetDevice()->CheckFeatureSupport(
+				D3D12_FEATURE_FORMAT_SUPPORT, &formatSupport, sizeof(formatSupport))))
+			{
+				m_bRadiosityTemporalSupported =
+					(formatSupport.Support2 & D3D12_FORMAT_SUPPORT2_UAV_TYPED_LOAD) != 0;
+			}
+		}
+
+		OutputDebugStringA(m_bRadiosityTemporalSupported
+			? "[Lumen] Radiosity temporal accumulation: enabled (RGBA16F typed UAV load)\n"
+			: "[Lumen] Radiosity temporal accumulation: disabled (typed UAV load unsupported)\n");
+	}
+
 	// DXR TLAS (対応環境のみ有効化される)
 	m_HardwareRayTracing = std::make_unique<FLumenHardwareRayTracing>(m_RHI);
 	m_HardwareRayTracing->Init(MAX_LUMEN_OBJECTS);
@@ -409,10 +435,10 @@ void FLumenSceneData::InitScreenTextures()
 	// ---- Global Distance Field (128^3 R16F x2) ----
 	CreateComputeTexture(m_GlobalSDF[0], L"LumenGlobalSDF0",
 		LUMEN_GLOBAL_SDF_RESOLUTION, LUMEN_GLOBAL_SDF_RESOLUTION, LUMEN_GLOBAL_SDF_RESOLUTION,
-		DXGI_FORMAT_R16_FLOAT, false);
+		DXGI_FORMAT_R16_FLOAT, true);
 	CreateComputeTexture(m_GlobalSDF[1], L"LumenGlobalSDF1",
 		LUMEN_GLOBAL_SDF_RESOLUTION, LUMEN_GLOBAL_SDF_RESOLUTION, LUMEN_GLOBAL_SDF_RESOLUTION,
-		DXGI_FORMAT_R16_FLOAT, false);
+		DXGI_FORMAT_R16_FLOAT, true);
 
 	// ---- Screen Probe Gather ----
 	m_NumProbesX = (width + LUMEN_PROBE_DOWNSAMPLE - 1) / LUMEN_PROBE_DOWNSAMPLE;
@@ -440,11 +466,11 @@ void FLumenSceneData::InitScreenTextures()
 	}
 
 	CreateComputeTexture(m_DiffuseIndirect, L"LumenDiffuseIndirect",
-		width, height, 1, DXGI_FORMAT_R16G16B16A16_FLOAT, false);
+		width, height, 1, DXGI_FORMAT_R16G16B16A16_FLOAT, true);
 
 	// ---- Reflections ----
 	CreateComputeTexture(m_ReflectionTexture, L"LumenReflections",
-		width, height, 1, DXGI_FORMAT_R16G16B16A16_FLOAT, false);
+		width, height, 1, DXGI_FORMAT_R16G16B16A16_FLOAT, true);
 
 	// ---- Radiance Cache SH ボリューム (16^3 x3) ----
 	for (int i = 0; i < 3; i++)
@@ -453,7 +479,7 @@ void FLumenSceneData::InitScreenTextures()
 			L"LumenRCSH_R", L"LumenRCSH_G", L"LumenRCSH_B" };
 		CreateComputeTexture(m_RCSH[i], names[i],
 			LUMEN_RC_PROBES_PER_AXIS, LUMEN_RC_PROBES_PER_AXIS, LUMEN_RC_PROBES_PER_AXIS,
-			DXGI_FORMAT_R16G16B16A16_FLOAT, false);
+			DXGI_FORMAT_R16G16B16A16_FLOAT, true);
 	}
 }
 
@@ -1037,7 +1063,7 @@ void FLumenSceneData::UpdateTLAS()
 		{
 			for (int c = 0; c < 4; c++)
 			{
-				inst.Transform[r][c] = (&m._11)[c * 4 + r];
+				inst.Transform[r][c] = m.m[c][r];
 			}
 		}
 
@@ -1233,6 +1259,13 @@ FLumenSceneData::FLumenPassParams FLumenSceneData::MakeBasePassParams(
 		m_Params.ReflectionMaxRoughness, m_Params.ReflectionFadeStart,
 		m_Params.ReflectionIntensity,
 		m_Params.bScreenSpaceTrace ? 1.0f : 0.0f };
+
+	// Radiosity テンポラル蓄積は自分自身 (RGBA16F UAV) の読み戻しが必要。
+	// 型付き UAV ロード非対応環境では 1.0 (置き換え) に固定する
+	const float radiosityAlpha = m_bRadiosityTemporalSupported
+		? min(max(m_Params.RadiosityTemporalAlpha, 0.02f), 1.0f)
+		: 1.0f;
+	params.PassRadiosityParams = { radiosityAlpha, 0.0f, 0.0f, 0.0f };
 
 	params.PassViewProjection = Inputs.ViewProjectionT;
 	params.PassInvViewProjection = Inputs.InvViewProjectionT;
@@ -1476,9 +1509,16 @@ void FLumenSceneData::RenderLumenSceneLighting(const FLumenFrameInputs& Inputs)
 	}
 
 	// HWRT の有効判定 (TLAS はこのフレームの UpdateTLAS で構築済み)
+	// RT バリアント PSO が 1 つも無い (SM 6.5 の cso 不在 / 生成失敗) 場合は
+	// TLAS があっても SWRT にしかならないため ACTIVE にしない
+	// (ImGui の表示が実態と食い違うのと、TLAS 再構築が無駄になるのを防ぐ)
+	const bool bHasAnyRTPSO =
+		m_PSODirectLightingRT || m_PSORadiosityRT || m_PSOProbeTraceRT ||
+		m_PSOReflectionsRT || m_PSORCTraceRT;
+
 	m_bHWRTActiveThisFrame =
 		m_HardwareRayTracing && m_HardwareRayTracing->HasTLAS() &&
-		m_Params.bUseHardwareRayTracing;
+		m_Params.bUseHardwareRayTracing && bHasAnyRTPSO;
 	m_Stats.bHardwareRayTracingActive = m_bHWRTActiveThisFrame;
 
 	ID3D12GraphicsCommandList* cl = CommandList();
@@ -1624,6 +1664,7 @@ void FLumenSceneData::RenderLumenScreenGI(const FLumenFrameInputs& Inputs)
 		TransitionComputeTexture(m_ProbeFilteredRadiance, false);
 
 		cl->SetPipelineState(m_PSOProbeFilter.Get());
+		bindSRV(19, m_ProbeGeo.SRVIndex);						// t19
 		bindSRV(20, m_ProbeTraceRadiance.SRVIndex);				// t20
 		bindUAV(4, m_ProbeFilteredRadiance.UAVIndex);			// u4
 		cl->SetComputeRootConstantBufferView(0, WritePassParams(10, params));
@@ -1644,6 +1685,7 @@ void FLumenSceneData::RenderLumenScreenGI(const FLumenFrameInputs& Inputs)
 		TransitionComputeTexture(prevSH.Aux, true);
 
 		cl->SetPipelineState(m_PSOProbeSH.Get());
+		bindSRV(19, m_ProbeGeo.SRVIndex);						// t19
 		bindSRV(20, m_ProbeFilteredRadiance.SRVIndex);			// t20
 		bindSRV(21, prevSH.SHR.SRVIndex);						// t21
 		bindSRV(22, prevSH.SHG.SRVIndex);						// t22
@@ -1667,6 +1709,7 @@ void FLumenSceneData::RenderLumenScreenGI(const FLumenFrameInputs& Inputs)
 		TransitionComputeTexture(m_DiffuseIndirect, false);
 
 		cl->SetPipelineState(m_PSOProbeIntegrate.Get());
+		bindSRV(19, m_ProbeGeo.SRVIndex);						// t19
 		bindSRV(21, curSH.SHR.SRVIndex);						// t21
 		bindSRV(22, curSH.SHG.SRVIndex);						// t22
 		bindSRV(23, curSH.SHB.SRVIndex);						// t23

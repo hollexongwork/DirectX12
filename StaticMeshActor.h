@@ -4,7 +4,7 @@
 
 // ============================================================
 //  AStaticMeshActor
-//  UE5 の AStaticMeshActor に相当。UStaticMeshComponent を
+//  AStaticMeshActor に相当。UStaticMeshComponent を
 //  Root に持つだけの汎用スタティックメッシュ配置アクター。
 //  メッシュ / テクスチャ / トランスフォーム / ラベルは
 //  レベルロード相当 (GameManager) 側で構成する。

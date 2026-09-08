@@ -121,7 +121,12 @@ FLumenTraceResult TraceLumenScene(float3 RayStart, float3 RayDir, float MaxT,
 
             if (stepIndex == 0)
             {
-                bInsideStartSurface = (d < surfaceExit);
+                // 表皮スキップは「レイ始点がこのオブジェクトの内側/境界に
+                // ある」= 自己交差のときだけ有効にする。tNear > 0 は他の
+                // オブジェクトへの進入点なので、そこで有効にすると薄い壁や
+                // シルエット際で最初の数ボクセルを無条件に貫通し、
+                // 光が壁を抜けてしまう。
+                bInsideStartSurface = (tNear <= 0.0f) && (d < surfaceExit);
             }
 
             [branch]
@@ -191,7 +196,7 @@ float TraceLumenOcclusion(float3 RayStart, float3 RayDir, float MaxT,
 //  勾配は WorldToVolume の 3x3 を前掛けするとワールド方向になる
 //  (逆転置変換と等価。スケールは normalize で吸収)。
 // -------------------------------------------------------------
-float3 ComputeLumenHitNormal(FLumenSceneObject Obj, float3 WorldPos)
+float3 ComputeLumenHitNormal(FLumenSceneObject Obj, float3 WorldPos, float3 RayStart)
 {
     float3 pV = mul(float4(WorldPos, 1.0f), Obj.WorldToVolume).xyz;
 
@@ -206,7 +211,12 @@ float3 ComputeLumenHitNormal(FLumenSceneObject Obj, float3 WorldPos)
 
     float3 worldGrad = mul((float3x3) Obj.WorldToVolume, grad);
     float len = length(worldGrad);
-    return (len > 1e-6f) ? worldGrad / len : float3(0.0f, 1.0f, 0.0f);
+    // 勾配が縮退 (ボリューム境界のクランプ等) した場合は入射方向の逆を使う。
+    // 固定の上向きを返すとカード選択が的外れになり黒い斑点になる。
+    float3 fallback = WorldPos - RayStart;
+    float fallbackLen = length(fallback);
+    return (len > 1e-6f) ? worldGrad / len
+         : ((fallbackLen > 1e-6f) ? -fallback / fallbackLen : float3(0.0f, 1.0f, 0.0f));
 }
 
 // -------------------------------------------------------------

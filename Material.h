@@ -44,12 +44,12 @@ inline bool IsOpaqueBlendMode(EBlendMode BlendMode)
 
 // ============================================================
 //  ESubstrateSSSType (HLSL SUBSTRATE_SSS_TYPE_* と 1:1)
-//  Substrate Slab の Sub-Surface Type (UE5.8)。
+//  Substrate Slab の Sub-Surface Type 。
 //    None             : 標準 Lambert
 //    Wrap             : ラップライティング
 //    TwoSidedWrap     : 表ラップ + 裏面透過 (葉など)
 //    Diffusion        : スクリーン空間拡散 (本エンジンでは
-//                       UE5.8 仕様どおり非散乱へフォールバック)
+//                       非散乱へフォールバック)
 //    DiffusionProfile : プロファイル拡散 (同上フォールバック)
 //    SimpleVolume     : 単散乱スラブ (Beer-Lambert 透過)
 // ============================================================
@@ -66,7 +66,7 @@ enum class ESubstrateSSSType : unsigned int
 
 // ============================================================
 //  ERefractionMethod (HLSL REFRACTION_METHOD_* と 1:1)
-//  UE5.8 の ERefractionMode 相当。ゼロ初期化 = 屈折なしにする
+//  ERefractionMode 相当。ゼロ初期化 = 屈折なしにする
 //  ため None = 0 とする (UE の列挙値順とは異なるが名前は 1:1)。
 //    IndexOfRefraction : 屈折率 (ビュー空間法線 x (IOR-1))
 //    PixelNormalOffset : 頂点法線とピクセル法線の差分
@@ -108,7 +108,7 @@ private:
 		BOOL			TwoSided;
 		XMFLOAT3		_pad;
 
-		// ---- Substrate Slab BSDF (UE5.8) ----
+		// ---- Substrate Slab BSDF ----
 		// bUseSubstrate = TRUE のときレガシー Metallic/Specular の
 		// 代わりに Slab (DiffuseAlbedo / F0 / F90 / SSS) で
 		// シェーディングする。MFP は TransmittanceColor + Thickness
@@ -136,7 +136,7 @@ private:
 		XMFLOAT2		RefractionData;
 
 		float			RefractionDepthBias;          // 屈折の深度棄却バイアス [m]
-		// Index Of Refraction From F0 (UE5.8): TRUE のとき IOR を
+		// Index Of Refraction From F0 : TRUE のとき IOR を
 		// 手入力値でなく SubstrateF0 から導出する (Substrate + IOR 方式のみ)
 		BOOL			bRefractionUseF0;
 		XMFLOAT2		_padSubstrate;
@@ -164,14 +164,14 @@ public:
 
 	float GetOpacityMaskClipValue() const { return Params.OpacityMaskClipValue; }
 
-	// ---- Substrate (UE5.8) ----
+	// ---- Substrate ----
 	bool IsSubstrateEnabled() const { return Params.bUseSubstrate != FALSE; }
 	void SetUseSubstrate(bool bUse) { Params.bUseSubstrate = bUse ? TRUE : FALSE; }
 
 	ESubstrateSSSType GetSubstrateSSSType() const { return Params.SubstrateSSSType; }
 	void SetSubstrateSSSType(ESubstrateSSSType Type) { Params.SubstrateSSSType = Type; }
 
-	// ---- Refraction (UE5.8) ----
+	// ---- Refraction ----
 	ERefractionMethod GetRefractionMethod() const { return Params.RefractionMethod; }
 	void SetRefractionMethod(ERefractionMethod Method) { Params.RefractionMethod = Method; }
 

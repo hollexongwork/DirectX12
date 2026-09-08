@@ -11,14 +11,13 @@
 //  デファード (DeferredPS) とフォワード半透明 (TranslucentPS) が
 //  共有する。
 //
-//  Sub-Surface Type の扱い (UE5.8 仕様準拠):
+//  Sub-Surface Type :
 //    NONE              : 標準 Lambert
 //    WRAP              : ラップライティング (W = 0.5)
 //    TWO_SIDED_WRAP    : 表ラップ + 裏面透過 (HG 位相 x スラブ透過)
 //    DIFFUSION /
 //    DIFFUSION_PROFILE : スクリーン空間拡散パス非対応環境のため、
-//                        UE5.8 仕様どおり非散乱ディフューズへ
-//                        フォールバック
+//                        非散乱ディフューズへフォールバック
 //    SIMPLEVOLUME      : 透過 = Beer-Lambert、散乱 = 単散乱スラブ
 //                        解析解 (Hanrahan-Krueger / Chandrasekhar)
 //                        を INV_PI 正規化した近似
@@ -44,7 +43,7 @@ float SubstratePhase4Pi(float G, float CosTheta)
 }
 
 // -------------------------------------------------------------
-//  F90 フェード (UE5.8: F0 < 0.02 で F90 は黒へフェードする)
+//  F90 フェード (F0 < 0.02 で F90 は黒へフェードする)
 //  50 * avg(F0) は avg(F0) = 0.02 でちょうど 1 になる。
 // -------------------------------------------------------------
 float3 SubstrateComputeF90(float3 F0, float3 F90)
@@ -228,7 +227,6 @@ float3 SubstrateEvaluateSlabDirect(
     else
     {
         // ---- NONE / DIFFUSION / DIFFUSION_PROFILE ----
-        // スクリーン空間拡散パス非対応環境では UE5.8 仕様どおり
         // 非散乱ディフューズへフォールバックする。
         Diffuse = BSDF.DiffuseAlbedo * INV_PI * saturate(NoL_d);
     }

@@ -9,7 +9,8 @@
 //    t19 = ProbeGeo / t20 = FilteredRadiance
 //    t21..t23 = 前フレーム SHR/SHG/SHB / t24 = 前フレーム Aux
 //    u4..u6   = SHR/SHG/SHB / u7 = Aux (x=スカイ可視率,
-//               y=現フレームカメラからの距離 (次フレームの検証用))
+//               y=現フレームカメラからの距離, zw=法線 octahedral
+//               (どちらも次フレームの履歴検証用))
 //  Dispatch: (ceil(PW/8), ceil(PH/8), 1) - 1 スレッド = 1 プローブ
 // =============================================================
 
@@ -91,6 +92,12 @@ void main(uint3 DTid : SV_DispatchThreadID)
     skyVisibility /= 64.0f;
 
     // ---- テンポラル蓄積 (前フレームプローブグリッドへリプロジェクション) ----
+    // 履歴は 4 タップを手動でバイリニアし、タップごとに「前フレームの
+    // 同じ面か」を検証して重みに入れる。ハードウェアバイリニアで
+    // Aux / SH を混ぜてから検証すると、深度エッジのプローブは隣の別物体の
+    // 距離が混ざって毎フレーム検証に落ち (alpha = 1)、64 レイの生の推定が
+    // そのまま出てプルプル震える。タップ単位なら同じ面のタップだけで
+    // 履歴を作れるので、エッジのプローブも蓄積が効く。
     float alpha = 1.0f;
 
     [branch]
@@ -103,26 +110,93 @@ void main(uint3 DTid : SV_DispatchThreadID)
             if (abs(prevNDC.x) < 1.0f && abs(prevNDC.y) < 1.0f)
             {
                 float2 prevUV = float2(prevNDC.x * 0.5f + 0.5f, 0.5f - prevNDC.y * 0.5f);
-                float2 prevProbeUV = prevUV; // プローブグリッドは画面と相似
 
-                float4 prevAux = PrevAuxTexture.SampleLevel(LumenTraceSampler, prevProbeUV, 0.0f);
+                // スクリーン UV -> プローブ座標 (連続値)。
+                // プローブ i のアンカーピクセルは i * downsample + downsample/2 で、
+                // その中心は + 0.5 なので、プローブテクスチャは画面の単純な
+                // 相似ではない (画面サイズが downsample の倍数でないとき、
+                // 1080 / 16 -> 68 プローブ = 1088px 相当でずれる)。
+                // prevUV のまま使うと画面下側ほど 1 プローブ近くずれた履歴を
+                // 引き、縦方向のゴースト / にじみになる。
+                const float downsampleF = PassProbeParams0.z;
+                float2 prevPixel = prevUV * PassProbeParams1.xy;
+                float2 prevProbe = (prevPixel - 0.5f - 0.5f * downsampleF) / downsampleF;
 
-                // 前フレームカメラからの距離で妥当性検証 (ディスオクルージョン棄却)
+                int2 prevBase = (int2) floor(prevProbe);
+                float2 prevFrac = prevProbe - (float2) prevBase;
+
                 float expectedPrevDist = length(worldPos - PassPrevCameraOrigin.xyz);
-                float distDelta = abs(prevAux.y - expectedPrevDist);
 
-                if (prevAux.y > 0.0f && distDelta < max(0.1f * expectedPrevDist, 0.05f))
+                float4 histR = float4(0.0f, 0.0f, 0.0f, 0.0f);
+                float4 histG = float4(0.0f, 0.0f, 0.0f, 0.0f);
+                float4 histB = float4(0.0f, 0.0f, 0.0f, 0.0f);
+                float histSky = 0.0f;
+                float histWeight = 0.0f;
+
+                [unroll]
+                for (int ty = 0; ty <= 1; ++ty)
                 {
+                    [unroll]
+                    for (int tx = 0; tx <= 1; ++tx)
+                    {
+                        int2 tap = prevBase + int2(tx, ty);
+                        if (tap.x < 0 || tap.y < 0 ||
+                            tap.x >= (int) probeCount.x || tap.y >= (int) probeCount.y)
+                        {
+                            continue;
+                        }
+
+                        float4 prevAux = PrevAuxTexture.Load(int3(tap, 0));
+                        if (prevAux.y <= 0.0f)
+                        {
+                            continue; // 無効プローブ (スカイ / Unlit)
+                        }
+
+                        // 前フレームカメラからの距離で妥当性検証 (ディスオクルージョン棄却)
+                        float distDelta = abs(prevAux.y - expectedPrevDist);
+                        if (distDelta >= max(0.1f * expectedPrevDist, 0.05f))
+                        {
+                            continue;
+                        }
+
+                        // 前フレームのプローブ法線 (Aux.zw = octahedral) で面一致を検証
+                        // (距離が近いだけの別面 = 角の向こう側を弾く)
+                        float3 prevNormal = LumenOctahedronToDirection(prevAux.zw);
+                        if (dot(prevNormal, probeNormal) < 0.7f)
+                        {
+                            continue;
+                        }
+
+                        float w = ((tx == 0) ? (1.0f - prevFrac.x) : prevFrac.x)
+                                * ((ty == 0) ? (1.0f - prevFrac.y) : prevFrac.y);
+                        if (w <= 0.0f)
+                        {
+                            continue;
+                        }
+
+                        histR += PrevSHRTexture.Load(int3(tap, 0)) * w;
+                        histG += PrevSHGTexture.Load(int3(tap, 0)) * w;
+                        histB += PrevSHBTexture.Load(int3(tap, 0)) * w;
+                        histSky += prevAux.x * w;
+                        histWeight += w;
+                    }
+                }
+
+                // 有効タップの合計重みが小さすぎる (ほぼ別物体) 場合は履歴を捨てる
+                if (histWeight > 0.05f)
+                {
+                    float invHist = 1.0f / histWeight;
+                    histR *= invHist;
+                    histG *= invHist;
+                    histB *= invHist;
+                    histSky *= invHist;
+
                     alpha = PassProbeParams1.z; // テンポラルブレンド率
 
-                    float4 prevR = PrevSHRTexture.SampleLevel(LumenTraceSampler, prevProbeUV, 0.0f);
-                    float4 prevG = PrevSHGTexture.SampleLevel(LumenTraceSampler, prevProbeUV, 0.0f);
-                    float4 prevB = PrevSHBTexture.SampleLevel(LumenTraceSampler, prevProbeUV, 0.0f);
-
-                    shR = lerp(prevR, shR, alpha);
-                    shG = lerp(prevG, shG, alpha);
-                    shB = lerp(prevB, shB, alpha);
-                    skyVisibility = lerp(prevAux.x, skyVisibility, alpha);
+                    shR = lerp(histR, shR, alpha);
+                    shG = lerp(histG, shG, alpha);
+                    shB = lerp(histB, shB, alpha);
+                    skyVisibility = lerp(histSky, skyVisibility, alpha);
                 }
             }
         }
@@ -132,6 +206,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     RWSHG[probe] = shG;
     RWSHB[probe] = shB;
 
-    // y = 現フレームカメラからの距離 (次フレームのリプロジェクション検証用)
-    RWAux[probe] = float4(skyVisibility, probeGeo.w, 0.0f, 0.0f);
+    // y  = 現フレームカメラからの距離 (次フレームのリプロジェクション検証用)
+    // zw = プローブ法線 (octahedral, 次フレームの面一致検証用)
+    RWAux[probe] = float4(skyVisibility, probeGeo.w, LumenDirectionToOctahedron(probeNormal));
 }

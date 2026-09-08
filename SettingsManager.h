@@ -76,7 +76,7 @@ private:
 		float    Opacity = 1.0f;
 		float    OpacityMaskClipValue = 0.3333f;
 
-		// ---- Substrate Slab BSDF (UE5.8) ----
+		// ---- Substrate Slab BSDF ----
 		// 既定値は Material.cpp のコンストラクタと一致させる。
 		bool     bUseSubstrate = false;
 		XMFLOAT4 SubstrateDiffuseAlbedo = { 0.18f, 0.18f, 0.18f, 1.0f };
@@ -93,7 +93,7 @@ private:
 		float    SubstrateFuzzRoughness = 0.5f;
 		bool     SubstrateIsThin = false;
 
-		// ---- Refraction (UE5.8) ----
+		// ---- Refraction ----
 		int      RefractionMethod = 0;			// ERefractionMethod (0=None 1=IOR 2=PixelNormalOffset 3=2DOffset)
 		bool     RefractionUseF0 = false;		// IOR を Substrate F0 から導出
 		float    RefractionDataX = 1.5f;		// IOR / 法線強度 / 2D オフセット X

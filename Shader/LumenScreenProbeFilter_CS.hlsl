@@ -5,7 +5,7 @@
 //  LumenScreenProbeFilter_CS
 //  ScreenProbeFilterGatherTraces 相当。トレースラディアンスを
 //  3x3 の近傍プローブの「同じ octa テクセル」同士で空間フィルタ
-//  する (プローブ深度 / 法線の近いものだけをブレンド)。
+//  する (プローブ接平面 / 法線の近いものだけをブレンド)。
 //    t19 = ProbeGeo / t20 = TraceRadiance / u4 = FilteredRadiance
 //  Dispatch: (PW, PH, 1) - 1 グループ = 1 プローブ (8x8 スレッド)
 // =============================================================
@@ -31,6 +31,13 @@ void main(uint3 GroupID : SV_GroupID, uint3 GroupThreadID : SV_GroupThreadID)
         RWFilteredRadiance[atlasTexel] = centerRadiance;
         return;
     }
+
+    // 中心プローブのワールド位置 (アンカーから再構築。平面距離重み用)
+    const uint downsample = (uint) PassProbeParams0.z;
+    const uint2 screenSize = (uint2) PassProbeParams1.xy;
+    uint2 centerAnchor = min(probe * downsample + downsample / 2u, screenSize - 1u);
+    float3 centerWorldPos = LumenReconstructWorldPosition(
+        centerAnchor, LumenSceneDepth.Load(int3(centerAnchor, 0)));
 
     float4 accum = centerRadiance;
     float totalWeight = 1.0f;
@@ -59,12 +66,22 @@ void main(uint3 GroupID : SV_GroupID, uint3 GroupThreadID : SV_GroupThreadID)
                 continue;
             }
 
-            // 深度 / 法線の一致度で重み付け (エッジ越しのにじみ防止)
-            float depthDelta = abs(neighborGeo.w - centerGeo.w);
-            float depthWeight = saturate(1.0f - depthDelta / max(0.1f * centerGeo.w, 0.05f));
+            // 平面距離 / 法線の一致度で重み付け (エッジ越しのにじみ防止)。
+            // 視距離差だと斜めの床で隣接プローブが棄却され、フィルタが
+            // 効かず (= 1 プローブ 64 レイの生ノイズ) 明部が震えるため、
+            // 「隣プローブの接平面から中心プローブまでの距離」で判定する
+            uint2 neighborAnchor = min((uint2) neighbor * downsample + downsample / 2u,
+                screenSize - 1u);
+            float3 neighborWorldPos = LumenReconstructWorldPosition(
+                neighborAnchor, LumenSceneDepth.Load(int3(neighborAnchor, 0)));
+            float3 toCenter = centerWorldPos - neighborWorldPos;
+            float planeDist = max(
+                abs(dot(toCenter, neighborGeo.xyz)),
+                abs(dot(toCenter, centerGeo.xyz)));
+            float planeWeight = saturate(1.0f - planeDist / max(0.05f * centerGeo.w, 0.02f));
             float normalWeight = saturate(dot(neighborGeo.xyz, centerGeo.xyz));
 
-            float weight = depthWeight * normalWeight * normalWeight;
+            float weight = planeWeight * normalWeight * normalWeight;
             if (weight < 0.01f)
             {
                 continue;
