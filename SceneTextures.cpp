@@ -44,6 +44,10 @@ void FSceneTextures::Init(RenderManager* RHI)
 	PrevSceneColor = RHI->CreateRenderTarget(width, height, DXGI_FORMAT_R16G16B16A16_FLOAT);
 	PrevSceneColor->Resource->SetName(L"PrevSceneColorBuffer");
 
+	// 前フレーム LinearDepth 履歴 (Lumen スクリーントレースの履歴深度検証用)
+	PrevLinearDepth = RHI->CreateRenderTarget(width, height, DXGI_FORMAT_R32G32_FLOAT);
+	PrevLinearDepth->Resource->SetName(L"PrevLinearDepthBuffer");
+
 	// MRT 順 = RT0..RT4 (ベースパス出力 / RenderManager の gbuffer[] と 1:1)
 	GBuffers =
 	{
@@ -82,7 +86,7 @@ void FSceneTextures::Init(RenderManager* RHI)
 		const D3D12_RESOURCE_STATES readState =
 			D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
 
-		D3D12_RESOURCE_BARRIER barriers[7] = {
+		D3D12_RESOURCE_BARRIER barriers[8] = {
 			CD3DX12_RESOURCE_BARRIER::Transition(GBufferC->Resource.Get(),
 				D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, readState),
 			CD3DX12_RESOURCE_BARRIER::Transition(GBufferA->Resource.Get(),
@@ -96,6 +100,8 @@ void FSceneTextures::Init(RenderManager* RHI)
 			CD3DX12_RESOURCE_BARRIER::Transition(LinearDepth->Resource.Get(),
 				D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, readState),
 			CD3DX12_RESOURCE_BARRIER::Transition(PrevSceneColor->Resource.Get(),
+				D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, readState),
+			CD3DX12_RESOURCE_BARRIER::Transition(PrevLinearDepth->Resource.Get(),
 				D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, readState),
 		};
 		RHI->GetGraphicsCommandList()->ResourceBarrier(_countof(barriers), barriers);

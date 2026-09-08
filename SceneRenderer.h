@@ -126,6 +126,7 @@ private:
 	// そのフレームのビュー行列 / カメラ位置。Lumen のスクリーンプローブ /
 	// 反射が前フレームリプロジェクションで採光する。
 	XMFLOAT4X4 m_PrevViewProjectionT{};	// 前フレームの View x Projection (転置済み)
+	XMFLOAT4X4 m_PrevInvViewProjectionT{};	// 前フレームの InvViewProjection (転置済み)
 	XMFLOAT4   m_PrevViewOrigin = { 0.0f, 0.0f, 0.0f, 0.0f };
 	bool       m_bHistoryValid = false;
 

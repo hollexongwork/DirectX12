@@ -644,6 +644,7 @@ FLumenFrameInputs FSceneRenderer::MakeLumenFrameInputs() const
 	inputs.ScreenHeight = (unsigned int)m_RHI->GetBackBufferHeight();
 
 	inputs.PrevViewProjectionT = m_PrevViewProjectionT;
+	inputs.PrevInvViewProjectionT = m_PrevInvViewProjectionT;
 	inputs.PrevCameraOrigin = m_PrevViewOrigin;
 	inputs.bHistoryValid = m_bHistoryValid;
 
@@ -652,6 +653,7 @@ FLumenFrameInputs FSceneRenderer::MakeLumenFrameInputs() const
 	if (m_SceneTextures.GBufferA) { inputs.GBufferNormalSRVIndex = m_SceneTextures.GBufferA->SRVIndex; }
 	if (m_SceneTextures.GBufferB) { inputs.GBufferBSRVIndex = m_SceneTextures.GBufferB->SRVIndex; }
 	if (m_SceneTextures.PrevSceneColor) { inputs.PrevSceneColorSRVIndex = m_SceneTextures.PrevSceneColor->SRVIndex; }
+	if (m_SceneTextures.PrevLinearDepth) { inputs.PrevLinearDepthSRVIndex = m_SceneTextures.PrevLinearDepth->SRVIndex; }
 
 	return inputs;
 }
@@ -677,7 +679,12 @@ void FSceneRenderer::CopySceneColorHistory()
 	const D3D12_RESOURCE_STATES readState =
 		D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
 
-	D3D12_RESOURCE_BARRIER toCopy[2] =
+	// LinearDepth も同時に履歴化する (スクリーントレースの採光点が前フレームで
+	// 可視だったかを検証するため。常在状態は (PIXEL | NON_PIXEL))
+	const bool bCopyDepth =
+		(m_SceneTextures.LinearDepth != nullptr) && (m_SceneTextures.PrevLinearDepth != nullptr);
+
+	std::vector<D3D12_RESOURCE_BARRIER> toCopy =
 	{
 		CD3DX12_RESOURCE_BARRIER::Transition(
 			m_SceneTextures.SceneColor->Resource.Get(),
@@ -688,13 +695,30 @@ void FSceneRenderer::CopySceneColorHistory()
 			readState,
 			D3D12_RESOURCE_STATE_COPY_DEST),
 	};
-	cl->ResourceBarrier(_countof(toCopy), toCopy);
+	if (bCopyDepth)
+	{
+		toCopy.push_back(CD3DX12_RESOURCE_BARRIER::Transition(
+			m_SceneTextures.LinearDepth->Resource.Get(),
+			readState,
+			D3D12_RESOURCE_STATE_COPY_SOURCE));
+		toCopy.push_back(CD3DX12_RESOURCE_BARRIER::Transition(
+			m_SceneTextures.PrevLinearDepth->Resource.Get(),
+			readState,
+			D3D12_RESOURCE_STATE_COPY_DEST));
+	}
+	cl->ResourceBarrier((UINT)toCopy.size(), toCopy.data());
 
 	cl->CopyResource(
 		m_SceneTextures.PrevSceneColor->Resource.Get(),
 		m_SceneTextures.SceneColor->Resource.Get());
+	if (bCopyDepth)
+	{
+		cl->CopyResource(
+			m_SceneTextures.PrevLinearDepth->Resource.Get(),
+			m_SceneTextures.LinearDepth->Resource.Get());
+	}
 
-	D3D12_RESOURCE_BARRIER fromCopy[2] =
+	std::vector<D3D12_RESOURCE_BARRIER> fromCopy =
 	{
 		CD3DX12_RESOURCE_BARRIER::Transition(
 			m_SceneTextures.SceneColor->Resource.Get(),
@@ -705,13 +729,25 @@ void FSceneRenderer::CopySceneColorHistory()
 			D3D12_RESOURCE_STATE_COPY_DEST,
 			readState),
 	};
-	cl->ResourceBarrier(_countof(fromCopy), fromCopy);
+	if (bCopyDepth)
+	{
+		fromCopy.push_back(CD3DX12_RESOURCE_BARRIER::Transition(
+			m_SceneTextures.LinearDepth->Resource.Get(),
+			D3D12_RESOURCE_STATE_COPY_SOURCE,
+			readState));
+		fromCopy.push_back(CD3DX12_RESOURCE_BARRIER::Transition(
+			m_SceneTextures.PrevLinearDepth->Resource.Get(),
+			D3D12_RESOURCE_STATE_COPY_DEST,
+			readState));
+	}
+	cl->ResourceBarrier((UINT)fromCopy.size(), fromCopy.data());
 
 	// ---- 前フレーム行列 / カメラ位置の確定 ----
 	// 格納は転置済み: (V x P)^T = P^T x V^T (XMMatrixMultiply(A, B) = A x B)
 	const XMMATRIX viewT = XMLoadFloat4x4(&m_ViewConstant.View);
 	const XMMATRIX projT = XMLoadFloat4x4(&m_ViewConstant.Projection);
 	XMStoreFloat4x4(&m_PrevViewProjectionT, XMMatrixMultiply(projT, viewT));
+	m_PrevInvViewProjectionT = m_ViewConstant.InvViewProjection;
 	m_PrevViewOrigin = m_ViewConstant.WorldCameraOrigin;
 	m_bHistoryValid = true;
 }

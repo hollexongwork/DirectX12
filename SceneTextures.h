@@ -46,6 +46,13 @@ public:
 	// 常在状態は (PIXEL | NON_PIXEL) — コンピュートからも読むため。
 	std::unique_ptr<RENDER_TARGET> PrevSceneColor;
 
+	// ---- 前フレーム LinearDepth 履歴 (R32G32_FLOAT) ----
+	// PrevSceneColor と同時に確定。Lumen のスクリーンスペーストレースが
+	// 前フレームへリプロジェクションした採光点の深度を検証し、
+	// ディスオクルージョン (カメラ移動で前フレームには写っていなかった面)
+	// の誤採光を棄却するために使う (UE の HistoryDepth 相当)。
+	std::unique_ptr<RENDER_TARGET> PrevLinearDepth;
+
 	// ---- Linear depth (R32G32_FLOAT) ----
 	std::unique_ptr<RENDER_TARGET> LinearDepth;
 

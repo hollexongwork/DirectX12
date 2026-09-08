@@ -159,6 +159,7 @@ struct FLumenFrameInputs
 
 	// ---- 履歴 (スクリーンスペーストレース / テンポラル用) ----
 	XMFLOAT4X4 PrevViewProjectionT{};
+	XMFLOAT4X4 PrevInvViewProjectionT{};	// 前フレームの InvViewProjection (転置済み)
 	XMFLOAT4   PrevCameraOrigin = { 0.0f, 0.0f, 0.0f, 0.0f };
 	bool       bHistoryValid = false;
 
@@ -168,6 +169,7 @@ struct FLumenFrameInputs
 	unsigned int GBufferNormalSRVIndex = 0;		// GBufferA
 	unsigned int GBufferBSRVIndex = 0;			// GBufferB (ラフネス)
 	unsigned int PrevSceneColorSRVIndex = 0;	// 前フレーム SceneColor
+	unsigned int PrevLinearDepthSRVIndex = 0;	// 前フレーム LinearDepth (履歴深度検証)
 };
 
 // ============================================================
@@ -262,8 +264,9 @@ private:
 		XMFLOAT4X4 PassViewProjection;			// 転置済み
 		XMFLOAT4X4 PassInvViewProjection;		// 転置済み
 		XMFLOAT4X4 PassPrevViewProjection;		// 転置済み
+		XMFLOAT4X4 PassPrevInvViewProjection;	// 転置済み (前フレームプローブ位置の再構築用)
 	};
-	static_assert(sizeof(FLumenPassParams) == 432,
+	static_assert(sizeof(FLumenPassParams) == 496,
 		"FLumenPassParams must mirror HLSL cbuffer LumenPassParams (b0)");
 
 	// ---- カードのローカル空間定義 (キャプチャ / 行列構築用 CPU データ) ----

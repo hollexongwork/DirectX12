@@ -1255,10 +1255,16 @@ FLumenSceneData::FLumenPassParams FLumenSceneData::MakeBasePassParams(
 	params.PassRCParams0 = m_RCVolumeParams0;
 	params.PassRCParams1 = {
 		(float)LUMEN_RC_PROBES_PER_AXIS, 0.0f, 0.0f, m_Params.SkySampleMip };
+	// スクリーントレースは DebugMode 中は無効化する。デバッグ表示は
+	// DeferredPS が SceneColor 自体を GI ラディアンス等で置き換えるため、
+	// その履歴 (PrevSceneColor) を採光すると「GI の可視化画像」を
+	// 面の放射輝度として拾う帰還ループになり、カメラを動かすと
+	// 画面トレースのヒット / ミスが入れ替わるたびに強く明滅する。
+	const bool bScreenTrace = m_Params.bScreenSpaceTrace && (m_Params.DebugMode == 0);
 	params.PassReflectionParams = {
 		m_Params.ReflectionMaxRoughness, m_Params.ReflectionFadeStart,
 		m_Params.ReflectionIntensity,
-		m_Params.bScreenSpaceTrace ? 1.0f : 0.0f };
+		bScreenTrace ? 1.0f : 0.0f };
 
 	// Radiosity テンポラル蓄積は自分自身 (RGBA16F UAV) の読み戻しが必要。
 	// 型付き UAV ロード非対応環境では 1.0 (置き換え) に固定する
@@ -1270,6 +1276,7 @@ FLumenSceneData::FLumenPassParams FLumenSceneData::MakeBasePassParams(
 	params.PassViewProjection = Inputs.ViewProjectionT;
 	params.PassInvViewProjection = Inputs.InvViewProjectionT;
 	params.PassPrevViewProjection = Inputs.PrevViewProjectionT;
+	params.PassPrevInvViewProjection = Inputs.PrevInvViewProjectionT;
 
 	return params;
 }
@@ -1339,6 +1346,7 @@ void FLumenSceneData::BindCommonComputeState(const FLumenFrameInputs& Inputs)
 	bindSRV(16, Inputs.SceneDepthSRVIndex);							// t16
 	bindSRV(17, Inputs.LinearDepthSRVIndex);						// t17
 	bindSRV(18, Inputs.PrevSceneColorSRVIndex);						// t18
+	bindSRV(25, Inputs.PrevLinearDepthSRVIndex);					// t25
 
 	bindUAV(0, m_DirectLightingAtlas.UAVIndex);						// u0
 	bindUAV(1, m_IndirectLightingAtlas.UAVIndex);					// u1
