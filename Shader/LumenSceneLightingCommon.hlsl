@@ -36,7 +36,7 @@
 #define LUMEN_GLOBAL_SDF_RESOLUTION 128.0f
 
 // -------------------------------------------------------------
-//  b0 : FLumenPassParams (C++ LumenScene.h と 1:1 ミラー必須, 432B)
+//  b0 : FLumenPassParams (C++ LumenScene.h と 1:1 ミラー必須, 496B)
 // -------------------------------------------------------------
 cbuffer LumenPassParams : register(b0)
 {
@@ -58,11 +58,12 @@ cbuffer LumenPassParams : register(b0)
     float4 PassRCParams0; // xyz=Radiance Cache 最小コーナー, w=プローブ間隔 [m]
     float4 PassRCParams1; // x=プローブ数/軸, y=更新開始プローブ, z=更新プローブ数, w=スカイサンプルミップ
     float4 PassReflectionParams; // x=最大ラフネス, y=フェード開始, z=強度, w=スクリーントレース有効
-    float4 PassRadiosityParams; // x=Radiosity テンポラルα (1 = 蓄積なし), yzw=予約
+    float4 PassRadiosityParams; // x=Radiosity テンポラルα, y=フル解像度 GI テンポラルα (1 = 蓄積なし), zw=予約
 
     float4x4 PassViewProjection; // ワールド -> クリップ (転置済み)
     float4x4 PassInvViewProjection; // クリップ -> ワールド (転置済み)
     float4x4 PassPrevViewProjection; // 前フレームのワールド -> クリップ (転置済み)
+    float4x4 PassPrevInvViewProjection; // 前フレームのクリップ -> ワールド (転置済み)
 };
 
 // -------------------------------------------------------------
@@ -92,6 +93,7 @@ Texture2D<float4> LumenGBufferNormal : register(t15); // GBufferA (World Normal)
 Texture2D<float> LumenSceneDepth : register(t16); // 非線形デバイス深度
 Texture2D<float2> LumenLinearDepth : register(t17); // R=ビュー距離
 Texture2D<float4> LumenPrevSceneColor : register(t18); // 前フレーム SceneColor (線形 HDR)
+Texture2D<float2> LumenPrevLinearDepth : register(t25); // 前フレーム LinearDepth (R=ビュー距離。履歴検証用)
 
 RWTexture2D<float4> RWDirectLighting : register(u0);
 RWTexture2D<float4> RWIndirectLighting : register(u1);

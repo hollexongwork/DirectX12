@@ -152,17 +152,47 @@ void main(uint3 DTid : SV_DispatchThreadID)
                             continue; // 無効プローブ (スカイ / Unlit)
                         }
 
-                        // 前フレームカメラからの距離で妥当性検証 (ディスオクルージョン棄却)
-                        float distDelta = abs(prevAux.y - expectedPrevDist);
-                        if (distDelta >= max(0.1f * expectedPrevDist, 0.05f))
+                        // 前フレームのプローブ位置を再構築:
+                        //   前アンカーピクセルの視線方向 (PrevInvViewProjection)
+                        //   x 前カメラからの距離 (Aux.y)
+                        // 距離差だけで検証すると、斜めから見た床では隣のプローブ
+                        // (16px) で視距離が 10% 以上変わるため、カメラを動かして
+                        // リプロジェクション先がプローブの中間に落ちるたびに履歴が
+                        // 棄却され (alpha = 1)、64 レイの生推定が出て激しく明滅する。
+                        // 「前プローブの接平面からの距離」なら同一面は動いても 0。
+                        uint2 prevAnchor = min((uint2) tap * downsample + downsample / 2u,
+                            screenSize - 1u);
+                        float2 prevAnchorUV = ((float2) prevAnchor + 0.5f) / PassProbeParams1.xy;
+                        float4 prevAnchorNDC = float4(
+                            prevAnchorUV.x * 2.0f - 1.0f, (1.0f - prevAnchorUV.y) * 2.0f - 1.0f,
+                            0.5f, 1.0f);
+                        float4 prevRayH = mul(prevAnchorNDC, PassPrevInvViewProjection);
+                        float3 prevRayDir = normalize(
+                            prevRayH.xyz / prevRayH.w - PassPrevCameraOrigin.xyz);
+                        float3 prevProbePos = PassPrevCameraOrigin.xyz + prevRayDir * prevAux.y;
+
+                        float3 prevNormal = LumenOctahedronToDirection(prevAux.zw);
+                        float3 toCurrent = worldPos - prevProbePos;
+                        float planeDist = max(
+                            abs(dot(toCurrent, prevNormal)),
+                            abs(dot(toCurrent, probeNormal)));
+                        if (planeDist > max(0.05f * expectedPrevDist, 0.02f))
+                        {
+                            continue; // 別物体 (ディスオクルージョン)
+                        }
+
+                        // 粗い距離検証 (平面が偶然揃う遠くの別物体を除外)
+                        if (abs(prevAux.y - expectedPrevDist) > max(0.3f * expectedPrevDist, 0.1f))
                         {
                             continue;
                         }
 
-                        // 前フレームのプローブ法線 (Aux.zw = octahedral) で面一致を検証
-                        // (距離が近いだけの別面 = 角の向こう側を弾く)
-                        float3 prevNormal = LumenOctahedronToDirection(prevAux.zw);
-                        if (dot(prevNormal, probeNormal) < 0.7f)
+                        // 前フレームのプローブ法線で面一致を検証
+                        // (平面距離が近いだけの別面 = 角の向こう側を弾く)。
+                        // 曲面 (彫像など) では 16px で法線が大きく回るため
+                        // 60 度まで許容する (厳しすぎると動かした時だけ履歴が
+                        // 落ちて曲面が明滅する。残りはフル解像度側の蓄積が吸収)
+                        if (dot(prevNormal, probeNormal) < 0.5f)
                         {
                             continue;
                         }

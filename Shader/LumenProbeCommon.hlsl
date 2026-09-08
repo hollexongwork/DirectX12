@@ -184,7 +184,11 @@ bool LumenScreenSpaceTrace(float3 RayStart, float3 RayDir, float MaxT,
         }
 
         float2 uv = float2(ndc.x * 0.5f + 0.5f, 0.5f - ndc.y * 0.5f);
-        float sceneDist = LumenLinearDepth.SampleLevel(LumenTraceSampler, uv, 0.0f).r;
+        // 深度は点サンプル (バイリニアだとシルエットで前後の深度が混ざり、
+        // 実在しない中間深度に「ヒット」してエッジがカメラ移動で明滅する)
+        int2 depthPixel = clamp((int2) (uv * PassProbeParams1.xy),
+            int2(0, 0), (int2) PassProbeParams1.xy - 1);
+        float sceneDist = LumenLinearDepth.Load(int3(depthPixel, 0)).r;
 
         if (sceneDist <= 0.0f)
         {
@@ -207,6 +211,20 @@ bool LumenScreenSpaceTrace(float3 RayStart, float3 RayDir, float MaxT,
                     if (abs(prevNDC.x) < 1.0f && abs(prevNDC.y) < 1.0f)
                     {
                         float2 prevUV = float2(prevNDC.x * 0.5f + 0.5f, 0.5f - prevNDC.y * 0.5f);
+
+                        // 履歴深度検証: 採光点が前フレームでも同じ深度で見えていた
+                        // ときだけ採用する。カメラ移動で前フレームには別の面
+                        // (手前の物体 / スカイ) が写っていた位置を拾うと、
+                        // その色が今フレームの面の放射輝度として混入し明滅する
+                        int2 prevPixel = clamp((int2) (prevUV * PassProbeParams1.xy),
+                            int2(0, 0), (int2) PassProbeParams1.xy - 1);
+                        float prevSceneDist = LumenPrevLinearDepth.Load(int3(prevPixel, 0)).r;
+                        if (prevSceneDist <= 0.0f ||
+                            abs(prevClip.w - prevSceneDist) > thickness)
+                        {
+                            return false; // ディスオクルージョン -> SDF / HWRT へ
+                        }
+
                         OutRadiance = LumenPrevSceneColor.SampleLevel(
                             LumenTraceSampler, prevUV, 0.0f).rgb;
                         return true;

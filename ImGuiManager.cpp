@@ -219,6 +219,13 @@ void ImGuiManager::LumenWindow()
 		ImGui::SliderFloat("Clipmap0 Extent [m]", &params.GlobalSDFExtent0, 4.0f, 50.0f);
 		ImGui::SliderFloat("Detail Trace Distance [m]", &params.DetailTraceDistance, 0.5f, 10.0f);
 		ImGui::Checkbox("Screen Space Trace", &params.bScreenSpaceTrace);
+		if (params.DebugMode != 0)
+		{
+			// DebugMode 中は SceneColor がデバッグ画像に置き換わるため、その履歴を
+			// 採光するスクリーントレースは C++ 側 (MakeBasePassParams) で無効化される
+			ImGui::SameLine();
+			ImGui::TextDisabled("(off while Debug View)");
+		}
 		ImGui::SliderFloat("Screen Trace Thickness [m]", &params.ScreenTraceThickness, 0.05f, 1.0f);
 		ImGui::SliderInt("Per-Pixel Cones", &params.NumScreenCones, 1, 8);
 	}
@@ -227,6 +234,7 @@ void ImGuiManager::LumenWindow()
 	if (ImGui::CollapsingHeader("Screen Probe Gather"))
 	{
 		ImGui::SliderFloat("Temporal Alpha", &params.TemporalAlpha, 0.02f, 1.0f);
+		ImGui::SliderFloat("Screen Temporal Alpha", &params.ScreenTemporalAlpha, 0.02f, 1.0f);
 		ImGui::SliderFloat("Sky Sample Mip", &params.SkySampleMip, 0.0f, 4.0f);
 	}
 
