@@ -188,8 +188,11 @@ void main(uint3 DTid : SV_DispatchThreadID)
                         }
 
                         // 前フレームのプローブ法線で面一致を検証
-                        // (平面距離が近いだけの別面 = 角の向こう側を弾く)
-                        if (dot(prevNormal, probeNormal) < 0.7f)
+                        // (平面距離が近いだけの別面 = 角の向こう側を弾く)。
+                        // 曲面 (彫像など) では 16px で法線が大きく回るため
+                        // 60 度まで許容する (厳しすぎると動かした時だけ履歴が
+                        // 落ちて曲面が明滅する。残りはフル解像度側の蓄積が吸収)
+                        if (dot(prevNormal, probeNormal) < 0.5f)
                         {
                             continue;
                         }

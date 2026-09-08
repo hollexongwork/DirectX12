@@ -61,7 +61,8 @@ FLumenSceneData::~FLumenSceneData()
 		releaseComputeTexture(m_ProbeSH[i].SHB);
 		releaseComputeTexture(m_ProbeSH[i].Aux);
 	}
-	releaseComputeTexture(m_DiffuseIndirect);
+	releaseComputeTexture(m_DiffuseIndirect[0]);
+	releaseComputeTexture(m_DiffuseIndirect[1]);
 	releaseComputeTexture(m_ReflectionTexture);
 	releaseComputeTexture(m_RCAtlas);
 	for (int i = 0; i < 3; i++)
@@ -465,8 +466,13 @@ void FLumenSceneData::InitScreenTextures()
 			m_NumProbesX, m_NumProbesY, 1, DXGI_FORMAT_R16G16B16A16_FLOAT, false);
 	}
 
-	CreateComputeTexture(m_DiffuseIndirect, L"LumenDiffuseIndirect",
-		width, height, 1, DXGI_FORMAT_R16G16B16A16_FLOAT, true);
+	for (unsigned int i = 0; i < 2; i++)
+	{
+		CreateComputeTexture(m_DiffuseIndirect[i], L"LumenDiffuseIndirect",
+			width, height, 1, DXGI_FORMAT_R16G16B16A16_FLOAT, true);
+	}
+	m_DiffuseIndirectFrame = 0;
+	m_DiffuseIndirectCurrent = 0;
 
 	// ---- Reflections ----
 	CreateComputeTexture(m_ReflectionTexture, L"LumenReflections",
@@ -1271,7 +1277,8 @@ FLumenSceneData::FLumenPassParams FLumenSceneData::MakeBasePassParams(
 	const float radiosityAlpha = m_bRadiosityTemporalSupported
 		? min(max(m_Params.RadiosityTemporalAlpha, 0.02f), 1.0f)
 		: 1.0f;
-	params.PassRadiosityParams = { radiosityAlpha, 0.0f, 0.0f, 0.0f };
+	const float screenAlpha = min(max(m_Params.ScreenTemporalAlpha, 0.02f), 1.0f);
+	params.PassRadiosityParams = { radiosityAlpha, screenAlpha, 0.0f, 0.0f };
 
 	params.PassViewProjection = Inputs.ViewProjectionT;
 	params.PassInvViewProjection = Inputs.InvViewProjectionT;
@@ -1714,7 +1721,11 @@ void FLumenSceneData::RenderLumenScreenGI(const FLumenFrameInputs& Inputs)
 		//======================================================
 		// 5. フル解像度積分 -> DiffuseIndirect (t28)
 		//======================================================
-		TransitionComputeTexture(m_DiffuseIndirect, false);
+		FLumenComputeTexture& curDI = m_DiffuseIndirect[m_DiffuseIndirectFrame];
+		FLumenComputeTexture& prevDI = m_DiffuseIndirect[m_DiffuseIndirectFrame ^ 1];
+
+		TransitionComputeTexture(curDI, false);
+		TransitionComputeTexture(prevDI, true);
 
 		cl->SetPipelineState(m_PSOProbeIntegrate.Get());
 		bindSRV(19, m_ProbeGeo.SRVIndex);						// t19
@@ -1723,13 +1734,17 @@ void FLumenSceneData::RenderLumenScreenGI(const FLumenFrameInputs& Inputs)
 		bindSRV(23, curSH.SHB.SRVIndex);						// t23
 		bindSRV(24, curSH.Aux.SRVIndex);						// t24
 		cl->SetComputeRootConstantBufferView(0, WritePassParams(12, params));
-		bindUAV(4, m_DiffuseIndirect.UAVIndex);					// u4
+		bindSRV(26, prevDI.SRVIndex);							// t26 (前フレーム DiffuseIndirect)
+		bindUAV(4, curDI.UAVIndex);								// u4
 
 		const unsigned int screenGroupsX = (Inputs.ScreenWidth + 7) / 8;
 		const unsigned int screenGroupsY = (Inputs.ScreenHeight + 7) / 8;
 		cl->Dispatch(screenGroupsX, screenGroupsY, 1);
 
-		TransitionComputeTexture(m_DiffuseIndirect, true);		// デファードが t28 で読む
+		TransitionComputeTexture(curDI, true);					// デファードが t28 で読む
+
+		m_DiffuseIndirectCurrent = m_DiffuseIndirectFrame;
+		m_DiffuseIndirectFrame ^= 1;							// ピンポン
 
 		m_ProbeSHFrame ^= 1;	// ピンポン
 	}
@@ -1774,7 +1789,7 @@ void FLumenSceneData::BindLumenResources()
 		m_DepthAtlasSRVIndex);
 	m_RHI->BindRootTableBySRVIndex(
 		(unsigned int)RenderManager::TEXTURE_TYPE::LUMEN_DIFFUSE_INDIRECT,
-		m_DiffuseIndirect.SRVIndex);
+		m_DiffuseIndirect[m_DiffuseIndirectCurrent].SRVIndex);
 	m_RHI->BindRootTableBySRVIndex(
 		(unsigned int)RenderManager::TEXTURE_TYPE::LUMEN_REFLECTIONS,
 		m_ReflectionTexture.SRVIndex);

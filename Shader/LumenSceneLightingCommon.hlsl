@@ -58,7 +58,7 @@ cbuffer LumenPassParams : register(b0)
     float4 PassRCParams0; // xyz=Radiance Cache 最小コーナー, w=プローブ間隔 [m]
     float4 PassRCParams1; // x=プローブ数/軸, y=更新開始プローブ, z=更新プローブ数, w=スカイサンプルミップ
     float4 PassReflectionParams; // x=最大ラフネス, y=フェード開始, z=強度, w=スクリーントレース有効
-    float4 PassRadiosityParams; // x=Radiosity テンポラルα (1 = 蓄積なし), yzw=予約
+    float4 PassRadiosityParams; // x=Radiosity テンポラルα, y=フル解像度 GI テンポラルα (1 = 蓄積なし), zw=予約
 
     float4x4 PassViewProjection; // ワールド -> クリップ (転置済み)
     float4x4 PassInvViewProjection; // クリップ -> ワールド (転置済み)

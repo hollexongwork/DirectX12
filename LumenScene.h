@@ -204,6 +204,7 @@ public:
 		bool  bScreenSpaceTrace = true;		// 前フレーム SceneColor のスクリーントレース
 		float ScreenTraceThickness = 0.3f;	// スクリーントレースの厚み判定 [m]
 		float TemporalAlpha = 0.1f;			// プローブ SH のテンポラルブレンド率
+		float ScreenTemporalAlpha = 0.15f;	// フル解像度 DiffuseIndirect のテンポラルブレンド率 (1 = 蓄積なし)
 		float SkySampleMip = 1.5f;			// スカイ採光の prefilter ミップ
 
 		// ---- Reflections ----
@@ -259,7 +260,7 @@ private:
 		XMFLOAT4 PassRCParams0;					// xyz=RC最小コーナー, w=間隔
 		XMFLOAT4 PassRCParams1;					// x=プローブ数/軸, y=更新開始, z=更新数, w=スカイミップ
 		XMFLOAT4 PassReflectionParams;			// x=最大ラフネス, y=フェード開始, z=強度, w=スクリーントレース有効
-		XMFLOAT4 PassRadiosityParams;			// x=Radiosity テンポラルα (1=蓄積なし), yzw=予約
+		XMFLOAT4 PassRadiosityParams;			// x=Radiosity テンポラルα, y=フル解像度 GI テンポラルα (1=蓄積なし), zw=予約
 
 		XMFLOAT4X4 PassViewProjection;			// 転置済み
 		XMFLOAT4X4 PassInvViewProjection;		// 転置済み
@@ -366,7 +367,9 @@ private:
 	FLumenComputeTexture m_ProbeFilteredRadiance;
 	FLumenProbeSHSet     m_ProbeSH[2];			// テンポラルのピンポン
 	unsigned int         m_ProbeSHFrame = 0;
-	FLumenComputeTexture m_DiffuseIndirect;		// フル解像度 (t28)
+	FLumenComputeTexture m_DiffuseIndirect[2];	// フル解像度 (t28)。テンポラルのピンポン
+	unsigned int         m_DiffuseIndirectFrame = 0;	// 今フレームの書き込み先
+	unsigned int         m_DiffuseIndirectCurrent = 0;	// 最後に書いた (デファードが読む) 方
 
 	// ---- Reflections ----
 	FLumenComputeTexture m_ReflectionTexture;	// フル解像度 (t29)
@@ -525,6 +528,6 @@ public:
 	D3D12_GPU_DESCRIPTOR_HANDLE GetEmissiveAtlasSRVHandle() const { return m_EmissiveAtlas ? m_EmissiveAtlas->SRVHandle : D3D12_GPU_DESCRIPTOR_HANDLE{}; }
 	D3D12_GPU_DESCRIPTOR_HANDLE GetFinalLightingSRVHandle() const { return m_FinalLightingAtlas.SRVHandle; }
 	D3D12_GPU_DESCRIPTOR_HANDLE GetProbeRadianceSRVHandle() const { return m_ProbeFilteredRadiance.SRVHandle; }
-	D3D12_GPU_DESCRIPTOR_HANDLE GetDiffuseIndirectSRVHandle() const { return m_DiffuseIndirect.SRVHandle; }
+	D3D12_GPU_DESCRIPTOR_HANDLE GetDiffuseIndirectSRVHandle() const { return m_DiffuseIndirect[m_DiffuseIndirectCurrent].SRVHandle; }
 	D3D12_GPU_DESCRIPTOR_HANDLE GetReflectionSRVHandle() const { return m_ReflectionTexture.SRVHandle; }
 };
