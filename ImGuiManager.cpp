@@ -235,6 +235,7 @@ void ImGuiManager::LumenWindow()
 	{
 		ImGui::SliderFloat("Temporal Alpha", &params.TemporalAlpha, 0.02f, 1.0f);
 		ImGui::SliderFloat("Screen Temporal Alpha", &params.ScreenTemporalAlpha, 0.02f, 1.0f);
+		ImGui::Checkbox("Probe Placement Jitter", &params.bProbeJitter);
 		ImGui::SliderFloat("Sky Sample Mip", &params.SkySampleMip, 0.0f, 4.0f);
 	}
 

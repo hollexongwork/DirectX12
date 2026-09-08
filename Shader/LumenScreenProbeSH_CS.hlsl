@@ -51,7 +51,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     // ---- プローブのワールド位置 / レイ方向を再構築 (Trace と同一) ----
     const uint downsample = (uint) PassProbeParams0.z;
     const uint2 screenSize = (uint2) PassProbeParams1.xy;
-    uint2 anchor = min(probe * downsample + downsample / 2u, screenSize - 1u);
+    uint2 anchor = LumenGetProbeAnchor(probe);
     float deviceDepth = LumenSceneDepth.Load(int3(anchor, 0));
     float3 worldPos = LumenReconstructWorldPosition(anchor, deviceDepth);
 
@@ -120,7 +120,8 @@ void main(uint3 DTid : SV_DispatchThreadID)
                 // 引き、縦方向のゴースト / にじみになる。
                 const float downsampleF = PassProbeParams0.z;
                 float2 prevPixel = prevUV * PassProbeParams1.xy;
-                float2 prevProbe = (prevPixel - 0.5f - 0.5f * downsampleF) / downsampleF;
+                // 前フレームのプローブ配置ジッタ (PassProbeJitter.zw) で戻す
+                float2 prevProbe = (prevPixel - 0.5f - PassProbeJitter.zw) / downsampleF;
 
                 int2 prevBase = (int2) floor(prevProbe);
                 float2 prevFrac = prevProbe - (float2) prevBase;
@@ -160,8 +161,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
                         // リプロジェクション先がプローブの中間に落ちるたびに履歴が
                         // 棄却され (alpha = 1)、64 レイの生推定が出て激しく明滅する。
                         // 「前プローブの接平面からの距離」なら同一面は動いても 0。
-                        uint2 prevAnchor = min((uint2) tap * downsample + downsample / 2u,
-                            screenSize - 1u);
+                        uint2 prevAnchor = LumenGetPrevProbeAnchor((uint2) tap);
                         float2 prevAnchorUV = ((float2) prevAnchor + 0.5f) / PassProbeParams1.xy;
                         float4 prevAnchorNDC = float4(
                             prevAnchorUV.x * 2.0f - 1.0f, (1.0f - prevAnchorUV.y) * 2.0f - 1.0f,

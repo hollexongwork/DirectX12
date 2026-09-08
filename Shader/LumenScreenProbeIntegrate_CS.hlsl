@@ -7,7 +7,7 @@
 //  SH L1 を平面距離 / 法線重み付きバイリニアでブレンドし、ピクセル
 //  法線で評価した平均入射ラディアンスをフル解像度へ書き出す。
 //
-//  エッジ対策 (UE の適応プローブ配置の代替):
+//  エッジ対策 (適応プローブ配置の代替):
 //    1. 深度差ではなく「プローブ接平面からの距離」で重み付けする。
 //       斜めから見た床や曲面は 8px 離れるだけで視距離が大きく変わる
 //       ため、視距離差 (10%) だと同一面なのに棄却されて真っ黒になる。
@@ -49,7 +49,7 @@ float3 LumenGetProbeWorldPosition(int2 Probe)
 {
     const uint downsample = (uint) PassProbeParams0.z;
     const uint2 screenSize = (uint2) PassProbeParams1.xy;
-    uint2 anchor = min((uint2) Probe * downsample + downsample / 2u, screenSize - 1u);
+    uint2 anchor = LumenGetProbeAnchor((uint2) Probe);
     float deviceDepth = LumenSceneDepth.Load(int3(anchor, 0));
     return LumenReconstructWorldPosition(anchor, deviceDepth);
 }
@@ -104,10 +104,10 @@ void main(uint3 DTid : SV_DispatchThreadID)
     const float downsample = PassProbeParams0.z;
     const int2 probeCount = (int2) PassProbeParams0.xy;
 
-    // ピクセルを囲む 4 プローブ (アンカー = セル中央基準のバイリニア)。
-    // プローブ i のアンカーピクセル中心は i*ds + ds/2 + 0.5、ピクセル中心は
-    // pixel + 0.5 なので、連続プローブ座標 = (pixel - ds/2) / ds
-    float2 probePos = ((float2) pixel - downsample * 0.5f) / downsample;
+    // ピクセルを囲む 4 プローブ (アンカー基準のバイリニア)。
+    // プローブ i のアンカーピクセル中心は i*ds + jitter + 0.5、ピクセル中心は
+    // pixel + 0.5 なので、連続プローブ座標 = (pixel - jitter) / ds
+    float2 probePos = ((float2) pixel - PassProbeJitter.xy) / downsample;
     int2 baseProbe = (int2) floor(probePos);
     float2 fracPos = probePos - (float2) baseProbe;
 

@@ -1285,6 +1285,9 @@ FLumenSceneData::FLumenPassParams FLumenSceneData::MakeBasePassParams(
 	params.PassPrevViewProjection = Inputs.PrevViewProjectionT;
 	params.PassPrevInvViewProjection = Inputs.PrevInvViewProjectionT;
 
+	params.PassProbeJitter = {
+		m_ProbeJitter.x, m_ProbeJitter.y, m_PrevProbeJitter.x, m_PrevProbeJitter.y };
+
 	return params;
 }
 
@@ -1624,6 +1627,42 @@ void FLumenSceneData::RenderLumenScreenGI(const FLumenFrameInputs& Inputs)
 	}
 
 	ID3D12GraphicsCommandList* cl = CommandList();
+
+	// ---- プローブ配置ジッタ (Halton(2,3) x 16 フレーム周期でセル内を巡回) ----
+	// 固定格子だとカメラ移動でプローブが面の上を滑り、16px 補間の位相が
+	// うねり (揺らぎ) として見える。ジッタでフレーム間ノイズに変え、
+	// プローブ SH + フル解像度のテンポラル蓄積で平均する (UE と同じ方式)。
+	if (bProbeGather)
+	{
+		m_PrevProbeJitter = m_ProbeJitter;
+
+		if (m_Params.bProbeJitter)
+		{
+			auto halton = [](unsigned int index, unsigned int base)
+				{
+					float result = 0.0f;
+					float f = 1.0f / (float)base;
+					while (index > 0)
+					{
+						result += f * (float)(index % base);
+						index /= base;
+						f /= (float)base;
+					}
+					return result;
+				};
+
+			const unsigned int index = (m_ProbeJitterIndex % 16) + 1;
+			const float ds = (float)LUMEN_PROBE_DOWNSAMPLE;
+			m_ProbeJitter = {
+				floorf(halton(index, 2) * ds),
+				floorf(halton(index, 3) * ds) };
+			m_ProbeJitterIndex++;
+		}
+		else
+		{
+			m_ProbeJitter = { (float)(LUMEN_PROBE_DOWNSAMPLE / 2), (float)(LUMEN_PROBE_DOWNSAMPLE / 2) };
+		}
+	}
 
 	// ライトグリッド等が別のコンピュート RS を設定しているため再バインド
 	BindCommonComputeState(Inputs);

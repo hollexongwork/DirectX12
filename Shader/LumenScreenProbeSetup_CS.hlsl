@@ -25,8 +25,8 @@ void main(uint3 DTid : SV_DispatchThreadID)
     const uint downsample = (uint) PassProbeParams0.z;
     const uint2 screenSize = (uint2) PassProbeParams1.xy;
 
-    // アンカーピクセル (プローブセル中央)
-    uint2 anchor = min(DTid.xy * downsample + downsample / 2u, screenSize - 1u);
+    // アンカーピクセル (セル内をフレームごとにジッタ)
+    uint2 anchor = LumenGetProbeAnchor(DTid.xy);
 
     float deviceDepth = LumenSceneDepth.Load(int3(anchor, 0));
     float4 normalSample = LumenGBufferNormal.Load(int3(anchor, 0));

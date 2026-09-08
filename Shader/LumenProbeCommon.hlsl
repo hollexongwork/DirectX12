@@ -45,6 +45,29 @@ float2 LumenGetFrameJitter(uint FrameNumber, uint ProbeSeed)
 }
 
 // -------------------------------------------------------------
+//  スクリーンプローブのアンカーピクセル
+//  プローブ i のアンカー = i * downsample + ジッタ (PassProbeJitter.xy)。
+//  ジッタは 16 フレーム周期の Halton(2,3) でセル内を巡回する
+//  (ScreenProbeGather 配置ジッタ相当)。固定格子だとカメラ移動で
+//  プローブが面の上を滑り、16px 補間の位相がうねりとして見える
+//  (= 揺らぎ)。ジッタでそれをフレーム間ノイズに変え、プローブ SH と
+//  フル解像度のテンポラル蓄積が平均してワールド固定の値に収束させる。
+// -------------------------------------------------------------
+uint2 LumenGetProbeAnchor(uint2 Probe)
+{
+    const uint downsample = (uint) PassProbeParams0.z;
+    const uint2 screenSize = (uint2) PassProbeParams1.xy;
+    return min(Probe * downsample + (uint2) PassProbeJitter.xy, screenSize - 1u);
+}
+
+uint2 LumenGetPrevProbeAnchor(uint2 Probe)
+{
+    const uint downsample = (uint) PassProbeParams0.z;
+    const uint2 screenSize = (uint2) PassProbeParams1.xy;
+    return min(Probe * downsample + (uint2) PassProbeJitter.zw, screenSize - 1u);
+}
+
+// -------------------------------------------------------------
 //  接空間基底
 // -------------------------------------------------------------
 // Duff et al. "Building an Orthonormal Basis, Revisited" の分岐なし構成。
