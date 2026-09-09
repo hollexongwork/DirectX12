@@ -342,7 +342,7 @@ float3 SubstrateEnvLighting(
 
 // -------------------------------------------------------------
 //  ビュー方向スラブ透過 (半透明 Substrate の背景着色に使用)
-//  UE の Colored Transmittance 相当: 視線が厚み分の媒質を斜めに
+//  Colored Transmittance 相当: 視線が厚み分の媒質を斜めに
 //  通過する Beer-Lambert。
 // -------------------------------------------------------------
 float3 SubstrateViewTransmittance(FSubstrateBSDF BSDF, float NoV)

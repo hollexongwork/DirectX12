@@ -373,7 +373,7 @@ bool TraceLumenGlobalSDF(float3 RayStart, float3 RayDir, float TMin, float TMax,
 // -------------------------------------------------------------
 //  Global SDF ヒットのオブジェクト解決
 //  (ヒット点に最も近い SDF を持つオブジェクトを返す。
-//   UE の Global DF -> Surface Cache 採光のオブジェクトグリッドの
+//   Global DF -> Surface Cache 採光のオブジェクトグリッドの
 //   線形探索版)
 // -------------------------------------------------------------
 uint ResolveLumenObjectAtPoint(float3 WorldPos, uint NumObjects, out bool bFound)
@@ -412,7 +412,7 @@ uint ResolveLumenObjectAtPoint(float3 WorldPos, uint NumObjects, out bool bFound
 }
 
 // -------------------------------------------------------------
-//  ハイブリッドトレース (UE の Detail Trace + Global Trace):
+//  ハイブリッドトレース (Detail Trace + Global Trace):
 //    近距離 (DetailDistance まで) = メッシュ SDF ループ (高精細)
 //    遠距離                       = Global SDF クリップマップ
 // -------------------------------------------------------------

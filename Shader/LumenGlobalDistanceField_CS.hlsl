@@ -6,7 +6,7 @@
 //  カメラ追従のクリップマップ (128^3, R16F, ワールド距離 [m]) へ
 //  合成する。ボリューム外のボクセルは
 //    d ~ |p - clamp(p)| + SDF(clamp(p))
-//  で近似する (UE の DistanceToNearestSurfaceForObject と同じ)。
+//  で近似する。
 //
 //  CardStartIndex = ビルド対象のクリップマップ番号 (0/1)。
 //  Dispatch: (128/8, 128/8, 128/8)

@@ -66,7 +66,7 @@ cbuffer PrimitiveConstantBuffer : register(b1)
 //    フローの代わりに Slab (DiffuseAlbedo / F0 / F90 / SSS) で
 //    シェーディングする。MFP は TransmittanceColor + Thickness から
 //    TransmittanceToMeanFreePath で導出 (Substrate.hlsl)。
-//    Thickness は UE 準拠の cm 単位オーサリング。
+//    Thickness は cm 単位オーサリング。
 //
 //  ---- Refraction ----
 //    RefractionMethod = REFRACTION_METHOD_* (RefractionCommon.hlsl)。
@@ -98,7 +98,7 @@ cbuffer MaterialConstantBuffer : register(b2)
 
         float SubstrateAnisotropy; // [-1,1] (評価は等方近似)
         float SubstrateSSSPhaseAnisotropy; // HG の g [-1,1]
-        float SubstrateThickness; // スラブ厚 [cm] (UE 準拠)
+        float SubstrateThickness; // スラブ厚 [cm]
         uint SubstrateSSSType; // SUBSTRATE_SSS_TYPE_*
 
         float SubstrateSecondRoughness;

@@ -7,7 +7,7 @@ static const float INV_PI = 0.31830988618379067154f;
 static const float HALF_PI = 1.57079632679489661923f;
 static const float EPSILON = 1e-7f;
 
-// ---- 単位変換 (Substrate の MFP / Thickness は UE 同様 cm 単位で
+// ---- 単位変換 (Substrate の MFP / Thickness は cm 単位で
 //      オーサリングし、メートル単位のワールドへ変換して評価する) ----
 #define CENTIMETER_TO_METER 0.01f
 #define METER_TO_CENTIMETER 100.0f

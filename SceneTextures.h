@@ -42,7 +42,7 @@ public:
 	// FSceneRenderer::CopySceneColorHistory がポストプロセス直前
 	// (= ライティング + 半透明合成後の線形 HDR) に毎フレーム確定する。
 	// Lumen のスクリーンスペーストレース (スクリーンプローブ / 反射) が
-	// 前フレームリプロジェクションで採光する (UE の Prev SceneColor 相当)。
+	// 前フレームリプロジェクションで採光する。
 	// 常在状態は (PIXEL | NON_PIXEL) — コンピュートからも読むため。
 	std::unique_ptr<RENDER_TARGET> PrevSceneColor;
 
@@ -50,7 +50,7 @@ public:
 	// PrevSceneColor と同時に確定。Lumen のスクリーンスペーストレースが
 	// 前フレームへリプロジェクションした採光点の深度を検証し、
 	// ディスオクルージョン (カメラ移動で前フレームには写っていなかった面)
-	// の誤採光を棄却するために使う (UE の HistoryDepth 相当)。
+	// の誤採光を棄却するために使う。
 	std::unique_ptr<RENDER_TARGET> PrevLinearDepth;
 
 	// ---- Linear depth (R32G32_FLOAT) ----
