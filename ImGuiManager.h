@@ -17,6 +17,28 @@ private:
 	class UActorComponent* m_SelectedComponent = nullptr;
 	char                   m_LabelBuffer[128] = {};
 
+	// ---- メインメニューバー ----
+	// ENG キーボードの "-" キー (VK_OEM_MINUS) で表示/非表示をトグルする。
+	// バー非表示中でも各ウィンドウの表示状態 (m_bShow*) は保持される。
+	bool m_bShowMainMenuBar = true;
+
+	// ---- ウィンドウ表示フラグ (メニューバーの Edit / Debug から切り替え) ----
+	// Edit  : シーン編集用パネル (Outliner / Details)
+	// Debug : レンダラのデバッグ表示 (G-Buffer / Light Grid / Lumen / Culling)
+
+	bool m_bShowOutliner = true;
+	bool m_bShowDetails = true;
+	bool m_bShowGBuffer = true;
+	bool m_bShowLightGrid = true;
+	bool m_bShowLumen = true;
+	bool m_bShowCulling = true;
+
+	void UpdateMenuBarToggle();
+	void MainMenuBar();
+	void EditMenu();
+	void DebugMenu();
+
+	// ---- ウィンドウ ----
 	void BufferWindow();
 	void LightGridWindow();
 	void LumenWindow();
