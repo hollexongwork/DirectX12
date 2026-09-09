@@ -665,7 +665,7 @@ FLumenFrameInputs FSceneRenderer::MakeLumenFrameInputs() const
 //  PrevSceneColor へ確定し、そのフレームのビュー行列を保存する。
 //  RenderPostProcessing 先頭 (SceneColor が加工される前) に呼ぶ。
 //  Lumen のスクリーンスペーストレース (スクリーンプローブ / 反射) が
-//  次フレームにリプロジェクションで採光する (UE の Prev SceneColor)。
+//  次フレームにリプロジェクションで採光する。
 // ============================================================
 void FSceneRenderer::CopySceneColorHistory()
 {

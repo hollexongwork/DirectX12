@@ -19,7 +19,7 @@ RaytracingAccelerationStructure LumenSceneTLAS : register(t28);
 
 // -------------------------------------------------------------
 //  最近ヒットトレース (FLumenTraceResult は LumenTracingCommon)
-//  HWRT はバイナリ可視率 (ソフトコーンなし。UE の HWRT シャドウと
+//  HWRT はバイナリ可視率 (ソフトコーンなし。HWRT シャドウと
 //  同じ挙動)。ヒットオブジェクト = InstanceID (Lumen スロット)。
 // -------------------------------------------------------------
 FLumenTraceResult TraceLumenSceneHardware(float3 RayStart, float3 RayDir, float MaxT,

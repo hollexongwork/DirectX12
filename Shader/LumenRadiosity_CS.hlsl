@@ -10,8 +10,8 @@
 //  FinalLighting には Emissive が合成済みのため、発光面の光は
 //  ここで壁面へ回り込む (= エミッシブの間接照明)。さらに
 //  FinalLighting 自体が (直接 + 間接) から作られるため、フレームを
-//  跨いだフィードバックで多バウンスが蓄積される (UE の Radiosity と
-//  同じ設計)。ミス時はスカイ (IBL irradiance) を採光する。
+//  跨いだフィードバックで多バウンスが蓄積される。
+//  ミス時はスカイ (IBL irradiance) を採光する。
 //
 //  更新はフレーム予算制 (CardStartIndex から NumCardsToProcess 枚)。
 //

@@ -22,14 +22,12 @@
 //  Refraction Depth Bias:
 //    屈折先のシーン深度が「面の深度 + バイアス」より手前なら
 //    オフセットを棄却して元 UV に戻す (面より手前のオブジェクトが
-//    屈折に巻き込まれるのを防ぐ。UE の RefractionDepthBias 相当)。
+//    屈折に巻き込まれるのを防ぐ)。
 //
 //  意図的乖離 (MANIFEST 参照):
-//    - UE は歪みアキュムレーションパス (DistortionAccumulate) を
-//      使うが、本エンジンは半透明パス内で直接シーンカラーを
-//      サンプルする方式 (シーンカラーコピー + 深度棄却)。
-//    - 画角スケール定数 (REFRACTION_IOR_DISTORTION_SCALE) は
-//      UE の DistortionParams 相当の調整定数。
+//    - 半透明パス内で直接シーンカラーを サンプルする方式 (シーンカラーコピー + 深度棄却)。
+//
+//    - 画角スケール定数 (REFRACTION_IOR_DISTORTION_SCALE)はDistortionParams 相当の調整定数。
 // =============================================================
 
 // ---- 屈折方式 (C++ Material.h の REFRACTION_METHOD_* と 1:1) ----
@@ -38,7 +36,7 @@
 #define REFRACTION_METHOD_PIXEL_NORMAL_OFFSET 2u
 #define REFRACTION_METHOD_2D_OFFSET           3u
 
-// 画角スケール定数 (UE DistortionParams 相当の調整値)
+// 画角スケール定数 (DistortionParams 相当の調整値)
 static const float REFRACTION_IOR_DISTORTION_SCALE = 0.25f;
 // 画面 UV オフセットの上限 (遠すぎるサンプルの抑制)
 static const float REFRACTION_OFFSET_CLAMP = 0.1f;
@@ -109,7 +107,7 @@ float2 ComputeRefractionOffsetUV(
     [branch]
     if (Method == REFRACTION_METHOD_INDEX_OF_REFRACTION)
     {
-        // ビュー空間法線の xy を IOR-1 でスケール (UE の IOR 方式相当)
+        // ビュー空間法線の xy を IOR-1 でスケール
         float IOR = max(GetMaterialRefractionIOR(RefractionData), 1.0f);
         float3 ViewNormal = normalize(TransformWorldVectorToView(WorldNormal));
 

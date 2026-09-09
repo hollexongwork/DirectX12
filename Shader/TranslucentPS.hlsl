@@ -32,7 +32,7 @@
 //  ブレンド宛先はライブな SceneColor なので、先に描かれた半透明面
 //  (同一メッシュの手前向き三角形や奥の半透明オブジェクト) を
 //  消さない。屈折背景そのものは半透明パス開始前のシーン
-//  (UE の SceneColor 参照と同じ制約)。Additive は対象外。
+//  (SceneColor 参照と同じ制約)。Additive は対象外。
 //
 //  深度は不透明結果に対するテストのみ (PSO: DepthRead、書き込みなし)。
 //  α = BaseColor テクスチャ α x 頂点カラー α x Material.Opacity。
@@ -106,7 +106,7 @@ float3 ComputeRefractedSurfaceColor(
 //  トロイダルアドレッシング) を WRAP サンプラのトライリニアで
 //  採光し、法線 N の平均入射ラディアンスを返す。
 //  半透明は G-Buffer に乗らずスクリーンプローブを持たないため、
-//  UE の Translucency Volume Lighting に相当する経路。
+//  Translucency Volume Lighting に相当する経路。
 // -------------------------------------------------------------
 float3 SampleLumenRadianceCacheGI(float3 WorldPos, float3 N)
 {
@@ -175,8 +175,7 @@ PS_OUTPUT main(PS_INPUT input, bool bIsFrontFace : SV_IsFrontFace)
         [branch]
         if (bUseRefraction)
         {
-            // Unlit ガラス: ライティングなしで背景屈折のみ (UE の
-            // GetUnlitMaterialRefractionIOR 相当)。透過色は 1。
+            // Unlit ガラス: ライティングなしで背景屈折のみ 。透過色は 1。
             float3 vertexNormalUnlit = normalize(input.Normal.xyz);
             float3 refracted = ComputeRefractedSurfaceColor(
                 emissive,

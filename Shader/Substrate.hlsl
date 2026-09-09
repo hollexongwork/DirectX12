@@ -14,14 +14,13 @@
 //      substrate_Slab_BSDF_Material_Sample.hlsl 準拠)。
 //    - Glint / SpecularProfile / ClearCoatSecondNormal は API と
 //      して受理するが評価は無効 (意図的乖離。MANIFEST 参照)。
-//    - MFP / Thickness は UE 同様 cm でオーサリングし、本エンジン
+//    - MFP / Thickness は cm でオーサリングし、本エンジン
 //      はメートル単位ワールドのためメートルへ変換して保持する。
 // =============================================================
 
 // -------------------------------------------------------------
-//  FSubstratePixelFootprint (API パリティ用の簡易フットプリント)
-//  UE では法線/UV の微分からフィルタリングに使う。本エンジンでは
-//  値は保持のみで評価には未使用。
+//  FSubstratePixelFootprint (API パリティ用の簡易フットプリント)。
+//  本エンジンでは値は保持のみで評価には未使用。
 // -------------------------------------------------------------
 struct FSubstratePixelFootprint
 {
@@ -105,7 +104,7 @@ float DielectricIorToF0(float Ior)
     return t * t;
 }
 
-// F0 RGB -> 代表スカラー (輝度荷重ではなく平均: UE の簡易系に合わせる)
+// F0 RGB -> 代表スカラー (輝度荷重ではなく平均)
 float F0RGBToF0(float3 F0)
 {
     return dot(F0, (1.0f / 3.0f).xxx);
@@ -117,7 +116,7 @@ float F0RGBToF0(float3 F0)
 //  (Glint / SpecularProfile / ClearCoat 第 2 法線) も API として
 //  受理する (評価は無効)。
 //    SSSType  : float で受ける (テンプレート互換) -> uint へ変換
-//    Thickness: [cm] で受ける (UE 準拠) -> [m] へ変換して保持
+//    Thickness: [cm] で受ける -> [m] へ変換して保持
 // -------------------------------------------------------------
 FSubstrateBSDF GetSubstrateSlabBSDF(
     FSubstratePixelFootprint PixelFootprint,
@@ -167,7 +166,7 @@ FSubstrateBSDF GetSubstrateSlabBSDF(
     // Slab 本体の Thickness 引数は既定レイヤー厚 (0.01cm) 固定。
     // 本実装は MFPScale ピンが運ぶ値を SSS 評価厚として BSDF.Thickness
     // に格納し (cm -> m)、スカラーの MFP スケールは中立 (1.0) とする。
-    // τ = 評価厚 / MFP = -log(TransmittanceColor) となり UE と同一。
+    // τ = 評価厚 / MFP = -log(TransmittanceColor)。
     BSDF.SSSMFPScale = 1.0f;
     BSDF.SSSPhaseAnisotropy = clamp(SSSPhaseAniso, -0.99f, 0.99f);
     BSDF.SSSType = min((uint)SSSType, SUBSTRATE_SSS_TYPE_COUNT - 1u);
@@ -240,7 +239,7 @@ void SubstratePackSlabData(FSubstrateBSDF BSDF, out uint4 OutData0, out uint4 Ou
     OutData0.x = SubstratePackHeader(BSDF);
     OutData0.y = SubstratePackColorAndScalar(BSDF.F0, BSDF.SSSMFPScale);
     OutData0.z = SubstratePackColorAndScalar(BSDF.F90, BSDF.SSSPhaseAnisotropy * 0.5f + 0.5f);
-    // MFP / Thickness の格納単位は [cm] (UE 準拠)。
+    // MFP / Thickness の格納単位は [cm]。
     // 本エンジンの実値 [m] は 1e-4 ~ 1e-5 スケールになり half の
     // 正規最小 (6.1e-5) を割って精度劣化 / 非正規化フラッシュの
     // 危険があるため、100 倍の cm で格納して正規域に乗せる。

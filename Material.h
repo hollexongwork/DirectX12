@@ -67,7 +67,7 @@ enum class ESubstrateSSSType : unsigned int
 // ============================================================
 //  ERefractionMethod (HLSL REFRACTION_METHOD_* と 1:1)
 //  ERefractionMode 相当。ゼロ初期化 = 屈折なしにする
-//  ため None = 0 とする (UE の列挙値順とは異なるが名前は 1:1)。
+//  ため None = 0 とする。
 //    IndexOfRefraction : 屈折率 (ビュー空間法線 x (IOR-1))
 //    PixelNormalOffset : 頂点法線とピクセル法線の差分
 //    Offset2D          : Data.xy をピクセル単位オフセットとして直接使用
@@ -121,7 +121,7 @@ private:
 
 		float			SubstrateAnisotropy;          // [-1,1] (評価は等方近似)
 		float			SubstrateSSSPhaseAnisotropy;  // Henyey-Greenstein の g [-1,1]
-		float			SubstrateThickness;           // スラブ厚 [cm] (UE 準拠)
+		float			SubstrateThickness;           // スラブ厚 [cm]
 		ESubstrateSSSType SubstrateSSSType;           // HLSL SUBSTRATE_SSS_TYPE_* と 1:1
 
 		float			SubstrateSecondRoughness;
