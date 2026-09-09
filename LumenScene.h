@@ -204,7 +204,7 @@ public:
 		bool  bScreenSpaceTrace = true;		// 前フレーム SceneColor のスクリーントレース
 		float ScreenTraceThickness = 0.3f;	// スクリーントレースの厚み判定 [m]
 		float TemporalAlpha = 0.1f;			// プローブ SH のテンポラルブレンド率
-		float ScreenTemporalAlpha = 0.15f;	// フル解像度 DiffuseIndirect のテンポラルブレンド率 (1 = 蓄積なし)
+		float ScreenTemporalAlpha = 0.05f;	// フル解像度 DiffuseIndirect のテンポラルブレンド率 (1 = 蓄積なし)
 		bool  bProbeJitter = true;			// プローブ配置をセル内で毎フレームジッタ (揺らぎ -> ノイズ化してテンポラルで平均)
 		float SkySampleMip = 1.5f;			// スカイ採光の prefilter ミップ
 
