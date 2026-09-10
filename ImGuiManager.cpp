@@ -71,8 +71,7 @@ void ImGuiManager::Draw()
 	}
 
 	// ---- Edit ----
-	if (m_bShowOutliner)  OutlinerWindow();
-	if (m_bShowDetails)   DetailsWindow();
+	if (m_bShowOutliner)  OutlinerWindow();   // Outliner (上) + Details (下)
 
 	// ---- Debug ----
 	if (m_bShowGBuffer)   BufferWindow();
@@ -131,8 +130,7 @@ void ImGuiManager::MainMenuBar()
 // Edit: シーン編集用パネルの表示切替 + 設定の保存/リセット
 void ImGuiManager::EditMenu()
 {
-	ImGui::MenuItem("Outliner", nullptr, &m_bShowOutliner);
-	ImGui::MenuItem("Details", nullptr, &m_bShowDetails);
+	ImGui::MenuItem("Outliner / Details", nullptr, &m_bShowOutliner);
 
 	ImGui::Separator();
 
@@ -685,10 +683,10 @@ void ImGuiManager::DrawLightComponentSection(ULightComponent* Light)
 }
 
 // ============================================================
-//  Outliner
-//  ワールド内の全アクターをスポーン順に列挙する
-//  (World Outliner 相当)。行クリックで Details の対象を選択。
-//  チェックボックスはアクター配下の全プリミティブの可視性。
+//  Outliner / Details 統合ウィンドウ
+//  上段: Outliner (アクター一覧)  下段: Details (選択アクター)
+//  2 つの子領域を縦に並べ、間の水平スプリッタをドラッグで
+//  高さ比 (m_OutlinerSplitRatio) を変更する。
 // ============================================================
 void ImGuiManager::OutlinerWindow()
 {
@@ -699,6 +697,67 @@ void ImGuiManager::OutlinerWindow()
 
 	Begin("Outliner", &m_bShowOutliner);
 
+	const ImGuiStyle& style = GetStyle();
+	const float splitterHeight = 4.0f;
+	const float minPaneHeight = GetFrameHeightWithSpacing() * 3.0f;   // 各ペインの最小高さ
+	const float availHeight = GetContentRegionAvail().y;
+
+	// ---- 上下ペインの高さ計算 (比率 → ピクセル、両端は最小高さでクランプ) ----
+	float outlinerHeight = availHeight * m_OutlinerSplitRatio;
+	const float maxOutlinerHeight = availHeight - splitterHeight - style.ItemSpacing.y * 2.0f - minPaneHeight;
+	if (maxOutlinerHeight > minPaneHeight)
+	{
+		outlinerHeight = (std::max)(minPaneHeight, (std::min)(outlinerHeight, maxOutlinerHeight));
+	}
+
+	// ---- 上段: Outliner ----
+	TextDisabled("Outliner");
+	BeginChild("##OutlinerPane", ImVec2(0.0f, outlinerHeight), true);
+	DrawOutlinerSection();
+	EndChild();
+
+	// ---- スプリッタ (見えないボタンをドラッグして比率を変更) ----
+	InvisibleButton("##OutlinerDetailsSplitter", ImVec2(-1.0f, splitterHeight));
+	if (IsItemHovered() || IsItemActive())
+	{
+		SetMouseCursor(ImGuiMouseCursor_ResizeNS);
+	}
+	if (IsItemActive() && availHeight > 0.0f)
+	{
+		outlinerHeight += GetIO().MouseDelta.y;
+		if (maxOutlinerHeight > minPaneHeight)
+		{
+			outlinerHeight = (std::max)(minPaneHeight, (std::min)(outlinerHeight, maxOutlinerHeight));
+		}
+		m_OutlinerSplitRatio = outlinerHeight / availHeight;
+	}
+	// スプリッタの視覚表示 (ホバー / ドラッグ中は強調)
+	{
+		const ImVec2 min = GetItemRectMin();
+		const ImVec2 max = GetItemRectMax();
+		const ImU32  col = GetColorU32(IsItemActive() ? ImGuiCol_SeparatorActive :
+			IsItemHovered() ? ImGuiCol_SeparatorHovered :
+			ImGuiCol_Separator);
+		const float  midY = (min.y + max.y) * 0.5f;
+		GetWindowDrawList()->AddLine(ImVec2(min.x, midY), ImVec2(max.x, midY), col, 1.0f);
+	}
+
+	// ---- 下段: Details (残り全部) ----
+	TextDisabled("Details");
+	BeginChild("##DetailsPane", ImVec2(0.0f, 0.0f), true);
+	DrawDetailsSection();
+	EndChild();
+
+	End();
+}
+
+// ============================================================
+//  Outliner セクション (統合ウィンドウ上段)
+//  ワールド内の全アクターをスポーン順に列挙する
+//  (World Outliner 相当)。行クリックで Details の対象を選択。
+// ============================================================
+void ImGuiManager::DrawOutlinerSection()
+{
 	// ---- 検索フィルタ (ラベル / クラス名の部分一致) ----
 	static char filter[64] = {};
 	PushItemWidth(-60);
@@ -743,27 +802,20 @@ void ImGuiManager::OutlinerWindow()
 		PopID();
 		++index;
 	}
-
-	End();
 }
 
 // ============================================================
-//  Details
+//  Details セクション (統合ウィンドウ下段)
 //  選択アクターのラベル / コンポーネントツリー / 選択
 //  コンポーネントのプロパティを編集する (Details パネル相当)。
 //  編集は全て公開セッター経由 (マテリアルのみ直接編集 +
 //  MarkRenderStateDirty) なので次フレームのプロキシへ反映される。
 // ============================================================
-void ImGuiManager::DetailsWindow()
+void ImGuiManager::DrawDetailsSection()
 {
-	ValidateSelection();
-
-	Begin("Details", &m_bShowDetails);
-
 	if (!m_SelectedActor)
 	{
 		TextDisabled("Select an actor in the Outliner.");
-		End();
 		return;
 	}
 
@@ -853,8 +905,6 @@ void ImGuiManager::DetailsWindow()
 	{
 		DrawPostProcessVolumeSection(volume);
 	}
-
-	End();
 }
 
 // ------------------------------------------------------------
