@@ -47,6 +47,7 @@ private:
 	void UpdateMenuBarToggle();
 	void MainMenuBar();
 	void EditMenu();
+	void SettingsMenu();
 	void DebugMenu();
 
 	void BufferWindow();

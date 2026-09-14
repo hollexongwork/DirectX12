@@ -110,6 +110,12 @@ void ImGuiManager::MainMenuBar()
 		ImGui::EndMenu();
 	}
 
+	if (ImGui::BeginMenu("Settings"))
+	{
+		SettingsMenu();
+		ImGui::EndMenu();
+	}
+
 	if (ImGui::BeginMenu("Debug"))
 	{
 		DebugMenu();
@@ -118,7 +124,7 @@ void ImGuiManager::MainMenuBar()
 
 	// 右端にトグルキーのヒントを表示
 	{
-		const char* hint = "[-] Hide Menu Bar";
+		const char* hint = "[-] Hide Menu Bar ";
 		const float  width = ImGui::CalcTextSize(hint).x + ImGui::GetStyle().ItemSpacing.x;
 		ImGui::SameLine(ImGui::GetWindowWidth() - width);
 		ImGui::TextDisabled("%s", hint);
@@ -161,12 +167,17 @@ void ImGuiManager::EditMenu()
 	}
 }
 
+void ImGuiManager::SettingsMenu()
+{
+	ImGui::MenuItem("Lumen", nullptr, &m_Layout.bShowLumen);
+}
+
+
 // Debug: レンダラのデバッグウィンドウの表示切替
 void ImGuiManager::DebugMenu()
 {
 	ImGui::MenuItem("G-Buffer", nullptr, &m_Layout.bShowGBuffer);
-	ImGui::MenuItem("Light Grid", nullptr, &m_Layout.bShowLightGrid);
-	ImGui::MenuItem("Lumen", nullptr, &m_Layout.bShowLumen);
+	ImGui::MenuItem("Light Grid", nullptr, &m_Layout.bShowLightGrid);	
 	ImGui::MenuItem("Culling", nullptr, &m_Layout.bShowCulling);
 
 	ImGui::Separator();
