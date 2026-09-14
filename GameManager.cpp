@@ -183,7 +183,8 @@ void GameManager::Begin()
 
 	// 設定の永続化: コード初期値をスナップショット (Reset の戻り先) した後、
 	// Saved/Config/EngineSettings.ini が存在すれば読み込んで適用する。
-	m_SettingsManager.Initialize(&m_World, &m_SceneRenderer);
+	// Lumen Params と ImGui のレイアウト (ウィンドウ表示フラグ) もここで復元。
+	m_SettingsManager.Initialize(&m_World, &m_SceneRenderer, &m_ImGuiManager);
 
 	m_ImGuiManager.Start();
 }

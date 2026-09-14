@@ -3,6 +3,8 @@
 #include "ConfigFile.h"
 #include "World.h"
 #include "SceneRenderer.h"
+#include "LumenScene.h"
+#include "ImGuiManager.h"
 #include "PostProcessVolume.h"
 #include "ColorGradingLUTBaker.h"
 #include "Light.h"
@@ -32,13 +34,15 @@ const char* SettingsManager::GetConfigPath()
 // ------------------------------------------------------------
 //  初期化: Default スナップショット -> INI 読み込み -> 適用
 // ------------------------------------------------------------
-void SettingsManager::Initialize(UWorld* World, FSceneRenderer* Renderer)
+void SettingsManager::Initialize(UWorld* World, FSceneRenderer* Renderer, ImGuiManager* InImGui)
 {
 	m_World = World;
 	m_PostProcess = World ? World->GetActorOfClass<APostProcessVolume>() : nullptr;
 	m_AutoExposure = Renderer ? Renderer->GetAutoExposure() : nullptr;
 	m_LUTBaker = Renderer ? Renderer->GetColorGradingLUTBaker() : nullptr;
 	m_SceneRenderer = Renderer;
+	m_Lumen = Renderer ? Renderer->GetLumenScene() : nullptr;
+	m_ImGui = InImGui;
 
 	// INI を適用する「前」に必ずスナップショットする。
 	// これが Reset to Default の戻り先 (= コード上の初期値) になる。
@@ -65,6 +69,16 @@ void SettingsManager::CaptureDefaults()
 	{
 		m_DefaultLUTPath = m_LUTBaker->GetArtistLUTPath();
 		m_DefaultLUTWeight = m_LUTBaker->ArtistLUTWeight();
+	}
+
+	if (m_Lumen)
+	{
+		m_DefaultLumen = m_Lumen->GetParams();
+	}
+
+	if (m_ImGui)
+	{
+		m_DefaultLayout = m_ImGui->GetLayoutSettings();
 	}
 
 	// ---- ワールド内全アクター (m_DefaultActors[i] = スポーン順 i 番) ----
@@ -150,6 +164,18 @@ void SettingsManager::LoadAndApply()
 		// 何もしない (既定のまま)。
 	}
 
+	// ---- Lumen (Params 一式。DebugMode はコード初期値 = Off のまま) ----
+	if (m_Lumen && ini.HasSection("Lumen"))
+	{
+		ReadLumen(ini, m_Lumen->GetParams());
+	}
+
+	// ---- ImGui レイアウト (ウィンドウ表示フラグ / スプリッタ比率) ----
+	if (m_ImGui && ini.HasSection("ImGui"))
+	{
+		ReadImGuiLayout(ini, m_ImGui->GetLayoutSettings());
+	}
+
 	// ---- 全アクター ([Actor.N] セクション、スポーン順で同定) ----
 	if (m_World)
 	{
@@ -217,6 +243,16 @@ bool SettingsManager::SaveCurrent() const
 		const FSceneRenderer::FTranslucencyParams& t = m_SceneRenderer->GetTranslucencyParams();
 		ini.SetInt("Translucency", "SortPolicy", (int)t.SortPolicy);
 		ini.SetFloat3("Translucency", "SortAxis", t.SortAxis);
+	}
+
+	if (m_Lumen)
+	{
+		WriteLumen(ini, m_Lumen->GetParams());
+	}
+
+	if (m_ImGui)
+	{
+		WriteImGuiLayout(ini, m_ImGui->GetLayoutSettings());
 	}
 
 	if (m_World)
@@ -342,11 +378,33 @@ void SettingsManager::ResetAllLights()
 	}
 }
 
+void SettingsManager::ResetLumen()
+{
+	if (m_Lumen)
+	{
+		// Debug View は永続化対象外のランタイム値なので現在の表示を維持する
+		FLumenSceneData::Params& p = m_Lumen->GetParams();
+		const unsigned int debugMode = p.DebugMode;
+		p = m_DefaultLumen;
+		p.DebugMode = debugMode;
+	}
+}
+
+void SettingsManager::ResetImGuiLayout()
+{
+	if (m_ImGui)
+	{
+		m_ImGui->GetLayoutSettings() = m_DefaultLayout;
+	}
+}
+
 void SettingsManager::ResetAll()
 {
 	ResetPostProcess();
 	ResetAutoExposure();
 	ResetAllActors();
+	ResetLumen();
+	ResetImGuiLayout();
 }
 
 int SettingsManager::GetDefaultLightCount() const
@@ -1180,4 +1238,178 @@ void SettingsManager::ReadPostProcess(const ConfigFile& Ini, PP_SETTINGS& s, flo
 	Ini.GetFloat(sec, "MaxBlurSize", s.MaxBlurSize);
 	Ini.GetFloat(sec, "NearBlurScale", s.NearBlurScale);
 	Ini.GetFloat(sec, "FarBlurScale", s.FarBlurScale);
+}
+
+
+// ------------------------------------------------------------
+//  Lumen Params <-> [Lumen] セクション
+//  キー名は FLumenSceneData::Params のフィールド名と一致させる
+//  (INI を手編集するときに LumenScene.h を見れば分かるように)。
+//  DebugMode はデバッグ表示なので対象外 (毎回 Off で起動)。
+// ------------------------------------------------------------
+void SettingsManager::WriteLumen(ConfigFile& Ini, const FLumenSceneData::Params& p)
+{
+	const std::string sec = "Lumen";
+
+	Ini.SetBool(sec, "bEnabled", p.bEnabled);
+	Ini.SetInt(sec, "GatherMode", p.GatherMode);
+	Ini.SetInt(sec, "NumScreenCones", p.NumScreenCones);
+	Ini.SetFloat(sec, "GIIntensity", p.GIIntensity);
+	Ini.SetFloat(sec, "EmissiveBoost", p.EmissiveBoost);
+	Ini.SetFloat(sec, "MaxTraceDistance", p.MaxTraceDistance);
+	Ini.SetFloat(sec, "SurfaceBias", p.SurfaceBias);
+	Ini.SetFloat(sec, "SkyOcclusionStrength", p.SkyOcclusionStrength);
+
+	// Surface Cache
+	Ini.SetInt(sec, "NumRadiosityRays", p.NumRadiosityRays);
+	Ini.SetInt(sec, "RadiosityCardsPerFrame", p.RadiosityCardsPerFrame);
+	Ini.SetFloat(sec, "RadiosityTemporalAlpha", p.RadiosityTemporalAlpha);
+	Ini.SetInt(sec, "CaptureBudgetPerFrame", p.CaptureBudgetPerFrame);
+
+	// Global Distance Field
+	Ini.SetBool(sec, "bGlobalSDF", p.bGlobalSDF);
+	Ini.SetFloat(sec, "GlobalSDFExtent0", p.GlobalSDFExtent0);
+	Ini.SetFloat(sec, "DetailTraceDistance", p.DetailTraceDistance);
+
+	// Screen Probe Gather
+	Ini.SetBool(sec, "bScreenSpaceTrace", p.bScreenSpaceTrace);
+	Ini.SetFloat(sec, "ScreenTraceThickness", p.ScreenTraceThickness);
+	Ini.SetFloat(sec, "TemporalAlpha", p.TemporalAlpha);
+	Ini.SetFloat(sec, "ScreenTemporalAlpha", p.ScreenTemporalAlpha);
+	Ini.SetBool(sec, "bProbeJitter", p.bProbeJitter);
+	Ini.SetFloat(sec, "SkySampleMip", p.SkySampleMip);
+
+	// Reflections
+	Ini.SetBool(sec, "bReflections", p.bReflections);
+	Ini.SetFloat(sec, "ReflectionMaxRoughness", p.ReflectionMaxRoughness);
+	Ini.SetFloat(sec, "ReflectionFadeStart", p.ReflectionFadeStart);
+	Ini.SetFloat(sec, "ReflectionIntensity", p.ReflectionIntensity);
+
+	// Radiance Cache / Translucency GI
+	Ini.SetBool(sec, "bRadianceCache", p.bRadianceCache);
+	Ini.SetBool(sec, "bTranslucencyGI", p.bTranslucencyGI);
+	Ini.SetFloat(sec, "TranslucencyGIIntensity", p.TranslucencyGIIntensity);
+	Ini.SetFloat(sec, "RadianceCacheSpacing", p.RadianceCacheSpacing);
+	Ini.SetInt(sec, "RadianceCacheProbesPerFrame", p.RadianceCacheProbesPerFrame);
+
+	// HWRT (DXR)
+	Ini.SetBool(sec, "bUseHardwareRayTracing", p.bUseHardwareRayTracing);
+}
+
+void SettingsManager::ReadLumen(const ConfigFile& Ini, FLumenSceneData::Params& p)
+{
+	const std::string sec = "Lumen";
+
+	Ini.GetBool(sec, "bEnabled", p.bEnabled);
+	Ini.GetInt(sec, "GatherMode", p.GatherMode);
+	Ini.GetInt(sec, "NumScreenCones", p.NumScreenCones);
+	Ini.GetFloat(sec, "GIIntensity", p.GIIntensity);
+	Ini.GetFloat(sec, "EmissiveBoost", p.EmissiveBoost);
+	Ini.GetFloat(sec, "MaxTraceDistance", p.MaxTraceDistance);
+	Ini.GetFloat(sec, "SurfaceBias", p.SurfaceBias);
+	Ini.GetFloat(sec, "SkyOcclusionStrength", p.SkyOcclusionStrength);
+
+	// Surface Cache
+	Ini.GetInt(sec, "NumRadiosityRays", p.NumRadiosityRays);
+	Ini.GetInt(sec, "RadiosityCardsPerFrame", p.RadiosityCardsPerFrame);
+	Ini.GetFloat(sec, "RadiosityTemporalAlpha", p.RadiosityTemporalAlpha);
+	Ini.GetInt(sec, "CaptureBudgetPerFrame", p.CaptureBudgetPerFrame);
+
+	// Global Distance Field
+	Ini.GetBool(sec, "bGlobalSDF", p.bGlobalSDF);
+	Ini.GetFloat(sec, "GlobalSDFExtent0", p.GlobalSDFExtent0);
+	Ini.GetFloat(sec, "DetailTraceDistance", p.DetailTraceDistance);
+
+	// Screen Probe Gather
+	Ini.GetBool(sec, "bScreenSpaceTrace", p.bScreenSpaceTrace);
+	Ini.GetFloat(sec, "ScreenTraceThickness", p.ScreenTraceThickness);
+	Ini.GetFloat(sec, "TemporalAlpha", p.TemporalAlpha);
+	Ini.GetFloat(sec, "ScreenTemporalAlpha", p.ScreenTemporalAlpha);
+	Ini.GetBool(sec, "bProbeJitter", p.bProbeJitter);
+	Ini.GetFloat(sec, "SkySampleMip", p.SkySampleMip);
+
+	// Reflections
+	Ini.GetBool(sec, "bReflections", p.bReflections);
+	Ini.GetFloat(sec, "ReflectionMaxRoughness", p.ReflectionMaxRoughness);
+	Ini.GetFloat(sec, "ReflectionFadeStart", p.ReflectionFadeStart);
+	Ini.GetFloat(sec, "ReflectionIntensity", p.ReflectionIntensity);
+
+	// Radiance Cache / Translucency GI
+	Ini.GetBool(sec, "bRadianceCache", p.bRadianceCache);
+	Ini.GetBool(sec, "bTranslucencyGI", p.bTranslucencyGI);
+	Ini.GetFloat(sec, "TranslucencyGIIntensity", p.TranslucencyGIIntensity);
+	Ini.GetFloat(sec, "RadianceCacheSpacing", p.RadianceCacheSpacing);
+	Ini.GetInt(sec, "RadianceCacheProbesPerFrame", p.RadianceCacheProbesPerFrame);
+
+	// HWRT (DXR)
+	Ini.GetBool(sec, "bUseHardwareRayTracing", p.bUseHardwareRayTracing);
+
+	// ---- 手編集 / 旧 INI に対するクランプ (ImGui スライダーのレンジと同値) ----
+	// 範囲外の値はシェーダ側で発散や無限ループの原因になり得るので、
+	// UI で設定可能な範囲に丸めてから適用する。
+	auto clampInt = [](int& v, int lo, int hi) { v = v < lo ? lo : (v > hi ? hi : v); };
+	auto clampFloat = [](float& v, float lo, float hi) { v = v < lo ? lo : (v > hi ? hi : v); };
+
+	clampInt(p.GatherMode, 0, 2);
+	clampInt(p.NumScreenCones, 1, 8);
+	clampFloat(p.GIIntensity, 0.0f, 4.0f);
+	clampFloat(p.EmissiveBoost, 0.0f, 8.0f);
+	clampFloat(p.MaxTraceDistance, 1.0f, 100.0f);
+	clampFloat(p.SurfaceBias, 0.0f, 0.3f);
+	clampFloat(p.SkyOcclusionStrength, 0.0f, 1.0f);
+	clampInt(p.NumRadiosityRays, 1, 16);
+	clampInt(p.RadiosityCardsPerFrame, 1, (int)MAX_LUMEN_CARDS);
+	clampFloat(p.RadiosityTemporalAlpha, 0.02f, 1.0f);
+	clampInt(p.CaptureBudgetPerFrame, 1, 64);
+	clampFloat(p.GlobalSDFExtent0, 4.0f, 50.0f);
+	clampFloat(p.DetailTraceDistance, 0.5f, 10.0f);
+	clampFloat(p.ScreenTraceThickness, 0.05f, 1.0f);
+	clampFloat(p.TemporalAlpha, 0.02f, 1.0f);
+	clampFloat(p.ScreenTemporalAlpha, 0.02f, 1.0f);
+	clampFloat(p.SkySampleMip, 0.0f, 4.0f);
+	clampFloat(p.ReflectionMaxRoughness, 0.05f, 1.0f);
+	clampFloat(p.ReflectionFadeStart, 0.0f, 1.0f);
+	clampFloat(p.ReflectionIntensity, 0.0f, 2.0f);
+	clampFloat(p.TranslucencyGIIntensity, 0.0f, 4.0f);
+	clampFloat(p.RadianceCacheSpacing, 0.25f, 4.0f);
+	clampInt(p.RadianceCacheProbesPerFrame, 16, 1024);
+}
+
+// ------------------------------------------------------------
+//  ImGui レイアウト <-> [ImGui] セクション
+//  ウィンドウ位置 / サイズは ImGui 本体の imgui.ini が担当するので、
+//  ここではメニューバー / 各ウィンドウの表示フラグ / スプリッタ比率のみ。
+// ------------------------------------------------------------
+void SettingsManager::WriteImGuiLayout(ConfigFile& Ini, const ImGuiManager::FLayoutSettings& l)
+{
+	const std::string sec = "ImGui";
+
+	Ini.SetBool(sec, "bShowMainMenuBar", l.bShowMainMenuBar);
+	Ini.SetBool(sec, "bShowOutliner", l.bShowOutliner);
+	Ini.SetBool(sec, "bShowGBuffer", l.bShowGBuffer);
+	Ini.SetBool(sec, "bShowLightGrid", l.bShowLightGrid);
+	Ini.SetBool(sec, "bShowLumen", l.bShowLumen);
+	Ini.SetBool(sec, "bShowCulling", l.bShowCulling);
+	Ini.SetFloat(sec, "OutlinerSplitRatio", l.OutlinerSplitRatio);
+}
+
+void SettingsManager::ReadImGuiLayout(const ConfigFile& Ini, ImGuiManager::FLayoutSettings& l)
+{
+	const std::string sec = "ImGui";
+
+	Ini.GetBool(sec, "bShowMainMenuBar", l.bShowMainMenuBar);
+	Ini.GetBool(sec, "bShowOutliner", l.bShowOutliner);
+	Ini.GetBool(sec, "bShowGBuffer", l.bShowGBuffer);
+	Ini.GetBool(sec, "bShowLightGrid", l.bShowLightGrid);
+	Ini.GetBool(sec, "bShowLumen", l.bShowLumen);
+	Ini.GetBool(sec, "bShowCulling", l.bShowCulling);
+	Ini.GetFloat(sec, "OutlinerSplitRatio", l.OutlinerSplitRatio);
+
+	// スプリッタ比率は (0, 1) の開区間に収める (0 / 1 だと片側のペインが潰れる)。
+	// 範囲外なら OutlinerWindow 側のクランプが効く前提でも、手編集の
+	// NaN / 負値を弾くためにここで既定値へ戻す。
+	if (!(l.OutlinerSplitRatio > 0.05f && l.OutlinerSplitRatio < 0.95f))
+	{
+		l.OutlinerSplitRatio = ImGuiManager::FLayoutSettings{}.OutlinerSplitRatio;
+	}
 }

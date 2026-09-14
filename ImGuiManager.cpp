@@ -65,19 +65,19 @@ void ImGuiManager::Draw()
 	// "-" キーによるメニューバーのトグル (ImGui NewFrame 後・ウィンドウ構築前)
 	UpdateMenuBarToggle();
 
-	if (m_bShowMainMenuBar)
+	if (m_Layout.bShowMainMenuBar)
 	{
 		MainMenuBar();
 	}
 
 	// ---- Edit ----
-	if (m_bShowOutliner)  OutlinerWindow();   // Outliner (上) + Details (下)
+	if (m_Layout.bShowOutliner)  OutlinerWindow();   // Outliner (上) + Details (下)
 
 	// ---- Debug ----
-	if (m_bShowGBuffer)   BufferWindow();
-	if (m_bShowLightGrid) LightGridWindow();
-	if (m_bShowLumen)     LumenWindow();
-	if (m_bShowCulling)   CullingWindow();
+	if (m_Layout.bShowGBuffer)   BufferWindow();
+	if (m_Layout.bShowLightGrid) LightGridWindow();
+	if (m_Layout.bShowLumen)     LumenWindow();
+	if (m_Layout.bShowCulling)   CullingWindow();
 }
 
 
@@ -95,7 +95,7 @@ void ImGuiManager::UpdateMenuBarToggle()
 
 	if (Input::GetKeyTrigger(VK_OEM_MINUS))
 	{
-		m_bShowMainMenuBar = !m_bShowMainMenuBar;
+		m_Layout.bShowMainMenuBar = !m_Layout.bShowMainMenuBar;
 	}
 }
 
@@ -130,7 +130,7 @@ void ImGuiManager::MainMenuBar()
 // Edit: シーン編集用パネルの表示切替 + 設定の保存/リセット
 void ImGuiManager::EditMenu()
 {
-	ImGui::MenuItem("Outliner / Details", nullptr, &m_bShowOutliner);
+	ImGui::MenuItem("Outliner / Details", nullptr, &m_Layout.bShowOutliner);
 
 	ImGui::Separator();
 
@@ -150,6 +150,8 @@ void ImGuiManager::EditMenu()
 		if (ImGui::MenuItem("All Lights"))     m_Settings->ResetAllLights();
 		if (ImGui::MenuItem("Post Process"))   m_Settings->ResetPostProcess();
 		if (ImGui::MenuItem("Auto Exposure"))  m_Settings->ResetAutoExposure();
+		if (ImGui::MenuItem("Lumen"))          m_Settings->ResetLumen();
+		if (ImGui::MenuItem("Debug Windows"))  m_Settings->ResetImGuiLayout();
 
 		ImGui::Separator();
 
@@ -162,27 +164,27 @@ void ImGuiManager::EditMenu()
 // Debug: レンダラのデバッグウィンドウの表示切替
 void ImGuiManager::DebugMenu()
 {
-	ImGui::MenuItem("G-Buffer", nullptr, &m_bShowGBuffer);
-	ImGui::MenuItem("Light Grid", nullptr, &m_bShowLightGrid);
-	ImGui::MenuItem("Lumen", nullptr, &m_bShowLumen);
-	ImGui::MenuItem("Culling", nullptr, &m_bShowCulling);
+	ImGui::MenuItem("G-Buffer", nullptr, &m_Layout.bShowGBuffer);
+	ImGui::MenuItem("Light Grid", nullptr, &m_Layout.bShowLightGrid);
+	ImGui::MenuItem("Lumen", nullptr, &m_Layout.bShowLumen);
+	ImGui::MenuItem("Culling", nullptr, &m_Layout.bShowCulling);
 
 	ImGui::Separator();
 
 	if (ImGui::MenuItem("Show All"))
 	{
-		m_bShowGBuffer = m_bShowLightGrid = m_bShowLumen = m_bShowCulling = true;
+		m_Layout.bShowGBuffer = m_Layout.bShowLightGrid = m_Layout.bShowLumen = m_Layout.bShowCulling = true;
 	}
 	if (ImGui::MenuItem("Hide All"))
 	{
-		m_bShowGBuffer = m_bShowLightGrid = m_bShowLumen = m_bShowCulling = false;
+		m_Layout.bShowGBuffer = m_Layout.bShowLightGrid = m_Layout.bShowLumen = m_Layout.bShowCulling = false;
 	}
 }
 
 
 void ImGuiManager::BufferWindow()
 {
-	ImGui::Begin("G-Buffer", &m_bShowGBuffer);
+	ImGui::Begin("G-Buffer", &m_Layout.bShowGBuffer);
 
 	ImGui::Text("GBufferC (BaseColor)");
 	ImGui::Image((void*)m_SceneRenderer->GetSceneTextures()->GBufferC->SRVHandle.ptr, ImVec2(200.0f, 100.0f));
@@ -204,7 +206,7 @@ void ImGuiManager::BufferWindow()
 // ============================================================
 void ImGuiManager::LightGridWindow()
 {
-	ImGui::Begin("Light Grid", &m_bShowLightGrid);
+	ImGui::Begin("Light Grid", &m_Layout.bShowLightGrid);
 
 	FLightGridInjection* grid = m_SceneRenderer ? m_SceneRenderer->GetLightGrid() : nullptr;
 	if (grid == nullptr)
@@ -248,7 +250,7 @@ void ImGuiManager::LightGridWindow()
 // ============================================================
 void ImGuiManager::LumenWindow()
 {
-	ImGui::Begin("Lumen", &m_bShowLumen);
+	ImGui::Begin("Lumen", &m_Layout.bShowLumen);
 
 	FLumenSceneData* lumen = m_SceneRenderer ? m_SceneRenderer->GetLumenScene() : nullptr;
 	if (lumen == nullptr)
@@ -301,12 +303,15 @@ void ImGuiManager::LumenWindow()
 	ImGui::SliderFloat("Surface Bias", &params.SurfaceBias, 0.0f, 0.3f);
 	ImGui::SliderFloat("Sky Occlusion", &params.SkyOcclusionStrength, 0.0f, 1.0f);
 
+	// Debug View は永続化対象外 (SettingsManager の [Lumen] に書かない。毎回 Off で起動)
 	const char* debugModes[] = { "Off", "GI Radiance", "Sky Visibility", "GI Diffuse" };
 	int debugMode = (int)params.DebugMode;
 	if (ImGui::Combo("Debug View", &debugMode, debugModes, 4))
 	{
 		params.DebugMode = (unsigned int)debugMode;
 	}
+	ImGui::SameLine();
+	ImGui::TextDisabled("(not saved)");
 
 	// ---- Surface Cache ----
 	if (ImGui::CollapsingHeader("Surface Cache"))
@@ -403,7 +408,7 @@ void ImGuiManager::LumenWindow()
 
 void ImGuiManager::CullingWindow()
 {
-	ImGui::Begin("Culling", &m_bShowCulling);
+	ImGui::Begin("Culling", &m_Layout.bShowCulling);
 
 	if (m_SceneRenderer == nullptr)
 	{
@@ -686,7 +691,7 @@ void ImGuiManager::DrawLightComponentSection(ULightComponent* Light)
 //  Outliner / Details 統合ウィンドウ
 //  上段: Outliner (アクター一覧)  下段: Details (選択アクター)
 //  2 つの子領域を縦に並べ、間の水平スプリッタをドラッグで
-//  高さ比 (m_OutlinerSplitRatio) を変更する。
+//  高さ比 (m_Layout.OutlinerSplitRatio) を変更する。
 // ============================================================
 void ImGuiManager::OutlinerWindow()
 {
@@ -695,7 +700,7 @@ void ImGuiManager::OutlinerWindow()
 
 	ValidateSelection();
 
-	Begin("Outliner", &m_bShowOutliner);
+	Begin("Outliner", &m_Layout.bShowOutliner);
 
 	const ImGuiStyle& style = GetStyle();
 	const float splitterHeight = 4.0f;
@@ -703,7 +708,7 @@ void ImGuiManager::OutlinerWindow()
 	const float availHeight = GetContentRegionAvail().y;
 
 	// ---- 上下ペインの高さ計算 (比率 → ピクセル、両端は最小高さでクランプ) ----
-	float outlinerHeight = availHeight * m_OutlinerSplitRatio;
+	float outlinerHeight = availHeight * m_Layout.OutlinerSplitRatio;
 	const float maxOutlinerHeight = availHeight - splitterHeight - style.ItemSpacing.y * 2.0f - minPaneHeight;
 	if (maxOutlinerHeight > minPaneHeight)
 	{
@@ -729,7 +734,7 @@ void ImGuiManager::OutlinerWindow()
 		{
 			outlinerHeight = (std::max)(minPaneHeight, (std::min)(outlinerHeight, maxOutlinerHeight));
 		}
-		m_OutlinerSplitRatio = outlinerHeight / availHeight;
+		m_Layout.OutlinerSplitRatio = outlinerHeight / availHeight;
 	}
 	// スプリッタの視覚表示 (ホバー / ドラッグ中は強調)
 	{
