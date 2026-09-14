@@ -4,6 +4,8 @@
 #include <DirectXMath.h>
 #include "PostProcessSettings.h"
 #include "AutoExposure.h"
+#include "LumenScene.h"
+#include "ImGuiManager.h"
 
 using namespace DirectX;
 
@@ -23,6 +25,16 @@ using namespace DirectX;
 //    - APostProcessVolume   : PP_SETTINGS の永続化対象フィールド + EV
 //    - AutoExposure         : Params 一式
 //    - ColorGradingLUTBaker : Artist LUT パス + Weight
+//    - FSceneRenderer       : トランスルーセンシーソート設定
+//    - FLumenSceneData      : Params 一式 ([Lumen] セクション)。
+//                             DebugMode (Debug View) はデバッグ表示なので
+//                             UE5 の r.Lumen.Visualize 系と同様に対象外
+//                             (毎回 Off で起動)
+//    - ImGuiManager         : FLayoutSettings ([ImGui] セクション):
+//                             メニューバー / 各ウィンドウの表示フラグ /
+//                             Outliner スプリッタ比率。
+//                             ウィンドウ位置・サイズは ImGui 本体の
+//                             imgui.ini が担当するので対象外
 //    - ワールド内の全アクター ([Actor.N] セクション):
 //        アクターラベル / APostProcessVolume 固有プロパティ /
 //        全所有コンポーネント (C<i>. プレフィックス) の
@@ -48,6 +60,8 @@ using namespace DirectX;
 
 class UWorld;
 class FSceneRenderer;
+class FLumenSceneData;
+class ImGuiManager;
 class APostProcessVolume;
 class ColorGradingLUTBaker;
 class ConfigFile;
@@ -200,11 +214,13 @@ private:
 		std::vector<ComponentSnapshot> Components;
 	};
 
-	UWorld*               m_World = nullptr;
-	APostProcessVolume*   m_PostProcess = nullptr;
-	AutoExposure*         m_AutoExposure = nullptr;
+	UWorld* m_World = nullptr;
+	APostProcessVolume* m_PostProcess = nullptr;
+	AutoExposure* m_AutoExposure = nullptr;
 	ColorGradingLUTBaker* m_LUTBaker = nullptr;
 	class FSceneRenderer* m_SceneRenderer = nullptr;	// トランスルーセンシーソート設定の永続化用
+	FLumenSceneData* m_Lumen = nullptr;			// Lumen Params の永続化用
+	ImGuiManager* m_ImGui = nullptr;			// ImGui レイアウト設定の永続化用
 
 	// ---- Default スナップショット (INI 適用「前」のコード初期値) ----
 	PP_SETTINGS          m_DefaultPP{};
@@ -212,6 +228,8 @@ private:
 	AutoExposure::Params m_DefaultAE{};
 	std::string          m_DefaultLUTPath;
 	float                m_DefaultLUTWeight = 1.0f;
+	FLumenSceneData::Params       m_DefaultLumen{};
+	ImGuiManager::FLayoutSettings m_DefaultLayout{};
 
 	// ワールド内全アクター (m_DefaultActors[i] = スポーン順 i 番のアクター)
 	std::vector<ActorSnapshot> m_DefaultActors;
@@ -237,21 +255,31 @@ private:
 
 	// ActorSnapshot <-> INI セクション ([Actor.N])
 	static void WriteActor(ConfigFile& Ini, const std::string& Section, const ActorSnapshot& Snap);
-	static void ReadActor (const ConfigFile& Ini, const std::string& Section, ActorSnapshot& InOut);
+	static void ReadActor(const ConfigFile& Ini, const std::string& Section, ActorSnapshot& InOut);
 
 	// ComponentSnapshot <-> INI キー群 (Prefix = "C<i>.")
 	static void WriteComponent(ConfigFile& Ini, const std::string& Section, const std::string& Prefix, const ComponentSnapshot& Snap);
-	static void ReadComponent (const ConfigFile& Ini, const std::string& Section, const std::string& Prefix, ComponentSnapshot& InOut);
+	static void ReadComponent(const ConfigFile& Ini, const std::string& Section, const std::string& Prefix, ComponentSnapshot& InOut);
 
 	// PP_SETTINGS のうち永続化対象フィールドのみ INI と往復する。
 	// Exposure (EV から毎 Tick 再計算) / FilmGrainTime / SceneTexelSize /
 	// DofPad / パディングはランタイム値なので対象外。
 	static void WritePostProcess(ConfigFile& Ini, const PP_SETTINGS& s, float EV);
-	static void ReadPostProcess (const ConfigFile& Ini, PP_SETTINGS& s, float& EV);
+	static void ReadPostProcess(const ConfigFile& Ini, PP_SETTINGS& s, float& EV);
+
+	// FLumenSceneData::Params <-> [Lumen] セクション (DebugMode は対象外)
+	static void WriteLumen(ConfigFile& Ini, const FLumenSceneData::Params& p);
+	static void ReadLumen(const ConfigFile& Ini, FLumenSceneData::Params& p);
+
+	// ImGuiManager::FLayoutSettings <-> [ImGui] セクション
+	static void WriteImGuiLayout(ConfigFile& Ini, const ImGuiManager::FLayoutSettings& l);
+	static void ReadImGuiLayout(const ConfigFile& Ini, ImGuiManager::FLayoutSettings& l);
 
 public:
 	// World.BeginPlay 後・ImGuiManager.Start 前に 1 回だけ呼ぶ。
-	void Initialize(UWorld* World, FSceneRenderer* Renderer);
+	// ImGui は Start 前でもレイアウト設定 (コード初期値) を保持しているので、
+	// ここで Default スナップショットと INI 適用を済ませておける。
+	void Initialize(UWorld* World, FSceneRenderer* Renderer, ImGuiManager* InImGui);
 
 	// 現在値を INI へ保存。GameManager のデストラクタから自動で
 	// 呼ばれる (= 終了時自動保存)。ImGui の手動保存ボタンからも可。
@@ -264,6 +292,8 @@ public:
 	void ResetAllActors();
 	void ResetLight(int Index);		// ライト 1 灯 (ライトのスポーン順インデックス)
 	void ResetAllLights();
+	void ResetLumen();				// Lumen Params (DebugMode は現在値を維持)
+	void ResetImGuiLayout();		// ImGui レイアウト (ウィンドウ表示フラグ / スプリッタ比率)
 	void ResetAll();
 
 	int GetDefaultLightCount() const;
