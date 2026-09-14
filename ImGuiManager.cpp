@@ -304,9 +304,9 @@ void ImGuiManager::LumenWindow()
 	ImGui::SliderFloat("Sky Occlusion", &params.SkyOcclusionStrength, 0.0f, 1.0f);
 
 	// Debug View は永続化対象外 (SettingsManager の [Lumen] に書かない。毎回 Off で起動)
-	const char* debugModes[] = { "Off", "GI Radiance", "Sky Visibility", "GI Diffuse" };
+	const char* debugModes[] = { "Off", "GI Radiance", "Sky Visibility", "GI Diffuse", "Short Range AO" };
 	int debugMode = (int)params.DebugMode;
-	if (ImGui::Combo("Debug View", &debugMode, debugModes, 4))
+	if (ImGui::Combo("Debug View", &debugMode, debugModes, 5))
 	{
 		params.DebugMode = (unsigned int)debugMode;
 	}
@@ -347,6 +347,22 @@ void ImGuiManager::LumenWindow()
 		ImGui::SliderFloat("Screen Temporal Alpha", &params.ScreenTemporalAlpha, 0.02f, 1.0f);
 		ImGui::Checkbox("Probe Placement Jitter", &params.bProbeJitter);
 		ImGui::SliderFloat("Sky Sample Mip", &params.SkySampleMip, 0.0f, 4.0f);
+	}
+
+	// ---- Short Range AO (Screen Probe Gather 時のみ有効) ----
+	if (ImGui::CollapsingHeader("Short Range AO"))
+	{
+		ImGui::Checkbox("Enable Short Range AO", &params.bShortRangeAO);
+		if (params.GatherMode != 2)
+		{
+			ImGui::SameLine();
+			ImGui::TextDisabled("(Screen Probe Gather only)");
+		}
+		ImGui::SliderFloat("AO Max Distance [m]", &params.ShortRangeAOMaxDistance, 0.05f, 2.0f);
+		ImGui::SliderInt("AO Rays", &params.ShortRangeAORays, 1, 8);
+		ImGui::SliderFloat("AO Intensity", &params.ShortRangeAOIntensity, 0.0f, 1.0f);
+		ImGui::SliderFloat("AO Thickness [m]", &params.ShortRangeAOThickness, 0.02f, 0.5f);
+		ImGui::Checkbox("Bent Normal", &params.bShortRangeAOBentNormal);
 	}
 
 	// ---- Reflections ----

@@ -1278,7 +1278,10 @@ FLumenSceneData::FLumenPassParams FLumenSceneData::MakeBasePassParams(
 		? min(max(m_Params.RadiosityTemporalAlpha, 0.02f), 1.0f)
 		: 1.0f;
 	const float screenAlpha = min(max(m_Params.ScreenTemporalAlpha, 0.02f), 1.0f);
-	params.PassRadiosityParams = { radiosityAlpha, screenAlpha, 0.0f, 0.0f };
+	params.PassRadiosityParams = {
+		radiosityAlpha, screenAlpha,
+		(m_Params.DebugMode == 4u) ? 1.0f : 0.0f,				// Short Range AO デバッグ表示
+		m_Params.bShortRangeAOBentNormal ? 1.0f : 0.0f };
 
 	params.PassViewProjection = Inputs.ViewProjectionT;
 	params.PassInvViewProjection = Inputs.InvViewProjectionT;
@@ -1287,6 +1290,14 @@ FLumenSceneData::FLumenPassParams FLumenSceneData::MakeBasePassParams(
 
 	params.PassProbeJitter = {
 		m_ProbeJitter.x, m_ProbeJitter.y, m_PrevProbeJitter.x, m_PrevProbeJitter.y };
+
+	// Short Range AO (x = 0 で無効。Integrate_CS がピクセル毎に短いスクリーン
+	// スペースレイで接触部の遮蔽を計算する)
+	params.PassShortRangeAO = {
+		m_Params.bShortRangeAO ? min(max(m_Params.ShortRangeAOMaxDistance, 0.05f), 2.0f) : 0.0f,
+		(float)min(max(m_Params.ShortRangeAORays, 1), 8),
+		min(max(m_Params.ShortRangeAOIntensity, 0.0f), 1.0f),
+		min(max(m_Params.ShortRangeAOThickness, 0.02f), 0.5f) };
 
 	return params;
 }

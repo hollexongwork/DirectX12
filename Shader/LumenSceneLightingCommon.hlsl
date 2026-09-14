@@ -36,7 +36,7 @@
 #define LUMEN_GLOBAL_SDF_RESOLUTION 128.0f
 
 // -------------------------------------------------------------
-//  b0 : FLumenPassParams (C++ LumenScene.h と 1:1 ミラー必須, 512B)
+//  b0 : FLumenPassParams (C++ LumenScene.h と 1:1 ミラー必須, 528B)
 // -------------------------------------------------------------
 cbuffer LumenPassParams : register(b0)
 {
@@ -58,7 +58,7 @@ cbuffer LumenPassParams : register(b0)
     float4 PassRCParams0; // xyz=Radiance Cache 最小コーナー, w=プローブ間隔 [m]
     float4 PassRCParams1; // x=プローブ数/軸, y=更新開始プローブ, z=更新プローブ数, w=スカイサンプルミップ
     float4 PassReflectionParams; // x=最大ラフネス, y=フェード開始, z=強度, w=スクリーントレース有効
-    float4 PassRadiosityParams; // x=Radiosity テンポラルα, y=フル解像度 GI テンポラルα (1 = 蓄積なし), zw=予約
+    float4 PassRadiosityParams; // x=Radiosity テンポラルα, y=フル解像度 GI テンポラルα (1 = 蓄積なし), z=Short Range AO デバッグ表示, w=ベントノーマル有効
 
     float4x4 PassViewProjection; // ワールド -> クリップ (転置済み)
     float4x4 PassInvViewProjection; // クリップ -> ワールド (転置済み)
@@ -66,6 +66,7 @@ cbuffer LumenPassParams : register(b0)
     float4x4 PassPrevInvViewProjection; // 前フレームのクリップ -> ワールド (転置済み)
 
     float4 PassProbeJitter; // xy=今フレームのプローブ配置ジッタ [px], zw=前フレーム (履歴のリプロジェクション用)
+    float4 PassShortRangeAO; // x=最大距離 [m] (0=無効), y=レイ数, z=強度, w=厚み [m]
 };
 
 // -------------------------------------------------------------

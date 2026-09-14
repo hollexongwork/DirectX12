@@ -193,7 +193,7 @@ public:
 		int   RadiosityCardsPerFrame = 32;	// Radiosity のフレームあたり更新カード数
 		float RadiosityTemporalAlpha = 0.2f;	// Radiosity のテンポラルブレンド率 (1 = 蓄積なし)
 		int   CaptureBudgetPerFrame = 12;	// キャプチャのフレームあたりカード数
-		unsigned int DebugMode = 0;			// 0=off 1=GIのみ 2=スカイ可視率 3=GI拡散寄与
+		unsigned int DebugMode = 0;			// 0=off 1=GIのみ 2=スカイ可視率 3=GI拡散寄与 4=Short Range AO
 
 		// ---- Global Distance Field ----
 		bool  bGlobalSDF = true;			// 遠距離トレースにクリップマップを使う
@@ -207,6 +207,14 @@ public:
 		float ScreenTemporalAlpha = 0.05f;	// フル解像度 DiffuseIndirect のテンポラルブレンド率 (1 = 蓄積なし)
 		bool  bProbeJitter = true;			// プローブ配置をセル内で毎フレームジッタ (揺らぎ -> ノイズ化してテンポラルで平均)
 		float SkySampleMip = 1.5f;			// スカイ採光の prefilter ミップ
+
+		// ---- Short Range AO (近距離スクリーンスペース遮蔽 + ベントノーマル) ----
+		bool  bShortRangeAO = true;			// 16px プローブで潰れる接触部の遮蔽を補う
+		float ShortRangeAOMaxDistance = 0.4f;	// レイ長 [m] (プローブ間隔より短く保つ = 二重計上防止)
+		int   ShortRangeAORays = 4;			// ピクセルあたりレイ数 (1..8)
+		float ShortRangeAOIntensity = 1.0f;	// 適用強度 (0 = 無効相当, 1 = そのまま)
+		float ShortRangeAOThickness = 0.1f;	// スクリーンスペース遮蔽の厚み [m]
+		bool  bShortRangeAOBentNormal = true;	// 遮られていない方向の平均法線で GI を評価
 
 		// ---- Reflections ----
 		bool  bReflections = true;
@@ -261,7 +269,7 @@ private:
 		XMFLOAT4 PassRCParams0;					// xyz=RC最小コーナー, w=間隔
 		XMFLOAT4 PassRCParams1;					// x=プローブ数/軸, y=更新開始, z=更新数, w=スカイミップ
 		XMFLOAT4 PassReflectionParams;			// x=最大ラフネス, y=フェード開始, z=強度, w=スクリーントレース有効
-		XMFLOAT4 PassRadiosityParams;			// x=Radiosity テンポラルα, y=フル解像度 GI テンポラルα (1=蓄積なし), zw=予約
+		XMFLOAT4 PassRadiosityParams;			// x=Radiosity テンポラルα, y=フル解像度 GI テンポラルα (1=蓄積なし), z=Short Range AO デバッグ表示, w=ベントノーマル有効
 
 		XMFLOAT4X4 PassViewProjection;			// 転置済み
 		XMFLOAT4X4 PassInvViewProjection;		// 転置済み
@@ -269,8 +277,9 @@ private:
 		XMFLOAT4X4 PassPrevInvViewProjection;	// 転置済み (前フレームプローブ位置の再構築用)
 
 		XMFLOAT4 PassProbeJitter;				// xy=今フレームのプローブ配置ジッタ [px], zw=前フレーム
+		XMFLOAT4 PassShortRangeAO;				// x=最大距離 [m] (0=無効), y=レイ数, z=強度, w=厚み [m]
 	};
-	static_assert(sizeof(FLumenPassParams) == 512,
+	static_assert(sizeof(FLumenPassParams) == 528,
 		"FLumenPassParams must mirror HLSL cbuffer LumenPassParams (b0)");
 
 	// ---- カードのローカル空間定義 (キャプチャ / 行列構築用 CPU データ) ----

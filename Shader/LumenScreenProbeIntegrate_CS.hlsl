@@ -25,6 +25,14 @@
 //    履歴を捨てたプローブの生ノイズや、プローブ切り替えによる
 //    16px ブロック単位の明滅を、ピクセル単位で吸収する。
 //
+//  Short Range AO (LumenScreenProbeGather の ShortRangeAO 相当):
+//    16px プローブでは潰れる接触部 (数 cm～数十 cm) の遮蔽を、ピクセル
+//    ごとに半球方向へ短いスクリーンスペースレイ (PassShortRangeAO.x [m])
+//    を飛ばして補う。遮られなかった方向の平均 = ベントノーマルで SH を
+//    評価し直し、可視率 (AO) を GI ラディアンスとスカイ可視率に掛ける。
+//    半径が短いのでプローブ側の遠距離遮蔽 (スカイ可視率) と範囲が重ならず
+//    二重計上にならない。ノイズは下のテンポラル蓄積が平均する。
+//
 //    t19 = ProbeGeo / t21..t23 = SHR/SHG/SHB / t24 = Aux
 //    t25 = PrevLinearDepth / t26 = 前フレーム DiffuseIndirect
 //    u4  = DiffuseIndirect (フル解像度 RGBA16F):
@@ -43,6 +51,61 @@ RWTexture2D<float4> RWDiffuseIndirect : register(u4);
 
 // ピクセル毎フォールバックのコーン数
 #define LUMEN_INTEGRATE_FALLBACK_CONES 8u
+
+// Short Range AO のレイあたりステップ数
+#define LUMEN_SHORT_RANGE_AO_STEPS 4u
+
+// -------------------------------------------------------------
+//  Short Range AO の 1 レイ (スクリーンスペース、LinearDepth と比較)
+//  戻り値: 1 = 遮蔽なし, 0 = 遮蔽
+//    StepJitter : [0,1) ステップ位相のジッタ (フレーム / ピクセルで変化)
+//    Thickness  : 面の厚み [m]。これより深く潜ったら「薄い物の裏へ抜けた」
+//                 とみなして遮蔽にしない (SSAO のハロー抑制)
+// -------------------------------------------------------------
+float LumenShortRangeAOTrace(float3 RayStart, float3 RayDir, float MaxDist,
+    float Thickness, float StepJitter)
+{
+    const uint2 screenSize = (uint2) PassProbeParams1.xy;
+
+    [unroll]
+    for (uint s = 0; s < LUMEN_SHORT_RANGE_AO_STEPS; ++s)
+    {
+        float t = MaxDist * ((float) s + StepJitter) / (float) LUMEN_SHORT_RANGE_AO_STEPS;
+        t = max(t, MaxDist * 0.05f);
+
+        float3 p = RayStart + RayDir * t;
+
+        float4 clipPos = mul(float4(p, 1.0f), PassViewProjection);
+        if (clipPos.w <= 0.01f)
+        {
+            return 1.0f; // カメラ背後: 判定不能 = 遮蔽なし
+        }
+
+        float2 ndc = clipPos.xy / clipPos.w;
+        if (abs(ndc.x) >= 1.0f || abs(ndc.y) >= 1.0f)
+        {
+            return 1.0f; // 画面外: 判定不能 = 遮蔽なし
+        }
+
+        float2 uv = float2(ndc.x * 0.5f + 0.5f, 0.5f - ndc.y * 0.5f);
+        int2 depthPixel = clamp((int2) (uv * (float2) screenSize),
+            int2(0, 0), (int2) screenSize - 1);
+        float sceneZ = LumenLinearDepth.Load(int3(depthPixel, 0)).r;
+        if (sceneZ <= 0.0f)
+        {
+            continue; // スカイ
+        }
+
+        // レイ点が面より奥 (= 面に遮られている) かつ厚み以内なら遮蔽
+        float depthDelta = clipPos.w - sceneZ;
+        if (depthDelta > 0.005f && depthDelta < Thickness)
+        {
+            return 0.0f;
+        }
+    }
+
+    return 1.0f;
+}
 
 // プローブのワールド位置 (アンカーピクセルから再構築。Setup / Trace と同一)
 float3 LumenGetProbeWorldPosition(int2 Probe)
@@ -219,6 +282,54 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
     float3 meanRadiance;
 
+    // ピクセル IGN + フレーム番号の回転 (フォールバックコーン / Short Range AO 共通。
+    // フレームで回るので下のテンポラル蓄積がサンプルを平均する)
+    const float ign = frac(52.9829189f *
+        frac(dot(float2(pixel), float2(0.06711056f, 0.00583715f))));
+    const float frameRot = frac((float) ((uint) PassAtlasParams.w & 63u) * 0.6180339887f);
+    const float randomRotation = frac(ign + frameRot) * (2.0f * LUMEN_PI);
+
+    //======================================================
+    // Short Range AO (ベントノーマル + 近距離可視率)
+    //======================================================
+    float shortRangeAO = 1.0f;
+    float3 bentNormal = pixelNormal;
+
+    const float aoMaxDist = PassShortRangeAO.x; // 0 = 無効
+    [branch]
+    if (aoMaxDist > 0.0f)
+    {
+        const uint numAORays = clamp((uint) PassShortRangeAO.y, 1u, 8u);
+        const float aoThickness = max(PassShortRangeAO.w, 0.01f);
+        // 開始オフセットは面バイアスより小さく (接触部の陰影を残す)
+        const float aoBias = min(PassTraceParams.y, 0.01f);
+        float3 aoStart = worldPos + pixelNormal * aoBias;
+        // ステップ位相もフレーム / ピクセルでずらす
+        float stepJitter = frac(ign * 7.0f + frameRot);
+
+        float visibleSum = 0.0f;
+        float3 bentSum = float3(0.0f, 0.0f, 0.0f);
+
+        [loop]
+        for (uint r = 0; r < numAORays; ++r)
+        {
+            // コサイン分布なので可視率の平均がそのままコサイン重み AO
+            float3 dir = GetLumenHemisphereRay(pixelNormal, r, numAORays, randomRotation);
+            float vis = LumenShortRangeAOTrace(aoStart, dir, aoMaxDist, aoThickness, stepJitter);
+            visibleSum += vis;
+            bentSum += dir * vis;
+        }
+
+        float rawAO = visibleSum / (float) numAORays;
+        shortRangeAO = lerp(1.0f, rawAO, saturate(PassShortRangeAO.z)); // 強度
+
+        // ベントノーマル (全遮蔽なら幾何法線のまま)
+        if (PassRadiosityParams.w > 0.5f && visibleSum > 0.0f)
+        {
+            bentNormal = normalize(bentSum + pixelNormal * 0.01f);
+        }
+    }
+
     //======================================================
     // 3. 未カバー: ピクセル自身から半球コーンをトレース
     //    (方位はピクセル IGN + フレーム番号で回転し、下のテンポラル蓄積が
@@ -228,10 +339,6 @@ void main(uint3 DTid : SV_DispatchThreadID)
     if (totalWeight < 1e-4f)
     {
         const uint numCones = LUMEN_INTEGRATE_FALLBACK_CONES;
-        float ign = frac(52.9829189f *
-            frac(dot(float2(pixel), float2(0.06711056f, 0.00583715f))));
-        float frameRot = frac((float) ((uint) PassAtlasParams.w & 63u) * 0.6180339887f);
-        float randomRotation = frac(ign + frameRot) * (2.0f * LUMEN_PI);
 
         // 半球を numCones 個のコーンで分割したときの半角 tan
         const float coneCos = saturate(1.0f - 1.0f / (float) numCones);
@@ -270,10 +377,21 @@ void main(uint3 DTid : SV_DispatchThreadID)
         shB *= invWeight;
         skyVisibility *= invWeight;
 
-        meanRadiance = LumenSH1EvaluateMeanRadiance(shR, shG, shB, pixelNormal);
+        // ベントノーマルで評価 = 遮られていない方向の放射輝度を優先 (方向性 AO)
+        meanRadiance = LumenSH1EvaluateMeanRadiance(shR, shG, shB, bentNormal);
     }
 
+    // Short Range AO を GI ラディアンスとスカイ可視率 (IBL 減衰) の両方に適用
+    meanRadiance *= shortRangeAO;
+    skyVisibility *= shortRangeAO;
+
     float4 result = float4(meanRadiance, saturate(skyVisibility));
+
+    // デバッグ表示 (PassRadiosityParams.z = 1): rgb に AO そのものを出す
+    if (PassRadiosityParams.z > 0.5f)
+    {
+        result.rgb = shortRangeAO.xxx;
+    }
 
     //======================================================
     // 4. フル解像度テンポラル蓄積 (前フレームへリプロジェクション)
