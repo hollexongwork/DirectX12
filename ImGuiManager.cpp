@@ -20,6 +20,7 @@
 #include "Light.h"
 #include "LightComponent.h"
 #include "SettingsManager.h"
+#include "Input.h"
 
 #include <filesystem>
 #include <cctype>
@@ -61,23 +62,127 @@ void ImGuiManager::Start()
 
 void ImGuiManager::Draw()
 {
-	OutlinerWindow();
+	// "-" キーによるメニューバーのトグル (ImGui NewFrame 後・ウィンドウ構築前)
+	UpdateMenuBarToggle();
 
-	DetailsWindow();
+	if (m_bShowMainMenuBar)
+	{
+		MainMenuBar();
+	}
 
-	BufferWindow();
+	// ---- Edit ----
+	if (m_bShowOutliner)  OutlinerWindow();   // Outliner (上) + Details (下)
 
-	LightGridWindow();
+	// ---- Debug ----
+	if (m_bShowGBuffer)   BufferWindow();
+	if (m_bShowLightGrid) LightGridWindow();
+	if (m_bShowLumen)     LumenWindow();
+	if (m_bShowCulling)   CullingWindow();
+}
 
-	LumenWindow();
 
-	CullingWindow();
+// ============================================================
+//  メインメニューバー
+// ============================================================
+
+// ENG キーボードの "-" キー (VK_OEM_MINUS) でメニューバーの表示/非表示をトグル。
+// ImGui のテキスト入力 (Outliner のフィルタ等) にフォーカスがある間は
+// "-" の打鍵を入力として優先し、トグルしない。
+void ImGuiManager::UpdateMenuBarToggle()
+{
+	if (ImGui::GetIO().WantTextInput)
+		return;
+
+	if (Input::GetKeyTrigger(VK_OEM_MINUS))
+	{
+		m_bShowMainMenuBar = !m_bShowMainMenuBar;
+	}
+}
+
+void ImGuiManager::MainMenuBar()
+{
+	if (!ImGui::BeginMainMenuBar())
+		return;
+
+	if (ImGui::BeginMenu("Edit"))
+	{
+		EditMenu();
+		ImGui::EndMenu();
+	}
+
+	if (ImGui::BeginMenu("Debug"))
+	{
+		DebugMenu();
+		ImGui::EndMenu();
+	}
+
+	// 右端にトグルキーのヒントを表示
+	{
+		const char* hint = "[-] Hide Menu Bar";
+		const float  width = ImGui::CalcTextSize(hint).x + ImGui::GetStyle().ItemSpacing.x;
+		ImGui::SameLine(ImGui::GetWindowWidth() - width);
+		ImGui::TextDisabled("%s", hint);
+	}
+
+	ImGui::EndMainMenuBar();
+}
+
+// Edit: シーン編集用パネルの表示切替 + 設定の保存/リセット
+void ImGuiManager::EditMenu()
+{
+	ImGui::MenuItem("Outliner / Details", nullptr, &m_bShowOutliner);
+
+	ImGui::Separator();
+
+	if (ImGui::MenuItem("Save Settings", nullptr, false, m_Settings != nullptr))
+	{
+		m_Settings->SaveCurrent();
+	}
+
+	if (ImGui::BeginMenu("Reset to Default", m_Settings != nullptr))
+	{
+		if (ImGui::MenuItem("Selected Actor", nullptr, false, m_SelectedActor != nullptr))
+		{
+			m_Settings->ResetActor(m_SelectedActor);
+			strncpy_s(m_LabelBuffer, m_SelectedActor->GetActorLabel().c_str(), _TRUNCATE);
+		}
+		if (ImGui::MenuItem("All Actors"))     m_Settings->ResetAllActors();
+		if (ImGui::MenuItem("All Lights"))     m_Settings->ResetAllLights();
+		if (ImGui::MenuItem("Post Process"))   m_Settings->ResetPostProcess();
+		if (ImGui::MenuItem("Auto Exposure"))  m_Settings->ResetAutoExposure();
+
+		ImGui::Separator();
+
+		if (ImGui::MenuItem("Everything"))     m_Settings->ResetAll();
+
+		ImGui::EndMenu();
+	}
+}
+
+// Debug: レンダラのデバッグウィンドウの表示切替
+void ImGuiManager::DebugMenu()
+{
+	ImGui::MenuItem("G-Buffer", nullptr, &m_bShowGBuffer);
+	ImGui::MenuItem("Light Grid", nullptr, &m_bShowLightGrid);
+	ImGui::MenuItem("Lumen", nullptr, &m_bShowLumen);
+	ImGui::MenuItem("Culling", nullptr, &m_bShowCulling);
+
+	ImGui::Separator();
+
+	if (ImGui::MenuItem("Show All"))
+	{
+		m_bShowGBuffer = m_bShowLightGrid = m_bShowLumen = m_bShowCulling = true;
+	}
+	if (ImGui::MenuItem("Hide All"))
+	{
+		m_bShowGBuffer = m_bShowLightGrid = m_bShowLumen = m_bShowCulling = false;
+	}
 }
 
 
 void ImGuiManager::BufferWindow()
 {
-	ImGui::Begin("G-Buffer");
+	ImGui::Begin("G-Buffer", &m_bShowGBuffer);
 
 	ImGui::Text("GBufferC (BaseColor)");
 	ImGui::Image((void*)m_SceneRenderer->GetSceneTextures()->GBufferC->SRVHandle.ptr, ImVec2(200.0f, 100.0f));
@@ -99,7 +204,7 @@ void ImGuiManager::BufferWindow()
 // ============================================================
 void ImGuiManager::LightGridWindow()
 {
-	ImGui::Begin("Light Grid");
+	ImGui::Begin("Light Grid", &m_bShowLightGrid);
 
 	FLightGridInjection* grid = m_SceneRenderer ? m_SceneRenderer->GetLightGrid() : nullptr;
 	if (grid == nullptr)
@@ -143,7 +248,7 @@ void ImGuiManager::LightGridWindow()
 // ============================================================
 void ImGuiManager::LumenWindow()
 {
-	ImGui::Begin("Lumen");
+	ImGui::Begin("Lumen", &m_bShowLumen);
 
 	FLumenSceneData* lumen = m_SceneRenderer ? m_SceneRenderer->GetLumenScene() : nullptr;
 	if (lumen == nullptr)
@@ -298,7 +403,7 @@ void ImGuiManager::LumenWindow()
 
 void ImGuiManager::CullingWindow()
 {
-	ImGui::Begin("Culling");
+	ImGui::Begin("Culling", &m_bShowCulling);
 
 	if (m_SceneRenderer == nullptr)
 	{
@@ -578,10 +683,10 @@ void ImGuiManager::DrawLightComponentSection(ULightComponent* Light)
 }
 
 // ============================================================
-//  Outliner
-//  ワールド内の全アクターをスポーン順に列挙する
-//  (World Outliner 相当)。行クリックで Details の対象を選択。
-//  チェックボックスはアクター配下の全プリミティブの可視性。
+//  Outliner / Details 統合ウィンドウ
+//  上段: Outliner (アクター一覧)  下段: Details (選択アクター)
+//  2 つの子領域を縦に並べ、間の水平スプリッタをドラッグで
+//  高さ比 (m_OutlinerSplitRatio) を変更する。
 // ============================================================
 void ImGuiManager::OutlinerWindow()
 {
@@ -590,8 +695,69 @@ void ImGuiManager::OutlinerWindow()
 
 	ValidateSelection();
 
-	Begin("Outliner");
+	Begin("Outliner", &m_bShowOutliner);
 
+	const ImGuiStyle& style = GetStyle();
+	const float splitterHeight = 4.0f;
+	const float minPaneHeight = GetFrameHeightWithSpacing() * 3.0f;   // 各ペインの最小高さ
+	const float availHeight = GetContentRegionAvail().y;
+
+	// ---- 上下ペインの高さ計算 (比率 → ピクセル、両端は最小高さでクランプ) ----
+	float outlinerHeight = availHeight * m_OutlinerSplitRatio;
+	const float maxOutlinerHeight = availHeight - splitterHeight - style.ItemSpacing.y * 2.0f - minPaneHeight;
+	if (maxOutlinerHeight > minPaneHeight)
+	{
+		outlinerHeight = (std::max)(minPaneHeight, (std::min)(outlinerHeight, maxOutlinerHeight));
+	}
+
+	// ---- 上段: Outliner ----
+	TextDisabled("Outliner");
+	BeginChild("##OutlinerPane", ImVec2(0.0f, outlinerHeight), true);
+	DrawOutlinerSection();
+	EndChild();
+
+	// ---- スプリッタ (見えないボタンをドラッグして比率を変更) ----
+	InvisibleButton("##OutlinerDetailsSplitter", ImVec2(-1.0f, splitterHeight));
+	if (IsItemHovered() || IsItemActive())
+	{
+		SetMouseCursor(ImGuiMouseCursor_ResizeNS);
+	}
+	if (IsItemActive() && availHeight > 0.0f)
+	{
+		outlinerHeight += GetIO().MouseDelta.y;
+		if (maxOutlinerHeight > minPaneHeight)
+		{
+			outlinerHeight = (std::max)(minPaneHeight, (std::min)(outlinerHeight, maxOutlinerHeight));
+		}
+		m_OutlinerSplitRatio = outlinerHeight / availHeight;
+	}
+	// スプリッタの視覚表示 (ホバー / ドラッグ中は強調)
+	{
+		const ImVec2 min = GetItemRectMin();
+		const ImVec2 max = GetItemRectMax();
+		const ImU32  col = GetColorU32(IsItemActive() ? ImGuiCol_SeparatorActive :
+			IsItemHovered() ? ImGuiCol_SeparatorHovered :
+			ImGuiCol_Separator);
+		const float  midY = (min.y + max.y) * 0.5f;
+		GetWindowDrawList()->AddLine(ImVec2(min.x, midY), ImVec2(max.x, midY), col, 1.0f);
+	}
+
+	// ---- 下段: Details (残り全部) ----
+	TextDisabled("Details");
+	BeginChild("##DetailsPane", ImVec2(0.0f, 0.0f), true);
+	DrawDetailsSection();
+	EndChild();
+
+	End();
+}
+
+// ============================================================
+//  Outliner セクション (統合ウィンドウ上段)
+//  ワールド内の全アクターをスポーン順に列挙する
+//  (World Outliner 相当)。行クリックで Details の対象を選択。
+// ============================================================
+void ImGuiManager::DrawOutlinerSection()
+{
 	// ---- 検索フィルタ (ラベル / クラス名の部分一致) ----
 	static char filter[64] = {};
 	PushItemWidth(-60);
@@ -636,27 +802,20 @@ void ImGuiManager::OutlinerWindow()
 		PopID();
 		++index;
 	}
-
-	End();
 }
 
 // ============================================================
-//  Details
+//  Details セクション (統合ウィンドウ下段)
 //  選択アクターのラベル / コンポーネントツリー / 選択
 //  コンポーネントのプロパティを編集する (Details パネル相当)。
 //  編集は全て公開セッター経由 (マテリアルのみ直接編集 +
 //  MarkRenderStateDirty) なので次フレームのプロキシへ反映される。
 // ============================================================
-void ImGuiManager::DetailsWindow()
+void ImGuiManager::DrawDetailsSection()
 {
-	ValidateSelection();
-
-	Begin("Details");
-
 	if (!m_SelectedActor)
 	{
 		TextDisabled("Select an actor in the Outliner.");
-		End();
 		return;
 	}
 
@@ -746,8 +905,6 @@ void ImGuiManager::DetailsWindow()
 	{
 		DrawPostProcessVolumeSection(volume);
 	}
-
-	End();
 }
 
 // ------------------------------------------------------------

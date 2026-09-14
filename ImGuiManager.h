@@ -13,16 +13,41 @@ private:
 	class SettingsManager* m_Settings = nullptr;
 
 	// ---- Outliner / Details 選択状態 ----
-	class AActor*          m_SelectedActor = nullptr;
+	class AActor* m_SelectedActor = nullptr;
 	class UActorComponent* m_SelectedComponent = nullptr;
 	char                   m_LabelBuffer[128] = {};
+
+	// ---- メインメニューバー ----
+	// ENG キーボードの "-" キー (VK_OEM_MINUS) で表示/非表示をトグルする。
+	// バー非表示中でも各ウィンドウの表示状態 (m_bShow*) は保持される。
+	bool m_bShowMainMenuBar = true;
+
+	// ---- ウィンドウ表示フラグ (メニューバーの Edit / Debug から切り替え) ----
+	// Edit  : シーン編集用パネル (Outliner + Details を 1 ウィンドウに統合)
+	// Debug : レンダラのデバッグ表示 (G-Buffer / Light Grid / Lumen / Culling)
+	bool m_bShowOutliner = true;
+	bool m_bShowGBuffer = true;
+	bool m_bShowLightGrid = true;
+	bool m_bShowLumen = true;
+	bool m_bShowCulling = true;
+
+	void UpdateMenuBarToggle();
+	void MainMenuBar();
+	void EditMenu();
+	void DebugMenu();
 
 	void BufferWindow();
 	void LightGridWindow();
 	void LumenWindow();
 	void CullingWindow();
-	void OutlinerWindow();
-	void DetailsWindow();
+	// ---- Outliner / Details 統合ウィンドウ ----
+	// 上段 = Outliner (アクター一覧)、下段 = Details (選択アクターのプロパティ)。
+	// 中央のスプリッタをドラッグして上下の比率を変更できる。
+	float m_OutlinerSplitRatio = 0.35f;   // ウィンドウ内容領域に対する Outliner ペインの高さ比
+
+	void OutlinerWindow();               // 統合ウィンドウ本体 (Begin/End + 2 ペイン + スプリッタ)
+	void DrawOutlinerSection();          // 上段: アクター一覧 (ウィンドウを開かない)
+	void DrawDetailsSection();           // 下段: 選択アクターの Details (ウィンドウを開かない)
 
 	// ---- Outliner / Details ヘルパ ----
 	void SelectActor(class AActor* Actor);
