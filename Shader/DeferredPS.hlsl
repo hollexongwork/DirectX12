@@ -338,6 +338,7 @@ PS_OUTPUT main(PS_INPUT input)
 
     // ---- Lumen デバッグ可視化 (ImGui: Lumen ウィンドウ) ----
     //   1 = GI 入射ラディアンスのみ / 2 = スカイ可視率 / 3 = GI 拡散寄与のみ
+    //   4 = Short Range AO (Integrate_CS がデバッグ用に rgb へ AO を書く)
     [branch]
     if (LumenGatherMode != 0u && LumenDebugMode != 0u)
     {
@@ -348,6 +349,12 @@ PS_OUTPUT main(PS_INPUT input)
         else if (LumenDebugMode == 2u)
         {
             output.Color.rgb = lumenSkyVisibility.xxx;
+        }
+        else if (LumenDebugMode == 4u)
+        {
+            // Short Range AO: Integrate_CS が rgb に AO を書いている
+            // (GatherMode 2 のみ。ピクセル毎経路では GI ラディアンスのまま)
+            output.Color.rgb = lumenRadiance;
         }
         else
         {

@@ -118,7 +118,7 @@ void SettingsManager::LoadAndApply()
 
 		int policy = (int)t.SortPolicy;
 		ini.GetInt("Translucency", "SortPolicy", policy);
-		if (policy < 0 || policy > (int)FSceneRenderer::ETranslucentSortPolicy::SortAlongAxis)
+		if (policy < 0 || policy >(int)FSceneRenderer::ETranslucentSortPolicy::SortAlongAxis)
 			policy = (int)FSceneRenderer::ETranslucentSortPolicy::SortByDistance;
 		t.SortPolicy = (FSceneRenderer::ETranslucentSortPolicy)policy;
 
@@ -1279,6 +1279,14 @@ void SettingsManager::WriteLumen(ConfigFile& Ini, const FLumenSceneData::Params&
 	Ini.SetBool(sec, "bProbeJitter", p.bProbeJitter);
 	Ini.SetFloat(sec, "SkySampleMip", p.SkySampleMip);
 
+	// Short Range AO
+	Ini.SetBool(sec, "bShortRangeAO", p.bShortRangeAO);
+	Ini.SetFloat(sec, "ShortRangeAOMaxDistance", p.ShortRangeAOMaxDistance);
+	Ini.SetInt(sec, "ShortRangeAORays", p.ShortRangeAORays);
+	Ini.SetFloat(sec, "ShortRangeAOIntensity", p.ShortRangeAOIntensity);
+	Ini.SetFloat(sec, "ShortRangeAOThickness", p.ShortRangeAOThickness);
+	Ini.SetBool(sec, "bShortRangeAOBentNormal", p.bShortRangeAOBentNormal);
+
 	// Reflections
 	Ini.SetBool(sec, "bReflections", p.bReflections);
 	Ini.SetFloat(sec, "ReflectionMaxRoughness", p.ReflectionMaxRoughness);
@@ -1328,6 +1336,14 @@ void SettingsManager::ReadLumen(const ConfigFile& Ini, FLumenSceneData::Params& 
 	Ini.GetBool(sec, "bProbeJitter", p.bProbeJitter);
 	Ini.GetFloat(sec, "SkySampleMip", p.SkySampleMip);
 
+	// Short Range AO
+	Ini.GetBool(sec, "bShortRangeAO", p.bShortRangeAO);
+	Ini.GetFloat(sec, "ShortRangeAOMaxDistance", p.ShortRangeAOMaxDistance);
+	Ini.GetInt(sec, "ShortRangeAORays", p.ShortRangeAORays);
+	Ini.GetFloat(sec, "ShortRangeAOIntensity", p.ShortRangeAOIntensity);
+	Ini.GetFloat(sec, "ShortRangeAOThickness", p.ShortRangeAOThickness);
+	Ini.GetBool(sec, "bShortRangeAOBentNormal", p.bShortRangeAOBentNormal);
+
 	// Reflections
 	Ini.GetBool(sec, "bReflections", p.bReflections);
 	Ini.GetFloat(sec, "ReflectionMaxRoughness", p.ReflectionMaxRoughness);
@@ -1367,6 +1383,10 @@ void SettingsManager::ReadLumen(const ConfigFile& Ini, FLumenSceneData::Params& 
 	clampFloat(p.TemporalAlpha, 0.02f, 1.0f);
 	clampFloat(p.ScreenTemporalAlpha, 0.02f, 1.0f);
 	clampFloat(p.SkySampleMip, 0.0f, 4.0f);
+	clampFloat(p.ShortRangeAOMaxDistance, 0.05f, 2.0f);
+	clampInt(p.ShortRangeAORays, 1, 8);
+	clampFloat(p.ShortRangeAOIntensity, 0.0f, 1.0f);
+	clampFloat(p.ShortRangeAOThickness, 0.02f, 0.5f);
 	clampFloat(p.ReflectionMaxRoughness, 0.05f, 1.0f);
 	clampFloat(p.ReflectionFadeStart, 0.0f, 1.0f);
 	clampFloat(p.ReflectionIntensity, 0.0f, 2.0f);
