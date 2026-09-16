@@ -94,12 +94,12 @@ void ACameraActor::Tick(float DeltaTime)
 	{
 		if (bFlightCameraInputMode)
 		{
-			// UE: フライト入力中のホイールはカメラ速度段階の変更 (OnChangeCameraSpeed)
+			// フライト入力中のホイールはカメラ速度段階の変更 (OnChangeCameraSpeed)
 			OnChangeCameraSpeed(mouse.scrollWheelDelta);
 		}
 		else
 		{
-			// UE: OnDollyPerspectiveCamera — 視線方向へ 1 ノッチあたり一定距離
+			// 視線方向へ 1 ノッチあたり一定距離
 			const float notches = (float)mouse.scrollWheelDelta / (float)WHEEL_DELTA;
 			impulse.TranslationDelta += GetActorForwardVector() * (notches * GetScrollDollyDistance());
 		}
