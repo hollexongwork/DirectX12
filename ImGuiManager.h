@@ -75,6 +75,7 @@ private:
 	void DrawFieldQuadSection(class UFieldQuadComponent* Component);
 	void DrawPolygon2DSection(class UPolygon2DComponent* Component);
 	void DrawPostProcessVolumeSection(class APostProcessVolume* Volume);
+	void DrawViewportControlsSection(class ACameraActor* Camera);
 
 	// ライト共通プロパティ (Lights ウィンドウと Details で共用)
 	void DrawLightComponentSection(class ULightComponent* Light);

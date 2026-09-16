@@ -63,6 +63,7 @@ public:
 	~GameManager();
 
 	UWorld* GetWorld() { return &m_World; }
+	InputManager* GetInputManager() { return &m_InputManager; }
 	FAssetManager* GetAssetManager() { return &m_AssetManager; }
 	FSceneRenderer* GetSceneRenderer() { return &m_SceneRenderer; }
 	SettingsManager* GetSettingsManager() { return &m_SettingsManager; }

@@ -43,6 +43,7 @@ void SettingsManager::Initialize(UWorld* World, FSceneRenderer* Renderer, ImGuiM
 	m_SceneRenderer = Renderer;
 	m_Lumen = Renderer ? Renderer->GetLumenScene() : nullptr;
 	m_ImGui = InImGui;
+	m_CameraActor = World ? World->GetActorOfClass<ACameraActor>() : nullptr;
 
 	// INI を適用する「前」に必ずスナップショットする。
 	// これが Reset to Default の戻り先 (= コード上の初期値) になる。
@@ -79,6 +80,11 @@ void SettingsManager::CaptureDefaults()
 	if (m_ImGui)
 	{
 		m_DefaultLayout = m_ImGui->GetLayoutSettings();
+	}
+
+	if (m_CameraActor)
+	{
+		m_DefaultViewport = m_CameraActor->GetViewportSettings();
 	}
 
 	// ---- ワールド内全アクター (m_DefaultActors[i] = スポーン順 i 番) ----
@@ -176,6 +182,12 @@ void SettingsManager::LoadAndApply()
 		ReadImGuiLayout(ini, m_ImGui->GetLayoutSettings());
 	}
 
+	// ---- ビューポート操作設定 ----
+	if (m_CameraActor && ini.HasSection("EditorViewport"))
+	{
+		ReadEditorViewport(ini, m_CameraActor->GetViewportSettings());
+	}
+
 	// ---- 全アクター ([Actor.N] セクション、スポーン順で同定) ----
 	if (m_World)
 	{
@@ -253,6 +265,11 @@ bool SettingsManager::SaveCurrent() const
 	if (m_ImGui)
 	{
 		WriteImGuiLayout(ini, m_ImGui->GetLayoutSettings());
+	}
+
+	if (m_CameraActor)
+	{
+		WriteEditorViewport(ini, m_CameraActor->GetViewportSettings());
 	}
 
 	if (m_World)
@@ -398,6 +415,14 @@ void SettingsManager::ResetImGuiLayout()
 	}
 }
 
+void SettingsManager::ResetEditorViewport()
+{
+	if (m_CameraActor)
+	{
+		m_CameraActor->GetViewportSettings() = m_DefaultViewport;
+	}
+}
+
 void SettingsManager::ResetAll()
 {
 	ResetPostProcess();
@@ -405,6 +430,7 @@ void SettingsManager::ResetAll()
 	ResetAllActors();
 	ResetLumen();
 	ResetImGuiLayout();
+	ResetEditorViewport();
 }
 
 int SettingsManager::GetDefaultLightCount() const
@@ -1432,4 +1458,56 @@ void SettingsManager::ReadImGuiLayout(const ConfigFile& Ini, ImGuiManager::FLayo
 	{
 		l.OutlinerSplitRatio = ImGuiManager::FLayoutSettings{}.OutlinerSplitRatio;
 	}
+}
+
+
+// ------------------------------------------------------------
+//  ビューポート操作設定 <-> [EditorViewport] セクション
+// ------------------------------------------------------------
+void SettingsManager::WriteEditorViewport(ConfigFile& Ini, const ACameraActor::FLevelEditorViewportSettings& v)
+{
+	const std::string sec = "EditorViewport";
+
+	Ini.SetInt(sec, "CameraSpeed", v.CameraSpeed);
+	Ini.SetFloat(sec, "CameraSpeedScalar", v.CameraSpeedScalar);
+	Ini.SetInt(sec, "MouseScrollCameraSpeed", v.MouseScrollCameraSpeed);
+	Ini.SetFloat(sec, "MouseSensitivity", v.MouseSensitivity);
+	Ini.SetBool(sec, "bInvertMouseLookYAxis", v.bInvertMouseLookYAxis);
+	Ini.SetFloat(sec, "PanSensitivity", v.PanSensitivity);
+	Ini.SetBool(sec, "bSmoothMouseLook", v.bSmoothMouseLook);
+	Ini.SetFloat(sec, "MouseLookSmoothingRate", v.MouseLookSmoothingRate);
+	Ini.SetBool(sec, "bSmoothPanAndDolly", v.bSmoothPanAndDolly);
+	Ini.SetFloat(sec, "PanDollySmoothingRate", v.PanDollySmoothingRate);
+}
+
+void SettingsManager::ReadEditorViewport(const ConfigFile& Ini, ACameraActor::FLevelEditorViewportSettings& v)
+{
+	const std::string sec = "EditorViewport";
+
+	Ini.GetInt(sec, "CameraSpeed", v.CameraSpeed);
+	Ini.GetFloat(sec, "CameraSpeedScalar", v.CameraSpeedScalar);
+	Ini.GetInt(sec, "MouseScrollCameraSpeed", v.MouseScrollCameraSpeed);
+	Ini.GetFloat(sec, "MouseSensitivity", v.MouseSensitivity);
+	Ini.GetBool(sec, "bInvertMouseLookYAxis", v.bInvertMouseLookYAxis);
+	Ini.GetFloat(sec, "PanSensitivity", v.PanSensitivity);
+	Ini.GetBool(sec, "bSmoothMouseLook", v.bSmoothMouseLook);
+	Ini.GetFloat(sec, "MouseLookSmoothingRate", v.MouseLookSmoothingRate);
+	Ini.GetBool(sec, "bSmoothPanAndDolly", v.bSmoothPanAndDolly);
+	Ini.GetFloat(sec, "PanDollySmoothingRate", v.PanDollySmoothingRate);
+
+	// ---- 手編集 / 旧 INI に対するクランプ (ImGui スライダーのレンジと同値) ----
+	// NaN は比較が常に偽で std::clamp を素通りするので既定値へ戻す。
+	const ACameraActor::FLevelEditorViewportSettings def{};
+	auto clampFloat = [](float& value, float lo, float hi, float fallback)
+		{
+			value = (value == value) ? std::clamp(value, lo, hi) : fallback;
+		};
+
+	v.CameraSpeed = std::clamp(v.CameraSpeed, 1, ACameraActor::MaxCameraSpeeds);
+	clampFloat(v.CameraSpeedScalar, 0.1f, 10.0f, def.CameraSpeedScalar);
+	v.MouseScrollCameraSpeed = std::clamp(v.MouseScrollCameraSpeed, 1, ACameraActor::MaxMouseScrollCameraSpeed);
+	clampFloat(v.MouseSensitivity, 0.02f, 0.5f, def.MouseSensitivity);
+	clampFloat(v.PanSensitivity, 0.001f, 0.05f, def.PanSensitivity);
+	clampFloat(v.MouseLookSmoothingRate, 5.0f, 60.0f, def.MouseLookSmoothingRate);
+	clampFloat(v.PanDollySmoothingRate, 5.0f, 40.0f, def.PanDollySmoothingRate);
 }

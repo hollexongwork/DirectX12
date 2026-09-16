@@ -38,9 +38,18 @@ typedef struct MouseState_tag
     bool xButton1;
     bool xButton2;
 
+    // 絶対座標モード: クライアント座標 [px]
+    // 相対座標モード: 前回の Mouse_EndOfInputFrame 以降に累積した移動量 [count]
+    //   (DirectXTK の EndOfInputFrame 方式。WM_INPUT ごとに上書きではなく加算するので、
+    //    1 フレームに複数の WM_INPUT が届いても移動量を取りこぼさない)
     int x;
     int y;
+
+    // ホイール: 累積値 (Mouse_ResetScrollWheelValue でリセット) と、
+    // 前回の Mouse_EndOfInputFrame 以降の差分 [WHEEL_DELTA = 120 / ノッチ]
     int scrollWheelValue;
+    int scrollWheelDelta;
+
     Mouse_PositionMode positionMode;
 } Mouse_State;
 
@@ -56,6 +65,10 @@ void Mouse_GetState(Mouse_State* pState);
 
 // 累積したマウススクロールホイール値をリセットする
 void Mouse_ResetScrollWheelValue(void);
+
+// フレーム末尾 (全ゲームコードの入力読み取り後) に呼び出し、
+// 相対座標モードの累積移動量とホイール差分 (scrollWheelDelta) をゼロに戻す
+void Mouse_EndOfInputFrame(void);
 
 // マウスのポジションモードを設定する（デフォルトは絶対座標モード）
 void Mouse_SetMode(Mouse_PositionMode mode);
@@ -83,6 +96,8 @@ bool IsMiddleClick(void);
 bool IsLeftClickTrigger(void);
 
 bool IsRightClickTrigger(void);
+
+bool IsMiddleClickTrigger(void);
 
 float MousePositionX(void);
 

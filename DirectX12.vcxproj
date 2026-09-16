@@ -137,6 +137,7 @@
     <ClCompile Include="AutoExposure.cpp" />
     <ClCompile Include="Camera.cpp" />
     <ClCompile Include="CameraComponent.cpp" />
+    <ClCompile Include="CameraController.cpp" />
     <ClCompile Include="ColorGradingLUTBaker.cpp" />
     <ClCompile Include="ConfigFile.cpp" />
     <ClCompile Include="ConvexVolume.cpp" />
@@ -193,6 +194,7 @@
     <ClInclude Include="BoxSphereBounds.h" />
     <ClInclude Include="Camera.h" />
     <ClInclude Include="CameraComponent.h" />
+    <ClInclude Include="CameraController.h" />
     <ClInclude Include="ColorGradingLUTBaker.h" />
     <ClInclude Include="ConfigFile.h" />
     <ClInclude Include="ConvexVolume.h" />

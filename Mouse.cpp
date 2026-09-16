@@ -26,7 +26,6 @@ static Mouse_State        gPrevState = {};
 static HWND               gWindow = NULL;
 static Mouse_PositionMode gMode = MOUSE_POSITION_MODE_RELATIVE;
 static HANDLE             gScrollWheelValue = NULL;
-static HANDLE             gRelativeRead = NULL;
 static HANDLE             gAbsoluteMode = NULL;
 static HANDLE             gRelativeMode = NULL;
 static int                gLastX = 0;
@@ -57,7 +56,6 @@ void Mouse_Initialize(HWND window)
     gMode = MOUSE_POSITION_MODE_ABSOLUTE;
 
     if (!gScrollWheelValue) { gScrollWheelValue = CreateEventEx(nullptr, nullptr, CREATE_EVENT_MANUAL_RESET, EVENT_MODIFY_STATE | SYNCHRONIZE); }
-    if (!gRelativeRead) { gRelativeRead = CreateEventEx(nullptr, nullptr, CREATE_EVENT_MANUAL_RESET, EVENT_MODIFY_STATE | SYNCHRONIZE); }
     if (!gAbsoluteMode) { gAbsoluteMode = CreateEventEx(nullptr, nullptr, 0, EVENT_MODIFY_STATE | SYNCHRONIZE); }
     if (!gRelativeMode) { gRelativeMode = CreateEventEx(nullptr, nullptr, 0, EVENT_MODIFY_STATE | SYNCHRONIZE); }
 
@@ -72,7 +70,6 @@ void Mouse_Initialize(HWND window)
 void Mouse_Finalize(void)
 {
     SAFE_CLOSEHANDLE(gScrollWheelValue);
-    SAFE_CLOSEHANDLE(gRelativeRead);
     SAFE_CLOSEHANDLE(gAbsoluteMode);
     SAFE_CLOSEHANDLE(gRelativeMode);
     RtlZeroMemory(&gPrevState, sizeof(gPrevState));
@@ -84,41 +81,36 @@ void Mouse_GetState(Mouse_State* pState)
     pState->positionMode = gMode;
 
     DWORD Result = WaitForSingleObjectEx(gScrollWheelValue, 0, FALSE);
-    if (Result == WAIT_FAILED) 
-    { 
-        return; 
+    if (Result == WAIT_FAILED)
+    {
+        return;
     }
 
-    if (Result == WAIT_OBJECT_0) 
+    if (Result == WAIT_OBJECT_0)
     {
 
         pState->scrollWheelValue = 0;
     }
 
-    if (pState->positionMode == MOUSE_POSITION_MODE_RELATIVE) 
-    {
-
-        Result = WaitForSingleObjectEx(gRelativeRead, 0, FALSE);
-        if (Result == WAIT_FAILED) 
-        { 
-            return; 
-        }
-
-        if (Result == WAIT_OBJECT_0) 
-        {
-            pState->x = 0;
-            pState->y = 0;
-        }
-        else 
-        {
-            SetEvent(gRelativeRead);
-        }
-    }
+    // 相対座標モードの x / y は Mouse_EndOfInputFrame までの累積移動量。
+    // (旧 DirectXTK 方式の「1 度読んだら次の WM_INPUT まで 0 を返す」イベントは廃止。
+    //  同一フレーム内なら何度読んでも同じ値が返る)
 }
 
 void Mouse_ResetScrollWheelValue(void)
 {
     SetEvent(gScrollWheelValue);
+}
+
+void Mouse_EndOfInputFrame(void)
+{
+    if (gMode == MOUSE_POSITION_MODE_RELATIVE)
+    {
+        gState.x = 0;
+        gState.y = 0;
+    }
+
+    gState.scrollWheelDelta = 0;
 }
 
 void Mouse_SetMode(Mouse_PositionMode mode)
@@ -209,8 +201,6 @@ void Mouse_ProcessMessage(UINT message, WPARAM wParam, LPARAM lParam)
 
     case (WAIT_OBJECT_0 + 2):
     {
-        ResetEvent(gRelativeRead);
-
         gMode = MOUSE_POSITION_MODE_RELATIVE;
         gState.x = gState.y = 0;
         gRelativeX = INT32_MAX;
@@ -242,8 +232,10 @@ void Mouse_ProcessMessage(UINT message, WPARAM wParam, LPARAM lParam)
         }
         else {
             int scrollWheel = gState.scrollWheelValue;
+            int scrollDelta = gState.scrollWheelDelta;
             memset(&gState, 0, sizeof(gState));
             gState.scrollWheelValue = scrollWheel;
+            gState.scrollWheelDelta = scrollDelta;
             gInFocus = false;
         }
         return;
@@ -260,10 +252,10 @@ void Mouse_ProcessMessage(UINT message, WPARAM wParam, LPARAM lParam)
 
                 if (!(raw.data.mouse.usFlags & MOUSE_MOVE_ABSOLUTE)) {
 
-                    gState.x = raw.data.mouse.lLastX;
-                    gState.y = raw.data.mouse.lLastY;
-
-                    ResetEvent(gRelativeRead);
+                    // 1 フレームに複数の WM_INPUT が届く (1000Hz マウスなら 60fps で 16 回) ので
+                    // 上書きではなく加算する。Mouse_EndOfInputFrame がフレーム末尾でゼロに戻す。
+                    gState.x += raw.data.mouse.lLastX;
+                    gState.y += raw.data.mouse.lLastY;
                 }
                 else if (raw.data.mouse.usFlags & MOUSE_VIRTUAL_DESKTOP) {
 
@@ -274,18 +266,13 @@ void Mouse_ProcessMessage(UINT message, WPARAM wParam, LPARAM lParam)
                     int x = (int)((raw.data.mouse.lLastX / 65535.0f) * width);
                     int y = (int)((raw.data.mouse.lLastY / 65535.0f) * height);
 
-                    if (gRelativeX == INT32_MAX) {
-                        gState.x = gState.y = 0;
-                    }
-                    else {
-                        gState.x = x - gRelativeX;
-                        gState.y = y - gRelativeY;
+                    if (gRelativeX != INT32_MAX) {
+                        gState.x += x - gRelativeX;
+                        gState.y += y - gRelativeY;
                     }
 
                     gRelativeX = x;
                     gRelativeY = y;
-
-                    ResetEvent(gRelativeRead);
                 }
             }
         }
@@ -321,6 +308,7 @@ void Mouse_ProcessMessage(UINT message, WPARAM wParam, LPARAM lParam)
 
     case WM_MOUSEWHEEL:
         gState.scrollWheelValue += GET_WHEEL_DELTA_WPARAM(wParam);
+        gState.scrollWheelDelta += GET_WHEEL_DELTA_WPARAM(wParam);
         return;
 
     case WM_XBUTTONDOWN:
@@ -409,7 +397,7 @@ bool IsLeftClick(void)
 
 bool IsRightClick(void)
 {
-	return gState.rightButton;
+    return gState.rightButton;
 }
 
 bool IsMiddleClick(void)
@@ -425,6 +413,11 @@ bool IsLeftClickTrigger(void)
 bool IsRightClickTrigger(void)
 {
     return gState.rightButton && !gPrevState.rightButton;
+}
+
+bool IsMiddleClickTrigger(void)
+{
+    return gState.middleButton && !gPrevState.middleButton;
 }
 
 float MousePositionX(void)

@@ -157,6 +157,7 @@ void ImGuiManager::EditMenu()
 		if (ImGui::MenuItem("Post Process"))   m_Settings->ResetPostProcess();
 		if (ImGui::MenuItem("Auto Exposure"))  m_Settings->ResetAutoExposure();
 		if (ImGui::MenuItem("Lumen"))          m_Settings->ResetLumen();
+		if (ImGui::MenuItem("Viewport Controls")) m_Settings->ResetEditorViewport();
 		if (ImGui::MenuItem("Debug Windows"))  m_Settings->ResetImGuiLayout();
 
 		ImGui::Separator();
@@ -937,6 +938,12 @@ void ImGuiManager::DrawDetailsSection()
 	{
 		DrawPostProcessVolumeSection(volume);
 	}
+
+	// ---- ビューポート操作設定 ----
+	if (auto* camera = dynamic_cast<ACameraActor*>(actor))
+	{
+		DrawViewportControlsSection(camera);
+	}
 }
 
 // ------------------------------------------------------------
@@ -1200,6 +1207,49 @@ void ImGuiManager::DrawCameraSection(UCameraComponent* Component)
 	if (DragFloat("Far Clip (m)", &farClip, 1.0f, 10.0f, 100000.0f))
 	{
 		Component->SetFarClip(farClip);
+	}
+}
+
+// フライト速度 / ホイールドリー / マウス感度 / スムージング。
+// 値は ACameraActor が毎 Tick 参照するので、編集はそのまま次フレームから効く。
+void ImGuiManager::DrawViewportControlsSection(ACameraActor* Camera)
+{
+	if (!CollapsingHeader("Viewport Controls", ImGuiTreeNodeFlags_DefaultOpen))
+		return;
+
+	ACameraActor::FLevelEditorViewportSettings& s = Camera->GetViewportSettings();
+
+	// ---- 操作一覧 ----
+	TextDisabled("RMB drag: Look   MMB drag: Pan   Wheel: Dolly (zoom)");
+	TextDisabled("W/S A/D E/Q: Fly   RMB + Wheel: Camera Speed");
+
+	Separator();
+
+	// ---- フライト ----
+	SliderInt("Camera Speed", &s.CameraSpeed, 1, ACameraActor::MaxCameraSpeeds);
+	DragFloat("Camera Speed Scalar", &s.CameraSpeedScalar, 0.01f, 0.1f, 10.0f, "%.2f");
+	s.CameraSpeedScalar = std::clamp(s.CameraSpeedScalar, 0.1f, 10.0f);
+	TextDisabled("Flight speed  %.2f m/s (accel 0.1s)", Camera->GetFlightSpeed());
+
+	// ---- ホイールドリー ----
+	SliderInt("Mouse Scroll Camera Speed", &s.MouseScrollCameraSpeed, 1, ACameraActor::MaxMouseScrollCameraSpeed);
+	TextDisabled("Dolly  %.2f m / notch", Camera->GetScrollDollyDistance());
+
+	// ---- マウス ----
+	SliderFloat("Mouse Sensitivity (deg/count)", &s.MouseSensitivity, 0.02f, 0.5f, "%.3f");
+	Checkbox("Invert Mouse Look Y Axis", &s.bInvertMouseLookYAxis);
+	SliderFloat("Pan Sensitivity (m/count)", &s.PanSensitivity, 0.001f, 0.05f, "%.4f");
+
+	// ---- スムージング (本エンジン拡張。Off = UE のエディタと同じ即時適用) ----
+	Checkbox("Smooth Mouse Look", &s.bSmoothMouseLook);
+	if (s.bSmoothMouseLook)
+	{
+		SliderFloat("Mouse Look Smoothing Rate (1/s)", &s.MouseLookSmoothingRate, 5.0f, 60.0f, "%.0f");
+	}
+	Checkbox("Smooth Pan / Dolly", &s.bSmoothPanAndDolly);
+	if (s.bSmoothPanAndDolly)
+	{
+		SliderFloat("Pan / Dolly Smoothing Rate (1/s)", &s.PanDollySmoothingRate, 5.0f, 40.0f, "%.0f");
 	}
 }
 
