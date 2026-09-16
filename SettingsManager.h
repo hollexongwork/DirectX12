@@ -6,6 +6,7 @@
 #include "AutoExposure.h"
 #include "LumenScene.h"
 #include "ImGuiManager.h"
+#include "Camera.h"
 
 using namespace DirectX;
 
@@ -27,14 +28,18 @@ using namespace DirectX;
 //    - ColorGradingLUTBaker : Artist LUT パス + Weight
 //    - FSceneRenderer       : トランスルーセンシーソート設定
 //    - FLumenSceneData      : Params 一式 ([Lumen] セクション)。
-//                             DebugMode (Debug View) はデバッグ表示なので
-//                             UE5 の r.Lumen.Visualize 系と同様に対象外
-//                             (毎回 Off で起動)
+//                             DebugMode (Debug View) はデバッグ表示は
+//                             毎回 Off で起動
 //    - ImGuiManager         : FLayoutSettings ([ImGui] セクション):
 //                             メニューバー / 各ウィンドウの表示フラグ /
 //                             Outliner スプリッタ比率。
 //                             ウィンドウ位置・サイズは ImGui 本体の
 //                             imgui.ini が担当するので対象外
+//    - ACameraActor         : FLevelEditorViewportSettings
+//                             ([EditorViewport] セクション): フライト速度 /
+//                             ホイールドリー / マウス感度 / スムージング。
+//                             UE の ULevelEditorViewportSettings と同様に
+//                             アクター ([Actor.N]) とは別枠の操作設定
 //    - ワールド内の全アクター ([Actor.N] セクション):
 //        アクターラベル / APostProcessVolume 固有プロパティ /
 //        全所有コンポーネント (C<i>. プレフィックス) の
@@ -221,6 +226,7 @@ private:
 	class FSceneRenderer* m_SceneRenderer = nullptr;	// トランスルーセンシーソート設定の永続化用
 	FLumenSceneData* m_Lumen = nullptr;			// Lumen Params の永続化用
 	ImGuiManager* m_ImGui = nullptr;			// ImGui レイアウト設定の永続化用
+	ACameraActor* m_CameraActor = nullptr;		// ビューポート操作設定の永続化用
 
 	// ---- Default スナップショット (INI 適用「前」のコード初期値) ----
 	PP_SETTINGS          m_DefaultPP{};
@@ -230,6 +236,7 @@ private:
 	float                m_DefaultLUTWeight = 1.0f;
 	FLumenSceneData::Params       m_DefaultLumen{};
 	ImGuiManager::FLayoutSettings m_DefaultLayout{};
+	ACameraActor::FLevelEditorViewportSettings m_DefaultViewport{};
 
 	// ワールド内全アクター (m_DefaultActors[i] = スポーン順 i 番のアクター)
 	std::vector<ActorSnapshot> m_DefaultActors;
@@ -275,6 +282,10 @@ private:
 	static void WriteImGuiLayout(ConfigFile& Ini, const ImGuiManager::FLayoutSettings& l);
 	static void ReadImGuiLayout(const ConfigFile& Ini, ImGuiManager::FLayoutSettings& l);
 
+	// ACameraActor::FLevelEditorViewportSettings <-> [EditorViewport] セクション
+	static void WriteEditorViewport(ConfigFile& Ini, const ACameraActor::FLevelEditorViewportSettings& v);
+	static void ReadEditorViewport(const ConfigFile& Ini, ACameraActor::FLevelEditorViewportSettings& v);
+
 public:
 	// World.BeginPlay 後・ImGuiManager.Start 前に 1 回だけ呼ぶ。
 	// ImGui は Start 前でもレイアウト設定 (コード初期値) を保持しているので、
@@ -294,6 +305,7 @@ public:
 	void ResetAllLights();
 	void ResetLumen();				// Lumen Params (DebugMode は現在値を維持)
 	void ResetImGuiLayout();		// ImGui レイアウト (ウィンドウ表示フラグ / スプリッタ比率)
+	void ResetEditorViewport();		// ビューポート操作設定 (カメラ速度 / 感度 / スムージング)
 	void ResetAll();
 
 	int GetDefaultLightCount() const;

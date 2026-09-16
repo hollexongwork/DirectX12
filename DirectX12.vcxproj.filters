@@ -266,6 +266,9 @@
     <ClCompile Include="AssetManager.cpp">
       <Filter>ソース ファイル\System</Filter>
     </ClCompile>
+    <ClCompile Include="CameraController.cpp">
+      <Filter>ソース ファイル\GameObject\Camera</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ImGUI\imconfig.h">
@@ -447,6 +450,9 @@
     </ClInclude>
     <ClInclude Include="SceneView.h">
       <Filter>ソース ファイル\System</Filter>
+    </ClInclude>
+    <ClInclude Include="CameraController.h">
+      <Filter>ソース ファイル\GameObject\Camera</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
