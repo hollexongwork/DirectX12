@@ -16,6 +16,7 @@ FLightSceneProxy::FLightSceneProxy(const ULightComponent* Component)
 	m_bAffectsWorld = Component->GetAffectsWorld();
 	m_bCastShadows = Component->GetCastShadows();
 	m_bUseRTDFShadows = Component->GetUseRayTracedDistanceFieldShadows();
+	m_VolumetricScatteringIntensity = Component->GetVolumetricScatteringIntensity();
 
 	m_Position = Component->GetComponentLocation();
 	m_Direction = Component->GetForwardVector();

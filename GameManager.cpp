@@ -12,6 +12,7 @@
 #include "PointLight.h"
 #include "SpotLight.h"
 #include "RectLight.h"
+#include "ExponentialHeightFog.h"
 
 GameManager* GameManager::m_Instance = nullptr;
 
@@ -167,6 +168,18 @@ GameManager::GameManager(HWND hWnd)
 	}
 
 	//m_World.SpawnActor<APolygon2D>();	// 2D オーバーレイ (使う場合は必ず最後にスポーン)
+
+	// ---- Exponential Height Fog (AExponentialHeightFog) ----
+	// コンポーネント既定値 : FogDensity 0.02 / FogHeightFalloff 0.2 / 距離系はメートル換算。
+	// アクター位置の Y がフォグの基準高さ。Volumetric Fog はコンポーネント
+	// 既定 (false) のままレベル側で有効化する。
+	// ※ 既存の [Actor.N] (EngineSettings.ini) のインデックスを変えないよう
+	//   既存アクターの後にスポーンする。
+	{
+		AExponentialHeightFog* fog = m_World.SpawnActor<AExponentialHeightFog>();
+		fog->SetActorLocation({ 0.0f, 0.0f, 0.0f });
+		fog->GetComponent()->SetVolumetricFog(true);
+	}
 }
 
 GameManager::~GameManager()

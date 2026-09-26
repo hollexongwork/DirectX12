@@ -157,6 +157,15 @@ public:
 	unsigned int GetNumCulledLightsGridSRVIndex() const { return m_NumCulledSRVIndex; }
 	unsigned int GetCulledLightDataGridSRVIndex() const { return m_DataGridSRVIndex; }
 
+	// ---- Volumetric Fog (FVolumetricFog, VolumetricFog.h) 用アクセサ ----
+	// ライト散乱コンピュートパスが froxel ごとのセルを引くためのもの。
+	// Dispatch 後の出力バッファは PIXEL_SHADER_RESOURCE で常在するので、
+	// コンピュートから読む側が NON_PIXEL へ一時遷移して戻すこと
+	// (m_bOutputsInSRVState の前提を崩さない)。
+	ID3D12Resource* GetNumCulledLightsGridResource() const { return m_NumCulledLightsGrid.Get(); }
+	ID3D12Resource* GetCulledLightDataGridResource() const { return m_CulledLightDataGrid.Get(); }
+	bool            AreOutputsInSRVState() const { return m_bOutputsInSRVState; }
+
 	// ---- ImGui 用アクセサ ----
 	Params&       GetParams()       { return m_Params; }
 	const Params& GetParams() const { return m_Params; }

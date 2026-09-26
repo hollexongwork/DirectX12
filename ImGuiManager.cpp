@@ -19,6 +19,10 @@
 #include "World.h"
 #include "Light.h"
 #include "LightComponent.h"
+#include "ExponentialHeightFog.h"
+#include "ExponentialHeightFogComponent.h"
+#include "FogRendering.h"
+#include "VolumetricFog.h"
 #include "SettingsManager.h"
 #include "Input.h"
 
@@ -157,6 +161,7 @@ void ImGuiManager::EditMenu()
 		if (ImGui::MenuItem("Post Process"))   m_Settings->ResetPostProcess();
 		if (ImGui::MenuItem("Auto Exposure"))  m_Settings->ResetAutoExposure();
 		if (ImGui::MenuItem("Lumen"))          m_Settings->ResetLumen();
+		if (ImGui::MenuItem("Volumetric Fog")) m_Settings->ResetVolumetricFog();
 		if (ImGui::MenuItem("Viewport Controls")) m_Settings->ResetEditorViewport();
 		if (ImGui::MenuItem("Debug Windows"))  m_Settings->ResetImGuiLayout();
 
@@ -486,235 +491,6 @@ void ImGuiManager::CullingWindow()
 	ImGui::End();
 }
 
-
-// ============================================================
-//  ライト共通プロパティ (Lights ウィンドウ / Details 共用)
-// ============================================================
-void ImGuiManager::DrawLightComponentSection(ULightComponent* Light)
-{
-	if (!Light)
-		return;
-
-	ULightComponent* light = Light;
-
-	// ---- 共通プロパティ ----
-	bool affectsWorld = light->GetAffectsWorld();
-	if (Checkbox("Affects World", &affectsWorld))
-	{
-		light->SetAffectsWorld(affectsWorld);
-	}
-
-	// ---- シャドウ (全ライト共通) ----
-	bool castShadows = light->GetCastShadows();
-	if (Checkbox("Cast Shadows", &castShadows))
-	{
-		light->SetCastShadows(castShadows);
-	}
-	if (castShadows)
-	{
-		float shadowBias = light->GetShadowBias();
-		if (DragFloat("Shadow Bias", &shadowBias, 0.01f, 0.0f, 10.0f))
-		{
-			light->SetShadowBias(shadowBias);
-		}
-
-		float shadowSlopeBias = light->GetShadowSlopeBias();
-		if (DragFloat("Shadow Slope Bias", &shadowSlopeBias, 0.01f, 0.0f, 10.0f))
-		{
-			light->SetShadowSlopeBias(shadowSlopeBias);
-		}
-
-		bool dfShadows = light->GetUseRayTracedDistanceFieldShadows();
-		if (Checkbox("RayTraced DF Shadows", &dfShadows))
-		{
-			light->SetUseRayTracedDistanceFieldShadows(dfShadows);
-		}
-	}
-
-	// ---- Directional (CSM) ----
-	if (auto* directional = dynamic_cast<UDirectionalLightComponent*>(light))
-	{
-		if (directional->GetCastShadows())
-		{
-			float shadowDistance = directional->GetDynamicShadowDistance();
-			if (DragFloat("Dynamic Shadow Distance (m)", &shadowDistance, 1.0f, 5.0f, 500.0f))
-			{
-				directional->SetDynamicShadowDistance(shadowDistance);
-			}
-
-			int cascades = directional->GetDynamicShadowCascades();
-			if (SliderInt("Shadow Cascades", &cascades, 1, 4))
-			{
-				directional->SetDynamicShadowCascades(cascades);
-			}
-
-			float exponent = directional->GetCascadeDistributionExponent();
-			if (DragFloat("Cascade Distribution Exponent", &exponent, 0.05f, 1.0f, 5.0f))
-			{
-				directional->SetCascadeDistributionExponent(exponent);
-			}
-
-			float fade = directional->GetShadowDistanceFadeoutFraction();
-			if (SliderFloat("Shadow Fade Fraction", &fade, 0.0f, 0.5f))
-			{
-				directional->SetShadowDistanceFadeoutFraction(fade);
-			}
-
-			if (directional->GetUseRayTracedDistanceFieldShadows())
-			{
-				float dfDistance = directional->GetDistanceFieldShadowDistance();
-				if (DragFloat("DF Shadow Distance (m)", &dfDistance, 1.0f, 10.0f, 2000.0f))
-				{
-					directional->SetDistanceFieldShadowDistance(dfDistance);
-				}
-
-				float dfTrace = directional->GetDistanceFieldTraceDistance();
-				if (DragFloat("DF Trace Distance (m)", &dfTrace, 1.0f, 1.0f, 1000.0f))
-				{
-					directional->SetDistanceFieldTraceDistance(dfTrace);
-				}
-
-				float srcAngle = directional->GetLightSourceAngle();
-				if (DragFloat("Light Source Angle (deg)", &srcAngle, 0.05f, 0.05f, 20.0f))
-				{
-					directional->SetLightSourceAngle(srcAngle);
-				}
-			}
-		}
-	}
-
-	float intensity = light->GetIntensity();
-	if (DragFloat("Intensity", &intensity, 10.0f, 0.0f, 1000000.0f))
-	{
-		light->SetIntensity(intensity);
-	}
-
-	XMFLOAT4 color = light->GetLightColor();
-	if (ColorEdit3("Light Color", &color.x))
-	{
-		light->SetLightColor(color);
-	}
-
-	bool useTemperature = light->GetUseTemperature();
-	if (Checkbox("Use Temperature", &useTemperature))
-	{
-		light->SetUseTemperature(useTemperature);
-	}
-	if (useTemperature)
-	{
-		float temperature = light->GetTemperature();
-		if (SliderFloat("Temperature (K)", &temperature, 1500.0f, 15000.0f))
-		{
-			light->SetTemperature(temperature);
-		}
-	}
-
-	float specularScale = light->GetSpecularScale();
-	if (SliderFloat("Specular Scale", &specularScale, 0.0f, 1.0f))
-	{
-		light->SetSpecularScale(specularScale);
-	}
-
-	// ---- ローカルライト共通 (Point / Spot / Rect) ----
-	if (auto* local = dynamic_cast<ULocalLightComponent*>(light))
-	{
-		Separator();
-
-		float radius = local->GetAttenuationRadius();
-		if (DragFloat("Attenuation Radius (m)", &radius, 0.1f, 0.01f, 1000.0f))
-		{
-			local->SetAttenuationRadius(radius);
-		}
-
-		const char* unitNames[] = { "Unitless", "Candelas", "Lumens", "EV" };
-		int units = (int)local->GetIntensityUnits();
-		if (Combo("Intensity Units", &units, unitNames, 4))
-		{
-			local->SetIntensityUnits((ELightUnits)units);
-		}
-	}
-
-	// ---- Point / Spot ----
-	if (auto* point = dynamic_cast<UPointLightComponent*>(light))
-	{
-		float sourceRadius = point->GetSourceRadius();
-		if (DragFloat("Source Radius (m)", &sourceRadius, 0.01f, 0.0f, 10.0f))
-		{
-			point->SetSourceRadius(sourceRadius);
-		}
-
-		float softRadius = point->GetSoftSourceRadius();
-		if (DragFloat("Soft Source Radius (m)", &softRadius, 0.01f, 0.0f, 10.0f))
-		{
-			point->SetSoftSourceRadius(softRadius);
-		}
-
-		float sourceLength = point->GetSourceLength();
-		if (DragFloat("Source Length (m)", &sourceLength, 0.01f, 0.0f, 10.0f))
-		{
-			point->SetSourceLength(sourceLength);
-		}
-
-		bool inverseSquared = point->GetUseInverseSquaredFalloff();
-		if (Checkbox("Use Inverse Squared Falloff", &inverseSquared))
-		{
-			point->SetUseInverseSquaredFalloff(inverseSquared);
-		}
-		if (!inverseSquared)
-		{
-			float exponent = point->GetLightFalloffExponent();
-			if (DragFloat("Light Falloff Exponent", &exponent, 0.1f, 1.0f, 16.0f))
-			{
-				point->SetLightFalloffExponent(exponent);
-			}
-		}
-	}
-
-	// ---- Spot ----
-	if (auto* spot = dynamic_cast<USpotLightComponent*>(light))
-	{
-		float inner = spot->GetInnerConeAngle();
-		if (SliderFloat("Inner Cone Angle", &inner, 0.0f, 80.0f))
-		{
-			spot->SetInnerConeAngle(inner);
-		}
-
-		float outer = spot->GetOuterConeAngle();
-		if (SliderFloat("Outer Cone Angle", &outer, 1.0f, 80.0f))
-		{
-			spot->SetOuterConeAngle(outer);
-		}
-	}
-
-	// ---- Rect ----
-	if (auto* rect = dynamic_cast<URectLightComponent*>(light))
-	{
-		float width = rect->GetSourceWidth();
-		if (DragFloat("Source Width (m)", &width, 0.01f, 0.01f, 20.0f))
-		{
-			rect->SetSourceWidth(width);
-		}
-
-		float height = rect->GetSourceHeight();
-		if (DragFloat("Source Height (m)", &height, 0.01f, 0.01f, 20.0f))
-		{
-			rect->SetSourceHeight(height);
-		}
-
-		float barnAngle = rect->GetBarnDoorAngle();
-		if (SliderFloat("Barn Door Angle", &barnAngle, 0.0f, 88.0f))
-		{
-			rect->SetBarnDoorAngle(barnAngle);
-		}
-
-		float barnLength = rect->GetBarnDoorLength();
-		if (DragFloat("Barn Door Length (m)", &barnLength, 0.01f, 0.0f, 10.0f))
-		{
-			rect->SetBarnDoorLength(barnLength);
-		}
-	}
-}
-
 // ============================================================
 //  Outliner / Details 統合ウィンドウ
 //  上段: Outliner (アクター一覧)  下段: Details (選択アクター)
@@ -931,12 +707,22 @@ void ImGuiManager::DrawDetailsSection()
 		{
 			DrawPolygon2DSection(polygon);
 		}
+
+		if (auto* fog = dynamic_cast<UExponentialHeightFogComponent*>(component))
+		{
+			DrawExponentialHeightFogSection(fog);
+		}
 	}
 
 	// ---- アクター固有 (コンポーネントを持たないアクター) ----
 	if (auto* volume = dynamic_cast<APostProcessVolume*>(actor))
 	{
 		DrawPostProcessVolumeSection(volume);
+	}
+
+	if (auto* fog = dynamic_cast<AExponentialHeightFog*>(actor))
+	{
+		DrawExponentialHeightFogActorSection(fog);
 	}
 
 	// ---- ビューポート操作設定 ----
@@ -1253,204 +1039,6 @@ void ImGuiManager::DrawViewportControlsSection(ACameraActor* Camera)
 	}
 }
 
-bool ImGuiManager::DrawMaterialEditor(Material& Mat)
-{
-	bool changed = false;
-
-	// ---- Blend Mode / Two Sided ----
-	// Opaque / Masked はベースパス (G-Buffer)、Translucent / Additive は
-	// トランスルーセンシーパス (SceneColor へフォワード合成) で描かれる。
-	static const char* blendModeNames[] = { "Opaque", "Masked", "Translucent", "Additive" };
-	int blendMode = (int)Mat.Params.BlendMode;
-	if (Combo("Blend Mode", &blendMode, blendModeNames, IM_ARRAYSIZE(blendModeNames)))
-	{
-		Mat.Params.BlendMode = (EBlendMode)blendMode;
-		changed = true;
-	}
-
-	bool twoSided = Mat.IsTwoSided();
-	if (Checkbox("Two Sided", &twoSided))
-	{
-		Mat.SetTwoSided(twoSided);
-		changed = true;
-	}
-
-	// Masked のみ: OpacityMask の clip しきい値
-	if (IsMaskedBlendMode(Mat.Params.BlendMode))
-	{
-		changed |= SliderFloat("Opacity Mask Clip Value", &Mat.Params.OpacityMaskClipValue, 0.0f, 1.0f);
-	}
-
-	// Translucent / Additive のみ: 不透明度
-	if (IsTranslucentBlendMode(Mat.Params.BlendMode))
-	{
-		changed |= SliderFloat("Opacity", &Mat.Params.Opacity, 0.0f, 1.0f);
-	}
-
-	changed |= ColorEdit4("Base Color", &Mat.Params.BaseColor.x, ImGuiColorEditFlags_Float);
-	changed |= ColorEdit4("Emission", &Mat.Params.EmissionColor.x, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR);
-	changed |= SliderFloat("Metallic", &Mat.Params.Metallic, 0.0f, 1.0f);
-	changed |= SliderFloat("Specular", &Mat.Params.Specular, 0.0f, 1.0f);
-	changed |= SliderFloat("Roughness", &Mat.Params.Roughness, 0.0f, 1.0f);
-	changed |= SliderFloat("Normal Weight", &Mat.Params.NormalWeight, 0.0f, 2.0f);
-
-	bool unlit = (Mat.Params.Unlit != FALSE);
-	if (Checkbox("Unlit", &unlit))
-	{
-		Mat.Params.Unlit = unlit ? TRUE : FALSE;
-		changed = true;
-	}
-
-	// ============================================================
-	//  Substrate Slab BSDF
-	//  bUseSubstrate で Slab ワークフローに切り替える。レガシーの
-	//  Metallic / Specular は無視され、F0 / F90 が界面を定義する。
-	// ============================================================
-	if (CollapsingHeader("Substrate (Slab BSDF)"))
-	{
-		bool useSubstrate = Mat.IsSubstrateEnabled();
-		if (Checkbox("Use Substrate", &useSubstrate))
-		{
-			Mat.SetUseSubstrate(useSubstrate);
-			changed = true;
-		}
-
-		if (Mat.IsSubstrateEnabled())
-		{
-			changed |= ColorEdit3("Diffuse Albedo", &Mat.Params.SubstrateDiffuseAlbedo.x, ImGuiColorEditFlags_Float);
-			changed |= ColorEdit3("F0", &Mat.Params.SubstrateF0.x, ImGuiColorEditFlags_Float);
-			changed |= ColorEdit3("F90", &Mat.Params.SubstrateF90.x, ImGuiColorEditFlags_Float);
-			changed |= SliderFloat("Anisotropy", &Mat.Params.SubstrateAnisotropy, -1.0f, 1.0f);
-
-			// ---- Sub-Surface (SUBSTRATE_SSS_TYPE_* と 1:1) ----
-			// Diffusion / Diffusion Profile はスクリーン空間拡散パス
-			// 非対応環境のため非散乱にフォールバックする。
-			static const char* sssTypeNames[] =
-			{
-				"None", "Wrap", "Two Sided Wrap",
-				"Diffusion", "Diffusion Profile", "Simple Volume",
-			};
-			int sssType = (int)Mat.Params.SubstrateSSSType;
-			if (Combo("Sub-Surface Type", &sssType, sssTypeNames, IM_ARRAYSIZE(sssTypeNames)))
-			{
-				Mat.SetSubstrateSSSType((ESubstrateSSSType)sssType);
-				changed = true;
-			}
-
-			if (Mat.Params.SubstrateSSSType != ESubstrateSSSType::None)
-			{
-				// MFP は Transmittance Color + Thickness から導出される
-				// (TransmittanceToMeanFreePath, Substrate.hlsl)
-				// Transmittance Color = 「参照厚 1cm を通過したときの透過率」。
-				// Thickness が濃度スケール: 1cm でこの色が厳密に実現され、
-				// 2cm で T^2 (濃い)、0.5cm で √T (透ける)
-				changed |= ColorEdit3("Transmittance Color", &Mat.Params.SubstrateTransmittanceColor.x, ImGuiColorEditFlags_Float);
-				changed |= SliderFloat("Phase Anisotropy (g)", &Mat.Params.SubstrateSSSPhaseAnisotropy, -0.99f, 0.99f);
-			}
-
-			// 下限 0.001cm はシェーダ側 SUBSTRATE_MIN_THICKNESS_CM と同値
-			changed |= DragFloat("Thickness (cm)", &Mat.Params.SubstrateThickness, 0.001f, 0.001f, 100.0f, "%.4f");
-
-			bool isThin = (Mat.Params.SubstrateIsThin != FALSE);
-			if (Checkbox("Is Thin Surface", &isThin))
-			{
-				Mat.Params.SubstrateIsThin = isThin ? TRUE : FALSE;
-				changed = true;
-			}
-
-			// ---- 第 2 スペキュラローブ ----
-			changed |= SliderFloat("Second Roughness", &Mat.Params.SubstrateSecondRoughness, 0.0f, 1.0f);
-			changed |= SliderFloat("Second Roughness Weight", &Mat.Params.SubstrateSecondRoughnessWeight, 0.0f, 1.0f);
-
-			// ---- ファズ (布・産毛) ----
-			changed |= SliderFloat("Fuzz Amount", &Mat.Params.SubstrateFuzzColor.w, 0.0f, 1.0f);
-			changed |= ColorEdit3("Fuzz Color", &Mat.Params.SubstrateFuzzColor.x, ImGuiColorEditFlags_Float);
-			changed |= SliderFloat("Fuzz Roughness", &Mat.Params.SubstrateFuzzRoughness, 0.01f, 1.0f);
-		}
-	}
-
-	// ============================================================
-	//  Refraction
-	//  BLEND_Translucent のみ有効 (Additive は対象外)。
-	// ============================================================
-	if (CollapsingHeader("Refraction"))
-	{
-		static const char* refractionNames[] =
-		{
-			"None", "Index Of Refraction", "Pixel Normal Offset", "2D Offset",
-		};
-		int refractionMethod = (int)Mat.Params.RefractionMethod;
-		if (Combo("Refraction Method", &refractionMethod, refractionNames, IM_ARRAYSIZE(refractionNames)))
-		{
-			Mat.SetRefractionMethod((ERefractionMethod)refractionMethod);
-			changed = true;
-		}
-
-		if (Mat.Params.RefractionMethod != ERefractionMethod::None)
-		{
-			if (Mat.Params.BlendMode != EBlendMode::BLEND_Translucent)
-			{
-				TextDisabled("(requires Blend Mode = Translucent)");
-			}
-
-			switch (Mat.Params.RefractionMethod)
-			{
-			case ERefractionMethod::IndexOfRefraction:
-			{
-				// ---- Index Of Refraction From F0 ----
-				// Substrate では界面を F0 が定義するため、IOR も同じ F0
-				// から導出して整合させられる (誘電体逆変換)
-				bool useF0 = Mat.IsRefractionUseF0();
-				if (Checkbox("Index Of Refraction From F0", &useF0))
-				{
-					Mat.SetRefractionUseF0(useF0);
-					changed = true;
-				}
-
-				if (Mat.IsRefractionUseF0())
-				{
-					if (Mat.IsSubstrateEnabled())
-					{
-						// シェーダと同一式: DielectricF0ToIor(F0RGBToF0(F0))
-						const XMFLOAT4& f0 = Mat.Params.SubstrateF0;
-						float f0Avg = (f0.x + f0.y + f0.z) / 3.0f;
-						f0Avg = (f0Avg < 0.0f) ? 0.0f : ((f0Avg > 0.99f) ? 0.99f : f0Avg);
-						const float sqrtF0 = sqrtf(f0Avg);
-						const float derivedIOR = (1.0f + sqrtF0) / (1.0f - sqrtF0);
-						Text("Derived IOR: %.3f (from Substrate F0)", derivedIOR);
-					}
-					else
-					{
-						// レガシー経路は Slab F0 を持たないため手入力値のまま
-						TextDisabled("(requires Use Substrate; manual IOR is used)");
-						changed |= SliderFloat("Index Of Refraction", &Mat.Params.RefractionData.x, 1.0f, 3.0f);
-					}
-				}
-				else
-				{
-					// 1.0 = 空気 (無屈折), 1.33 = 水, 1.52 = ガラス
-					changed |= SliderFloat("Index Of Refraction", &Mat.Params.RefractionData.x, 1.0f, 3.0f);
-				}
-				break;
-			}
-			case ERefractionMethod::PixelNormalOffset:
-				changed |= SliderFloat("Refraction Strength", &Mat.Params.RefractionData.x, 0.0f, 3.0f);
-				break;
-			case ERefractionMethod::Offset2D:
-				changed |= DragFloat2("Screen Offset (pixel)", &Mat.Params.RefractionData.x, 0.1f, -128.0f, 128.0f);
-				break;
-			default:
-				break;
-			}
-
-			// 屈折先が「面の深度 + バイアス」より手前なら棄却する
-			changed |= DragFloat("Refraction Depth Bias (m)", &Mat.Params.RefractionDepthBias, 0.01f, 0.0f, 10.0f);
-		}
-	}
-
-	return changed;
-}
-
 void ImGuiManager::DrawStaticMeshSection(UStaticMeshComponent* Component)
 {
 	if (!CollapsingHeader("Materials", ImGuiTreeNodeFlags_DefaultOpen))
@@ -1747,4 +1335,695 @@ void ImGuiManager::DrawPostProcessVolumeSection(APostProcessVolume* Volume)
 		ImGui::SliderFloat("Far Blur Scale", &s.FarBlurScale, 0.0f, 10.0f);
 	}
 
+}
+
+// ============================================================
+//  ライト共通プロパティ (Lights ウィンドウ / Details 共用)
+// ============================================================
+void ImGuiManager::DrawLightComponentSection(ULightComponent* Light)
+{
+	if (!Light)
+		return;
+
+	ULightComponent* light = Light;
+
+	// ---- 共通プロパティ ----
+	bool affectsWorld = light->GetAffectsWorld();
+	if (Checkbox("Affects World", &affectsWorld))
+	{
+		light->SetAffectsWorld(affectsWorld);
+	}
+
+	// ---- シャドウ (全ライト共通) ----
+	bool castShadows = light->GetCastShadows();
+	if (Checkbox("Cast Shadows", &castShadows))
+	{
+		light->SetCastShadows(castShadows);
+	}
+	if (castShadows)
+	{
+		float shadowBias = light->GetShadowBias();
+		if (DragFloat("Shadow Bias", &shadowBias, 0.01f, 0.0f, 10.0f))
+		{
+			light->SetShadowBias(shadowBias);
+		}
+
+		float shadowSlopeBias = light->GetShadowSlopeBias();
+		if (DragFloat("Shadow Slope Bias", &shadowSlopeBias, 0.01f, 0.0f, 10.0f))
+		{
+			light->SetShadowSlopeBias(shadowSlopeBias);
+		}
+
+		bool dfShadows = light->GetUseRayTracedDistanceFieldShadows();
+		if (Checkbox("RayTraced DF Shadows", &dfShadows))
+		{
+			light->SetUseRayTracedDistanceFieldShadows(dfShadows);
+		}
+	}
+
+	// ---- Directional (CSM) ----
+	if (auto* directional = dynamic_cast<UDirectionalLightComponent*>(light))
+	{
+		if (directional->GetCastShadows())
+		{
+			float shadowDistance = directional->GetDynamicShadowDistance();
+			if (DragFloat("Dynamic Shadow Distance (m)", &shadowDistance, 1.0f, 5.0f, 500.0f))
+			{
+				directional->SetDynamicShadowDistance(shadowDistance);
+			}
+
+			int cascades = directional->GetDynamicShadowCascades();
+			if (SliderInt("Shadow Cascades", &cascades, 1, 4))
+			{
+				directional->SetDynamicShadowCascades(cascades);
+			}
+
+			float exponent = directional->GetCascadeDistributionExponent();
+			if (DragFloat("Cascade Distribution Exponent", &exponent, 0.05f, 1.0f, 5.0f))
+			{
+				directional->SetCascadeDistributionExponent(exponent);
+			}
+
+			float fade = directional->GetShadowDistanceFadeoutFraction();
+			if (SliderFloat("Shadow Fade Fraction", &fade, 0.0f, 0.5f))
+			{
+				directional->SetShadowDistanceFadeoutFraction(fade);
+			}
+
+			if (directional->GetUseRayTracedDistanceFieldShadows())
+			{
+				float dfDistance = directional->GetDistanceFieldShadowDistance();
+				if (DragFloat("DF Shadow Distance (m)", &dfDistance, 1.0f, 10.0f, 2000.0f))
+				{
+					directional->SetDistanceFieldShadowDistance(dfDistance);
+				}
+
+				float dfTrace = directional->GetDistanceFieldTraceDistance();
+				if (DragFloat("DF Trace Distance (m)", &dfTrace, 1.0f, 1.0f, 1000.0f))
+				{
+					directional->SetDistanceFieldTraceDistance(dfTrace);
+				}
+
+				float srcAngle = directional->GetLightSourceAngle();
+				if (DragFloat("Light Source Angle (deg)", &srcAngle, 0.05f, 0.05f, 20.0f))
+				{
+					directional->SetLightSourceAngle(srcAngle);
+				}
+			}
+		}
+	}
+
+	float intensity = light->GetIntensity();
+	if (DragFloat("Intensity", &intensity, 10.0f, 0.0f, 1000000.0f))
+	{
+		light->SetIntensity(intensity);
+	}
+
+	XMFLOAT4 color = light->GetLightColor();
+	if (ColorEdit3("Light Color", &color.x))
+	{
+		light->SetLightColor(color);
+	}
+
+	bool useTemperature = light->GetUseTemperature();
+	if (Checkbox("Use Temperature", &useTemperature))
+	{
+		light->SetUseTemperature(useTemperature);
+	}
+	if (useTemperature)
+	{
+		float temperature = light->GetTemperature();
+		if (SliderFloat("Temperature (K)", &temperature, 1500.0f, 15000.0f))
+		{
+			light->SetTemperature(temperature);
+		}
+	}
+
+	float specularScale = light->GetSpecularScale();
+	if (SliderFloat("Specular Scale", &specularScale, 0.0f, 1.0f))
+	{
+		light->SetSpecularScale(specularScale);
+	}
+
+	// Volumetric Fog へのこのライトの散乱寄与 (ULightComponentBase 同名)
+	float volumetricScattering = light->GetVolumetricScatteringIntensity();
+	if (DragFloat("Volumetric Scattering Intensity", &volumetricScattering, 0.01f, 0.0f, 100.0f))
+	{
+		light->SetVolumetricScatteringIntensity(volumetricScattering);
+	}
+
+	// ---- ローカルライト共通 (Point / Spot / Rect) ----
+	if (auto* local = dynamic_cast<ULocalLightComponent*>(light))
+	{
+		Separator();
+
+		float radius = local->GetAttenuationRadius();
+		if (DragFloat("Attenuation Radius (m)", &radius, 0.1f, 0.01f, 1000.0f))
+		{
+			local->SetAttenuationRadius(radius);
+		}
+
+		const char* unitNames[] = { "Unitless", "Candelas", "Lumens", "EV" };
+		int units = (int)local->GetIntensityUnits();
+		if (Combo("Intensity Units", &units, unitNames, 4))
+		{
+			local->SetIntensityUnits((ELightUnits)units);
+		}
+	}
+
+	// ---- Point / Spot ----
+	if (auto* point = dynamic_cast<UPointLightComponent*>(light))
+	{
+		float sourceRadius = point->GetSourceRadius();
+		if (DragFloat("Source Radius (m)", &sourceRadius, 0.01f, 0.0f, 10.0f))
+		{
+			point->SetSourceRadius(sourceRadius);
+		}
+
+		float softRadius = point->GetSoftSourceRadius();
+		if (DragFloat("Soft Source Radius (m)", &softRadius, 0.01f, 0.0f, 10.0f))
+		{
+			point->SetSoftSourceRadius(softRadius);
+		}
+
+		float sourceLength = point->GetSourceLength();
+		if (DragFloat("Source Length (m)", &sourceLength, 0.01f, 0.0f, 10.0f))
+		{
+			point->SetSourceLength(sourceLength);
+		}
+
+		bool inverseSquared = point->GetUseInverseSquaredFalloff();
+		if (Checkbox("Use Inverse Squared Falloff", &inverseSquared))
+		{
+			point->SetUseInverseSquaredFalloff(inverseSquared);
+		}
+		if (!inverseSquared)
+		{
+			float exponent = point->GetLightFalloffExponent();
+			if (DragFloat("Light Falloff Exponent", &exponent, 0.1f, 1.0f, 16.0f))
+			{
+				point->SetLightFalloffExponent(exponent);
+			}
+		}
+	}
+
+	// ---- Spot ----
+	if (auto* spot = dynamic_cast<USpotLightComponent*>(light))
+	{
+		float inner = spot->GetInnerConeAngle();
+		if (SliderFloat("Inner Cone Angle", &inner, 0.0f, 80.0f))
+		{
+			spot->SetInnerConeAngle(inner);
+		}
+
+		float outer = spot->GetOuterConeAngle();
+		if (SliderFloat("Outer Cone Angle", &outer, 1.0f, 80.0f))
+		{
+			spot->SetOuterConeAngle(outer);
+		}
+	}
+
+	// ---- Rect ----
+	if (auto* rect = dynamic_cast<URectLightComponent*>(light))
+	{
+		float width = rect->GetSourceWidth();
+		if (DragFloat("Source Width (m)", &width, 0.01f, 0.01f, 20.0f))
+		{
+			rect->SetSourceWidth(width);
+		}
+
+		float height = rect->GetSourceHeight();
+		if (DragFloat("Source Height (m)", &height, 0.01f, 0.01f, 20.0f))
+		{
+			rect->SetSourceHeight(height);
+		}
+
+		float barnAngle = rect->GetBarnDoorAngle();
+		if (SliderFloat("Barn Door Angle", &barnAngle, 0.0f, 88.0f))
+		{
+			rect->SetBarnDoorAngle(barnAngle);
+		}
+
+		float barnLength = rect->GetBarnDoorLength();
+		if (DragFloat("Barn Door Length (m)", &barnLength, 0.01f, 0.0f, 10.0f))
+		{
+			rect->SetBarnDoorLength(barnLength);
+		}
+	}
+}
+
+// ============================================================
+//  Exponential Height Fog (Details)
+//  UExponentialHeightFogComponent の全プロパティ  + Volumetric Fog + レンダラ設定 (r.VolumetricFog.*)。
+//  編集は全て公開セッター経由 -> MarkRenderStateDirty -> 次フレームに
+//  FScene の SceneInfo が再スナップショットされる。
+// ============================================================
+void ImGuiManager::DrawExponentialHeightFogActorSection(AExponentialHeightFog* Fog)
+{
+	if (!Fog)
+		return;
+
+	// AExponentialHeightFog::bEnabled (コンポーネントの可視性 = FScene 登録に委譲)
+	bool enabled = Fog->IsEnabled();
+	if (Checkbox("Enabled (Fog Actor)", &enabled))
+	{
+		Fog->SetEnabled(enabled);
+	}
+}
+
+void ImGuiManager::DrawExponentialHeightFogSection(UExponentialHeightFogComponent* Component)
+{
+	if (!Component)
+		return;
+
+	UExponentialHeightFogComponent* fog = Component;
+
+	// ---- Exponential Height Fog Component ----
+	if (CollapsingHeader("Exponential Height Fog", ImGuiTreeNodeFlags_DefaultOpen))
+	{
+		TextDisabled("Fog height = component world Y. Values are in meters.");
+
+		float density = fog->GetFogDensity();
+		if (DragFloat("Fog Density", &density, 0.001f, 0.0f, 10.0f, "%.4f"))
+		{
+			fog->SetFogDensity(density);
+		}
+
+		float falloff = fog->GetFogHeightFalloff();
+		if (DragFloat("Fog Height Falloff", &falloff, 0.001f, 0.0f, 10.0f, "%.4f"))
+		{
+			fog->SetFogHeightFalloff(falloff);
+		}
+
+		// ---- Second Fog Data ----
+		if (TreeNodeEx("Second Fog Data", ImGuiTreeNodeFlags_DefaultOpen))
+		{
+			const FExponentialHeightFogData& second = fog->GetSecondFogData();
+
+			float density2 = second.FogDensity;
+			if (DragFloat("Fog Density##2", &density2, 0.001f, 0.0f, 10.0f, "%.4f"))
+			{
+				fog->SetSecondFogDensity(density2);
+			}
+
+			float falloff2 = second.FogHeightFalloff;
+			if (DragFloat("Fog Height Falloff##2", &falloff2, 0.001f, 0.0f, 10.0f, "%.4f"))
+			{
+				fog->SetSecondFogHeightFalloff(falloff2);
+			}
+
+			float offset2 = second.FogHeightOffset;
+			if (DragFloat("Fog Height Offset (m)##2", &offset2, 0.1f, -10000.0f, 10000.0f))
+			{
+				fog->SetSecondFogHeightOffset(offset2);
+			}
+
+			TreePop();
+		}
+
+		XMFLOAT3 inscattering = fog->GetFogInscatteringLuminance();
+		if (ColorEdit3("Fog Inscattering Luminance", &inscattering.x, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR))
+		{
+			fog->SetFogInscatteringLuminance(inscattering);
+		}
+
+		// ---- Inscattering Texture (キューブマップ = IBL の空) ----
+		bool useCubemap = fog->GetInscatteringColorCubemap();
+		if (Checkbox("Inscattering Color Cubemap (IBL Sky)", &useCubemap))
+		{
+			fog->SetInscatteringColorCubemap(useCubemap);
+		}
+		if (useCubemap)
+		{
+			float angle = fog->GetInscatteringColorCubemapAngle();
+			if (SliderFloat("Inscattering Color Cubemap Angle", &angle, 0.0f, 360.0f))
+			{
+				fog->SetInscatteringColorCubemapAngle(angle);
+			}
+
+			XMFLOAT3 tint = fog->GetInscatteringTextureTint();
+			if (ColorEdit3("Inscattering Texture Tint", &tint.x, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR))
+			{
+				fog->SetInscatteringTextureTint(tint);
+			}
+
+			float fullyDir = fog->GetFullyDirectionalInscatteringColorDistance();
+			if (DragFloat("Fully Directional Inscattering Color Distance (m)", &fullyDir, 1.0f, 0.0f, 100000.0f))
+			{
+				fog->SetFullyDirectionalInscatteringColorDistance(fullyDir);
+			}
+
+			float nonDir = fog->GetNonDirectionalInscatteringColorDistance();
+			if (DragFloat("Non Directional Inscattering Color Distance (m)", &nonDir, 0.1f, 0.0f, 100000.0f))
+			{
+				fog->SetNonDirectionalInscatteringColorDistance(nonDir);
+			}
+
+			TextDisabled("(Directional Inscattering is disabled while the cubemap is used)");
+		}
+	}
+
+	// ---- Directional Inscattering ----
+	if (CollapsingHeader("Directional Inscattering", ImGuiTreeNodeFlags_DefaultOpen))
+	{
+		float exponent = fog->GetDirectionalInscatteringExponent();
+		if (DragFloat("Directional Inscattering Exponent", &exponent, 0.1f, 0.0f, 1000.0f))
+		{
+			fog->SetDirectionalInscatteringExponent(exponent);
+		}
+
+		float startDistance = fog->GetDirectionalInscatteringStartDistance();
+		if (DragFloat("Directional Inscattering Start Distance (m)", &startDistance, 0.5f, 0.0f, 100000.0f))
+		{
+			fog->SetDirectionalInscatteringStartDistance(startDistance);
+		}
+
+		XMFLOAT3 luminance = fog->GetDirectionalInscatteringLuminance();
+		if (ColorEdit3("Directional Inscattering Luminance", &luminance.x, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR))
+		{
+			fog->SetDirectionalInscatteringLuminance(luminance);
+		}
+	}
+
+	// ---- Distance ----
+	if (CollapsingHeader("Distance", ImGuiTreeNodeFlags_DefaultOpen))
+	{
+		float maxOpacity = fog->GetFogMaxOpacity();
+		if (SliderFloat("Fog Max Opacity", &maxOpacity, 0.0f, 1.0f))
+		{
+			fog->SetFogMaxOpacity(maxOpacity);
+		}
+
+		float startDistance = fog->GetStartDistance();
+		if (DragFloat("Start Distance (m)", &startDistance, 0.5f, 0.0f, 100000.0f))
+		{
+			fog->SetStartDistance(startDistance);
+		}
+
+		float endDistance = fog->GetEndDistance();
+		if (DragFloat("End Distance (m, 0 = off)", &endDistance, 0.5f, 0.0f, 100000.0f))
+		{
+			fog->SetEndDistance(endDistance);
+		}
+
+		float cutoff = fog->GetFogCutoffDistance();
+		if (DragFloat("Fog Cutoff Distance (m, 0 = off)", &cutoff, 0.5f, 0.0f, 100000.0f))
+		{
+			fog->SetFogCutoffDistance(cutoff);
+		}
+	}
+
+	// ---- Volumetric Fog ----
+	if (CollapsingHeader("Volumetric Fog", ImGuiTreeNodeFlags_DefaultOpen))
+	{
+		// ラベルは CollapsingHeader ("Volumetric Fog") と ID が衝突しないよう別名にする
+		bool volumetric = fog->GetVolumetricFog();
+		if (Checkbox("Enable Volumetric Fog", &volumetric))
+		{
+			fog->SetVolumetricFog(volumetric);
+		}
+
+		if (volumetric)
+		{
+			float g = fog->GetVolumetricFogScatteringDistribution();
+			if (SliderFloat("Scattering Distribution (g)", &g, -0.99f, 0.99f))
+			{
+				fog->SetVolumetricFogScatteringDistribution(g);
+			}
+
+			XMFLOAT3 albedo = fog->GetVolumetricFogAlbedo();
+			if (ColorEdit3("Albedo", &albedo.x, ImGuiColorEditFlags_Float))
+			{
+				fog->SetVolumetricFogAlbedo(albedo);
+			}
+
+			XMFLOAT3 emissive = fog->GetVolumetricFogEmissive();
+			if (ColorEdit3("Emissive", &emissive.x, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR))
+			{
+				fog->SetVolumetricFogEmissive(emissive);
+			}
+
+			float extinction = fog->GetVolumetricFogExtinctionScale();
+			if (DragFloat("Extinction Scale", &extinction, 0.01f, 0.0f, 100.0f))
+			{
+				fog->SetVolumetricFogExtinctionScale(extinction);
+			}
+
+			float viewDistance = fog->GetVolumetricFogDistance();
+			if (DragFloat("View Distance (m)", &viewDistance, 0.5f, 1.0f, 10000.0f))
+			{
+				fog->SetVolumetricFogDistance(viewDistance);
+			}
+
+			float vStart = fog->GetVolumetricFogStartDistance();
+			if (DragFloat("Start Distance (m)##vf", &vStart, 0.1f, 0.0f, 10000.0f))
+			{
+				fog->SetVolumetricFogStartDistance(vStart);
+			}
+
+			float nearFade = fog->GetVolumetricFogNearFadeInDistance();
+			if (DragFloat("Near Fade In Distance (m)", &nearFade, 0.1f, 0.0f, 10000.0f))
+			{
+				fog->SetVolumetricFogNearFadeInDistance(nearFade);
+			}
+
+			float staticScattering = fog->GetVolumetricFogStaticLightingScatteringIntensity();
+			if (DragFloat("Static Lighting Scattering Intensity (Sky/IBL)", &staticScattering, 0.01f, 0.0f, 100.0f))
+			{
+				fog->SetVolumetricFogStaticLightingScatteringIntensity(staticScattering);
+			}
+
+			bool overrideColors = fog->GetOverrideLightColorsWithFogInscatteringColors();
+			if (Checkbox("Override Light Colors With Fog Inscattering Colors", &overrideColors))
+			{
+				fog->SetOverrideLightColorsWithFogInscatteringColors(overrideColors);
+			}
+
+			// ---- レンダラ設定 (r.VolumetricFog.* 相当。[VolumetricFog] に永続化) ----
+			FFogSceneRenderer* fogRenderer = m_SceneRenderer ? m_SceneRenderer->GetFogRenderer() : nullptr;
+			FVolumetricFog* volumetricFog = fogRenderer ? fogRenderer->GetVolumetricFog() : nullptr;
+			if (volumetricFog && TreeNodeEx("Renderer (r.VolumetricFog.*)", 0))
+			{
+				FVolumetricFog::Params& params = volumetricFog->GetParams();
+				const FVolumetricFog::Stats& stats = volumetricFog->GetStats();
+
+				Text("Froxel Grid : %u x %u x %u (%u froxels, %u px tiles)",
+					stats.GridSizeX, stats.GridSizeY, stats.GridSizeZ, stats.NumFroxels,
+					VOLUMETRIC_FOG_GRID_PIXEL_SIZE);
+				Text("Volume Memory : %.1f MB (5 x RGBA16F)",
+					(double)stats.NumFroxels * 8.0 * 5.0 / (1024.0 * 1024.0));
+				TextDisabled(stats.bDispatchedThisFrame ? "Status: active" : "Status: idle");
+
+				Checkbox("Temporal Reprojection", &params.bTemporalReprojection);
+				Checkbox("Jitter", &params.bJitter);
+				SliderFloat("History Weight", &params.HistoryWeight, 0.0f, 0.99f);
+				SliderFloat("Inverse Squared Light Distance Bias Scale", &params.InverseSquaredLightDistanceBiasScale, 0.0f, 10.0f);
+
+				if (m_Settings && Button("Reset Renderer Settings"))
+				{
+					m_Settings->ResetVolumetricFog();
+				}
+
+				TreePop();
+			}
+		}
+	}
+}
+
+bool ImGuiManager::DrawMaterialEditor(Material& Mat)
+{
+	bool changed = false;
+
+	// ---- Blend Mode / Two Sided ----
+	// Opaque / Masked はベースパス (G-Buffer)、Translucent / Additive は
+	// トランスルーセンシーパス (SceneColor へフォワード合成) で描かれる。
+	static const char* blendModeNames[] = { "Opaque", "Masked", "Translucent", "Additive" };
+	int blendMode = (int)Mat.Params.BlendMode;
+	if (Combo("Blend Mode", &blendMode, blendModeNames, IM_ARRAYSIZE(blendModeNames)))
+	{
+		Mat.Params.BlendMode = (EBlendMode)blendMode;
+		changed = true;
+	}
+
+	bool twoSided = Mat.IsTwoSided();
+	if (Checkbox("Two Sided", &twoSided))
+	{
+		Mat.SetTwoSided(twoSided);
+		changed = true;
+	}
+
+	// Masked のみ: OpacityMask の clip しきい値
+	if (IsMaskedBlendMode(Mat.Params.BlendMode))
+	{
+		changed |= SliderFloat("Opacity Mask Clip Value", &Mat.Params.OpacityMaskClipValue, 0.0f, 1.0f);
+	}
+
+	// Translucent / Additive のみ: 不透明度
+	if (IsTranslucentBlendMode(Mat.Params.BlendMode))
+	{
+		changed |= SliderFloat("Opacity", &Mat.Params.Opacity, 0.0f, 1.0f);
+	}
+
+	changed |= ColorEdit4("Base Color", &Mat.Params.BaseColor.x, ImGuiColorEditFlags_Float);
+	changed |= ColorEdit4("Emission", &Mat.Params.EmissionColor.x, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR);
+	changed |= SliderFloat("Metallic", &Mat.Params.Metallic, 0.0f, 1.0f);
+	changed |= SliderFloat("Specular", &Mat.Params.Specular, 0.0f, 1.0f);
+	changed |= SliderFloat("Roughness", &Mat.Params.Roughness, 0.0f, 1.0f);
+	changed |= SliderFloat("Normal Weight", &Mat.Params.NormalWeight, 0.0f, 2.0f);
+
+	bool unlit = (Mat.Params.Unlit != FALSE);
+	if (Checkbox("Unlit", &unlit))
+	{
+		Mat.Params.Unlit = unlit ? TRUE : FALSE;
+		changed = true;
+	}
+
+	// ============================================================
+	//  Substrate Slab BSDF
+	//  bUseSubstrate で Slab ワークフローに切り替える。レガシーの
+	//  Metallic / Specular は無視され、F0 / F90 が界面を定義する。
+	// ============================================================
+	if (CollapsingHeader("Substrate (Slab BSDF)"))
+	{
+		bool useSubstrate = Mat.IsSubstrateEnabled();
+		if (Checkbox("Use Substrate", &useSubstrate))
+		{
+			Mat.SetUseSubstrate(useSubstrate);
+			changed = true;
+		}
+
+		if (Mat.IsSubstrateEnabled())
+		{
+			changed |= ColorEdit3("Diffuse Albedo", &Mat.Params.SubstrateDiffuseAlbedo.x, ImGuiColorEditFlags_Float);
+			changed |= ColorEdit3("F0", &Mat.Params.SubstrateF0.x, ImGuiColorEditFlags_Float);
+			changed |= ColorEdit3("F90", &Mat.Params.SubstrateF90.x, ImGuiColorEditFlags_Float);
+			changed |= SliderFloat("Anisotropy", &Mat.Params.SubstrateAnisotropy, -1.0f, 1.0f);
+
+			// ---- Sub-Surface (SUBSTRATE_SSS_TYPE_* と 1:1) ----
+			// Diffusion / Diffusion Profile はスクリーン空間拡散パス
+			// 非対応環境のため非散乱にフォールバックする。
+			static const char* sssTypeNames[] =
+			{
+				"None", "Wrap", "Two Sided Wrap",
+				"Diffusion", "Diffusion Profile", "Simple Volume",
+			};
+			int sssType = (int)Mat.Params.SubstrateSSSType;
+			if (Combo("Sub-Surface Type", &sssType, sssTypeNames, IM_ARRAYSIZE(sssTypeNames)))
+			{
+				Mat.SetSubstrateSSSType((ESubstrateSSSType)sssType);
+				changed = true;
+			}
+
+			if (Mat.Params.SubstrateSSSType != ESubstrateSSSType::None)
+			{
+				// MFP は Transmittance Color + Thickness から導出される
+				// (TransmittanceToMeanFreePath, Substrate.hlsl)
+				// Transmittance Color = 「参照厚 1cm を通過したときの透過率」。
+				// Thickness が濃度スケール: 1cm でこの色が厳密に実現され、
+				// 2cm で T^2 (濃い)、0.5cm で √T (透ける)
+				changed |= ColorEdit3("Transmittance Color", &Mat.Params.SubstrateTransmittanceColor.x, ImGuiColorEditFlags_Float);
+				changed |= SliderFloat("Phase Anisotropy (g)", &Mat.Params.SubstrateSSSPhaseAnisotropy, -0.99f, 0.99f);
+			}
+
+			// 下限 0.001cm はシェーダ側 SUBSTRATE_MIN_THICKNESS_CM と同値
+			changed |= DragFloat("Thickness (cm)", &Mat.Params.SubstrateThickness, 0.001f, 0.001f, 100.0f, "%.4f");
+
+			bool isThin = (Mat.Params.SubstrateIsThin != FALSE);
+			if (Checkbox("Is Thin Surface", &isThin))
+			{
+				Mat.Params.SubstrateIsThin = isThin ? TRUE : FALSE;
+				changed = true;
+			}
+
+			// ---- 第 2 スペキュラローブ ----
+			changed |= SliderFloat("Second Roughness", &Mat.Params.SubstrateSecondRoughness, 0.0f, 1.0f);
+			changed |= SliderFloat("Second Roughness Weight", &Mat.Params.SubstrateSecondRoughnessWeight, 0.0f, 1.0f);
+
+			// ---- ファズ (布・産毛) ----
+			changed |= SliderFloat("Fuzz Amount", &Mat.Params.SubstrateFuzzColor.w, 0.0f, 1.0f);
+			changed |= ColorEdit3("Fuzz Color", &Mat.Params.SubstrateFuzzColor.x, ImGuiColorEditFlags_Float);
+			changed |= SliderFloat("Fuzz Roughness", &Mat.Params.SubstrateFuzzRoughness, 0.01f, 1.0f);
+		}
+	}
+
+	// ============================================================
+	//  Refraction
+	//  BLEND_Translucent のみ有効 (Additive は対象外)。
+	// ============================================================
+	if (CollapsingHeader("Refraction"))
+	{
+		static const char* refractionNames[] =
+		{
+			"None", "Index Of Refraction", "Pixel Normal Offset", "2D Offset",
+		};
+		int refractionMethod = (int)Mat.Params.RefractionMethod;
+		if (Combo("Refraction Method", &refractionMethod, refractionNames, IM_ARRAYSIZE(refractionNames)))
+		{
+			Mat.SetRefractionMethod((ERefractionMethod)refractionMethod);
+			changed = true;
+		}
+
+		if (Mat.Params.RefractionMethod != ERefractionMethod::None)
+		{
+			if (Mat.Params.BlendMode != EBlendMode::BLEND_Translucent)
+			{
+				TextDisabled("(requires Blend Mode = Translucent)");
+			}
+
+			switch (Mat.Params.RefractionMethod)
+			{
+			case ERefractionMethod::IndexOfRefraction:
+			{
+				// ---- Index Of Refraction From F0 ----
+				// Substrate では界面を F0 が定義するため、IOR も同じ F0
+				// から導出して整合させられる (誘電体逆変換)
+				bool useF0 = Mat.IsRefractionUseF0();
+				if (Checkbox("Index Of Refraction From F0", &useF0))
+				{
+					Mat.SetRefractionUseF0(useF0);
+					changed = true;
+				}
+
+				if (Mat.IsRefractionUseF0())
+				{
+					if (Mat.IsSubstrateEnabled())
+					{
+						// シェーダと同一式: DielectricF0ToIor(F0RGBToF0(F0))
+						const XMFLOAT4& f0 = Mat.Params.SubstrateF0;
+						float f0Avg = (f0.x + f0.y + f0.z) / 3.0f;
+						f0Avg = (f0Avg < 0.0f) ? 0.0f : ((f0Avg > 0.99f) ? 0.99f : f0Avg);
+						const float sqrtF0 = sqrtf(f0Avg);
+						const float derivedIOR = (1.0f + sqrtF0) / (1.0f - sqrtF0);
+						Text("Derived IOR: %.3f (from Substrate F0)", derivedIOR);
+					}
+					else
+					{
+						// レガシー経路は Slab F0 を持たないため手入力値のまま
+						TextDisabled("(requires Use Substrate; manual IOR is used)");
+						changed |= SliderFloat("Index Of Refraction", &Mat.Params.RefractionData.x, 1.0f, 3.0f);
+					}
+				}
+				else
+				{
+					// 1.0 = 空気 (無屈折), 1.33 = 水, 1.52 = ガラス
+					changed |= SliderFloat("Index Of Refraction", &Mat.Params.RefractionData.x, 1.0f, 3.0f);
+				}
+				break;
+			}
+			case ERefractionMethod::PixelNormalOffset:
+				changed |= SliderFloat("Refraction Strength", &Mat.Params.RefractionData.x, 0.0f, 3.0f);
+				break;
+			case ERefractionMethod::Offset2D:
+				changed |= DragFloat2("Screen Offset (pixel)", &Mat.Params.RefractionData.x, 0.1f, -128.0f, 128.0f);
+				break;
+			default:
+				break;
+			}
+
+			// 屈折先が「面の深度 + バイアス」より手前なら棄却する
+			changed |= DragFloat("Refraction Depth Bias (m)", &Mat.Params.RefractionDepthBias, 0.01f, 0.0f, 10.0f);
+		}
+	}
+
+	return changed;
 }

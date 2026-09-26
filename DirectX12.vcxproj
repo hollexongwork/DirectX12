@@ -48,7 +48,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>MultiByte</CharacterSet>
   </PropertyGroup>
@@ -144,8 +144,11 @@
     <ClCompile Include="DDSTextureLoader12.cpp" />
     <ClCompile Include="DirectionalLight.cpp" />
     <ClCompile Include="DistanceFieldAtlas.cpp" />
+    <ClCompile Include="ExponentialHeightFog.cpp" />
+    <ClCompile Include="ExponentialHeightFogComponent.cpp" />
     <ClCompile Include="FBXModel.cpp" />
     <ClCompile Include="Field.cpp" />
+    <ClCompile Include="FogRendering.cpp" />
     <ClCompile Include="GameManager.cpp" />
     <ClCompile Include="IBLBaker.cpp" />
     <ClCompile Include="ImGuiManager.cpp" />
@@ -184,6 +187,7 @@
     <ClCompile Include="StaticMeshActor.cpp" />
     <ClCompile Include="StaticMeshComponent.cpp" />
     <ClCompile Include="Time.cpp" />
+    <ClCompile Include="VolumetricFog.cpp" />
     <ClCompile Include="World.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -203,7 +207,10 @@
     <ClInclude Include="DirectionalLight.h" />
     <ClInclude Include="DirectxMathOperators.h" />
     <ClInclude Include="DistanceFieldAtlas.h" />
+    <ClInclude Include="ExponentialHeightFog.h" />
+    <ClInclude Include="ExponentialHeightFogComponent.h" />
     <ClInclude Include="FBXModel.h" />
+    <ClInclude Include="FogRendering.h" />
     <ClInclude Include="IBLBaker.h" />
     <ClInclude Include="Light.h" />
     <ClInclude Include="LightComponent.h" />
@@ -247,6 +254,7 @@
     <ClInclude Include="StaticMeshActor.h" />
     <ClInclude Include="StaticMeshComponent.h" />
     <ClInclude Include="Time.h" />
+    <ClInclude Include="VolumetricFog.h" />
     <ClInclude Include="World.h" />
   </ItemGroup>
   <ItemGroup>

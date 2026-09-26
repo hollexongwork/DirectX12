@@ -76,6 +76,7 @@ void UWorld::SendAllEndOfFrameUpdates()
 {
 	m_Scene.UpdateAllPrimitiveSceneInfos();
 	m_Scene.UpdateAllLightSceneInfos();
+	m_Scene.UpdateAllExponentialHeightFogSceneInfos();
 }
 
 // ------------------------------------------------------------

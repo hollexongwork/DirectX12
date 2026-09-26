@@ -9,6 +9,10 @@
 #include "ColorGradingLUTBaker.h"
 #include "Light.h"
 #include "LightComponent.h"
+#include "ExponentialHeightFog.h"
+#include "ExponentialHeightFogComponent.h"
+#include "FogRendering.h"
+#include "VolumetricFog.h"
 #include "StaticMeshComponent.h"
 #include "Field.h"
 #include "Polygon2D.h"
@@ -55,6 +59,11 @@ void SettingsManager::Initialize(UWorld* World, FSceneRenderer* Renderer, ImGuiM
 
 void SettingsManager::CaptureDefaults()
 {
+	if (m_ImGui)
+	{
+		m_DefaultLayout = m_ImGui->GetLayoutSettings();
+	}
+
 	if (m_PostProcess)
 	{
 		m_DefaultPP = m_PostProcess->Settings();
@@ -77,9 +86,9 @@ void SettingsManager::CaptureDefaults()
 		m_DefaultLumen = m_Lumen->GetParams();
 	}
 
-	if (m_ImGui)
+	if (m_VolumetricFog)
 	{
-		m_DefaultLayout = m_ImGui->GetLayoutSettings();
+		m_DefaultVolumetricFog = m_VolumetricFog->GetParams();
 	}
 
 	if (m_CameraActor)
@@ -105,6 +114,12 @@ void SettingsManager::LoadAndApply()
 	ConfigFile ini;
 	if (!ini.Load(CONFIG_PATH))
 		return;	// 初回起動などファイルが無ければコード初期値のまま
+
+	// ---- ImGui レイアウト (ウィンドウ表示フラグ / スプリッタ比率) ----
+	if (m_ImGui && ini.HasSection("ImGui"))
+	{
+		ReadImGuiLayout(ini, m_ImGui->GetLayoutSettings());
+	}
 
 	// ---- PostProcess (PP_SETTINGS + EV) ----
 	if (m_PostProcess && ini.HasSection("PostProcess"))
@@ -176,10 +191,10 @@ void SettingsManager::LoadAndApply()
 		ReadLumen(ini, m_Lumen->GetParams());
 	}
 
-	// ---- ImGui レイアウト (ウィンドウ表示フラグ / スプリッタ比率) ----
-	if (m_ImGui && ini.HasSection("ImGui"))
+	// ---- Volumetric Fog (r.VolumetricFog.* 相当のレンダラ設定) ----
+	if (m_VolumetricFog && ini.HasSection("VolumetricFog"))
 	{
-		ReadImGuiLayout(ini, m_ImGui->GetLayoutSettings());
+		ReadVolumetricFog(ini, m_VolumetricFog->GetParams());
 	}
 
 	// ---- ビューポート操作設定 ----
@@ -225,6 +240,11 @@ bool SettingsManager::SaveCurrent() const
 
 	ConfigFile ini;
 
+	if (m_ImGui)
+	{
+		WriteImGuiLayout(ini, m_ImGui->GetLayoutSettings());
+	}
+
 	if (m_PostProcess)
 	{
 		WritePostProcess(ini, m_PostProcess->Settings(), m_PostProcess->EV());
@@ -262,9 +282,9 @@ bool SettingsManager::SaveCurrent() const
 		WriteLumen(ini, m_Lumen->GetParams());
 	}
 
-	if (m_ImGui)
+	if (m_VolumetricFog)
 	{
-		WriteImGuiLayout(ini, m_ImGui->GetLayoutSettings());
+		WriteVolumetricFog(ini, m_VolumetricFog->GetParams());
 	}
 
 	if (m_CameraActor)
@@ -294,6 +314,14 @@ bool SettingsManager::SaveCurrent() const
 // ------------------------------------------------------------
 //  Reset 系: Default スナップショットへ巻き戻す
 // ------------------------------------------------------------
+void SettingsManager::ResetImGuiLayout()
+{
+	if (m_ImGui)
+	{
+		m_ImGui->GetLayoutSettings() = m_DefaultLayout;
+	}
+}
+
 void SettingsManager::ResetPostProcess()
 {
 	if (m_PostProcess)
@@ -407,11 +435,11 @@ void SettingsManager::ResetLumen()
 	}
 }
 
-void SettingsManager::ResetImGuiLayout()
+void SettingsManager::ResetVolumetricFog()
 {
-	if (m_ImGui)
+	if (m_VolumetricFog)
 	{
-		m_ImGui->GetLayoutSettings() = m_DefaultLayout;
+		m_VolumetricFog->GetParams() = m_DefaultVolumetricFog;
 	}
 }
 
@@ -425,11 +453,12 @@ void SettingsManager::ResetEditorViewport()
 
 void SettingsManager::ResetAll()
 {
+	ResetImGuiLayout();
 	ResetPostProcess();
 	ResetAutoExposure();
 	ResetAllActors();
 	ResetLumen();
-	ResetImGuiLayout();
+	ResetVolumetricFog();
 	ResetEditorViewport();
 }
 
@@ -497,6 +526,14 @@ void SettingsManager::ApplyActor(AActor* Actor, const ActorSnapshot& Snap)
 			volume->bEnabled = Snap.PPEnabled;
 			volume->bUnbound = Snap.PPUnbound;
 			volume->BlendWeight = Snap.PPBlendWeight;
+		}
+	}
+
+	if (auto* fog = dynamic_cast<AExponentialHeightFog*>(Actor))
+	{
+		if (Snap.bExponentialHeightFogActor)
+		{
+			fog->SetEnabled(Snap.FogEnabled);
 		}
 	}
 
@@ -580,6 +617,12 @@ SettingsManager::ComponentSnapshot SettingsManager::CaptureComponent(UActorCompo
 		CaptureLightComponent(light, snap);
 	}
 
+	if (auto* fog = dynamic_cast<UExponentialHeightFogComponent*>(Component))
+	{
+		snap.bExponentialHeightFog = true;
+		CaptureFogComponent(fog, snap);
+	}
+
 	return snap;
 }
 
@@ -657,6 +700,14 @@ void SettingsManager::ApplyComponent(UActorComponent* Component, const Component
 		if (Snap.bLight)
 		{
 			ApplyLightComponent(light, Snap);
+		}
+	}
+
+	if (auto* fog = dynamic_cast<UExponentialHeightFogComponent*>(Component))
+	{
+		if (Snap.bExponentialHeightFog)
+		{
+			ApplyFogComponent(fog, Snap);
 		}
 	}
 }
@@ -794,6 +845,7 @@ void SettingsManager::CaptureLightComponent(const ULightComponent* Light, Compon
 	InOut.ShadowBias = Light->GetShadowBias();
 	InOut.ShadowSlopeBias = Light->GetShadowSlopeBias();
 	InOut.UseRayTracedDistanceFieldShadows = Light->GetUseRayTracedDistanceFieldShadows();
+	InOut.VolumetricScatteringIntensity = Light->GetVolumetricScatteringIntensity();
 
 	if (auto* directional = dynamic_cast<const UDirectionalLightComponent*>(Light))
 	{
@@ -854,6 +906,7 @@ void SettingsManager::ApplyLightComponent(ULightComponent* Light, const Componen
 	Light->SetShadowBias(Snap.ShadowBias);
 	Light->SetShadowSlopeBias(Snap.ShadowSlopeBias);
 	Light->SetUseRayTracedDistanceFieldShadows(Snap.UseRayTracedDistanceFieldShadows);
+	Light->SetVolumetricScatteringIntensity(Snap.VolumetricScatteringIntensity);
 
 	if (auto* directional = dynamic_cast<UDirectionalLightComponent*>(Light))
 	{
@@ -897,6 +950,89 @@ void SettingsManager::ApplyLightComponent(ULightComponent* Light, const Componen
 }
 
 // ------------------------------------------------------------
+//  Exponential Height Fog コンポーネントのキャプチャ / 適用
+// ------------------------------------------------------------
+void SettingsManager::CaptureFogComponent(const UExponentialHeightFogComponent* Fog, ComponentSnapshot& InOut)
+{
+	if (!Fog)
+		return;
+
+	InOut.FogDensity = Fog->GetFogDensity();
+	InOut.FogHeightFalloff = Fog->GetFogHeightFalloff();
+	InOut.SecondFogDensity = Fog->GetSecondFogData().FogDensity;
+	InOut.SecondFogHeightFalloff = Fog->GetSecondFogData().FogHeightFalloff;
+	InOut.SecondFogHeightOffset = Fog->GetSecondFogData().FogHeightOffset;
+	InOut.FogInscatteringLuminance = Fog->GetFogInscatteringLuminance();
+
+	InOut.InscatteringColorCubemap = Fog->GetInscatteringColorCubemap();
+	InOut.InscatteringColorCubemapAngle = Fog->GetInscatteringColorCubemapAngle();
+	InOut.InscatteringTextureTint = Fog->GetInscatteringTextureTint();
+	InOut.FullyDirectionalInscatteringColorDistance = Fog->GetFullyDirectionalInscatteringColorDistance();
+	InOut.NonDirectionalInscatteringColorDistance = Fog->GetNonDirectionalInscatteringColorDistance();
+
+	InOut.DirectionalInscatteringExponent = Fog->GetDirectionalInscatteringExponent();
+	InOut.DirectionalInscatteringStartDistance = Fog->GetDirectionalInscatteringStartDistance();
+	InOut.DirectionalInscatteringLuminance = Fog->GetDirectionalInscatteringLuminance();
+
+	InOut.FogMaxOpacity = Fog->GetFogMaxOpacity();
+	InOut.StartDistance = Fog->GetStartDistance();
+	InOut.EndDistance = Fog->GetEndDistance();
+	InOut.FogCutoffDistance = Fog->GetFogCutoffDistance();
+
+	InOut.EnableVolumetricFog = Fog->GetVolumetricFog();
+	InOut.VolumetricFogScatteringDistribution = Fog->GetVolumetricFogScatteringDistribution();
+	InOut.VolumetricFogAlbedo = Fog->GetVolumetricFogAlbedo();
+	InOut.VolumetricFogEmissive = Fog->GetVolumetricFogEmissive();
+	InOut.VolumetricFogExtinctionScale = Fog->GetVolumetricFogExtinctionScale();
+	InOut.VolumetricFogDistance = Fog->GetVolumetricFogDistance();
+	InOut.VolumetricFogStartDistance = Fog->GetVolumetricFogStartDistance();
+	InOut.VolumetricFogNearFadeInDistance = Fog->GetVolumetricFogNearFadeInDistance();
+	InOut.VolumetricFogStaticLightingScatteringIntensity = Fog->GetVolumetricFogStaticLightingScatteringIntensity();
+	InOut.OverrideLightColorsWithFogInscatteringColors = Fog->GetOverrideLightColorsWithFogInscatteringColors();
+}
+
+void SettingsManager::ApplyFogComponent(UExponentialHeightFogComponent* Fog, const ComponentSnapshot& Snap)
+{
+	if (!Fog)
+		return;
+
+	// セッター経由なので変更は自動で MarkRenderStateDirty され、
+	// 次フレームの SceneInfo 再スナップショットに乗る。
+	Fog->SetFogDensity(Snap.FogDensity);
+	Fog->SetFogHeightFalloff(Snap.FogHeightFalloff);
+	Fog->SetSecondFogDensity(Snap.SecondFogDensity);
+	Fog->SetSecondFogHeightFalloff(Snap.SecondFogHeightFalloff);
+	Fog->SetSecondFogHeightOffset(Snap.SecondFogHeightOffset);
+	Fog->SetFogInscatteringLuminance(Snap.FogInscatteringLuminance);
+
+	Fog->SetInscatteringColorCubemap(Snap.InscatteringColorCubemap);
+	Fog->SetInscatteringColorCubemapAngle(Snap.InscatteringColorCubemapAngle);
+	Fog->SetInscatteringTextureTint(Snap.InscatteringTextureTint);
+	Fog->SetFullyDirectionalInscatteringColorDistance(Snap.FullyDirectionalInscatteringColorDistance);
+	Fog->SetNonDirectionalInscatteringColorDistance(Snap.NonDirectionalInscatteringColorDistance);
+
+	Fog->SetDirectionalInscatteringExponent(Snap.DirectionalInscatteringExponent);
+	Fog->SetDirectionalInscatteringStartDistance(Snap.DirectionalInscatteringStartDistance);
+	Fog->SetDirectionalInscatteringLuminance(Snap.DirectionalInscatteringLuminance);
+
+	Fog->SetFogMaxOpacity(Snap.FogMaxOpacity);
+	Fog->SetStartDistance(Snap.StartDistance);
+	Fog->SetEndDistance(Snap.EndDistance);
+	Fog->SetFogCutoffDistance(Snap.FogCutoffDistance);
+
+	Fog->SetVolumetricFog(Snap.EnableVolumetricFog);
+	Fog->SetVolumetricFogScatteringDistribution(Snap.VolumetricFogScatteringDistribution);
+	Fog->SetVolumetricFogAlbedo(Snap.VolumetricFogAlbedo);
+	Fog->SetVolumetricFogEmissive(Snap.VolumetricFogEmissive);
+	Fog->SetVolumetricFogExtinctionScale(Snap.VolumetricFogExtinctionScale);
+	Fog->SetVolumetricFogDistance(Snap.VolumetricFogDistance);
+	Fog->SetVolumetricFogStartDistance(Snap.VolumetricFogStartDistance);
+	Fog->SetVolumetricFogNearFadeInDistance(Snap.VolumetricFogNearFadeInDistance);
+	Fog->SetVolumetricFogStaticLightingScatteringIntensity(Snap.VolumetricFogStaticLightingScatteringIntensity);
+	Fog->SetOverrideLightColorsWithFogInscatteringColors(Snap.OverrideLightColorsWithFogInscatteringColors);
+}
+
+// ------------------------------------------------------------
 //  ActorSnapshot <-> INI セクション ([Actor.N])
 // ------------------------------------------------------------
 void SettingsManager::WriteActor(ConfigFile& Ini, const std::string& Section, const ActorSnapshot& Snap)
@@ -909,6 +1045,11 @@ void SettingsManager::WriteActor(ConfigFile& Ini, const std::string& Section, co
 		Ini.SetBool(Section, "Enabled", Snap.PPEnabled);
 		Ini.SetBool(Section, "Unbound", Snap.PPUnbound);
 		Ini.SetFloat(Section, "BlendWeight", Snap.PPBlendWeight);
+	}
+
+	if (Snap.bExponentialHeightFogActor)
+	{
+		Ini.SetBool(Section, "Enabled", Snap.FogEnabled);
 	}
 
 	Ini.SetInt(Section, "NumComponents", (int)Snap.Components.size());
@@ -930,6 +1071,11 @@ void SettingsManager::ReadActor(const ConfigFile& Ini, const std::string& Sectio
 		Ini.GetBool(Section, "Enabled", InOut.PPEnabled);
 		Ini.GetBool(Section, "Unbound", InOut.PPUnbound);
 		Ini.GetFloat(Section, "BlendWeight", InOut.PPBlendWeight);
+	}
+
+	if (InOut.bExponentialHeightFogActor)
+	{
+		Ini.GetBool(Section, "Enabled", InOut.FogEnabled);
 	}
 
 	for (size_t i = 0; i < InOut.Components.size(); ++i)
@@ -1051,6 +1197,7 @@ void SettingsManager::WriteComponent(ConfigFile& Ini, const std::string& Section
 		Ini.SetFloat(Section, Prefix + "ShadowBias", Snap.ShadowBias);
 		Ini.SetFloat(Section, Prefix + "ShadowSlopeBias", Snap.ShadowSlopeBias);
 		Ini.SetBool(Section, Prefix + "UseRayTracedDFShadows", Snap.UseRayTracedDistanceFieldShadows);
+		Ini.SetFloat(Section, Prefix + "VolumetricScatteringIntensity", Snap.VolumetricScatteringIntensity);
 
 		if (isDirectional)
 		{
@@ -1091,6 +1238,43 @@ void SettingsManager::WriteComponent(ConfigFile& Ini, const std::string& Section
 			Ini.SetFloat(Section, Prefix + "BarnDoorAngle", Snap.BarnDoorAngle);
 			Ini.SetFloat(Section, Prefix + "BarnDoorLength", Snap.BarnDoorLength);
 		}
+	}
+
+	if (Snap.bExponentialHeightFog)
+	{
+		// キー名は UExponentialHeightFogComponent のプロパティ名と一致させる
+		Ini.SetFloat(Section, Prefix + "FogDensity", Snap.FogDensity);
+		Ini.SetFloat(Section, Prefix + "FogHeightFalloff", Snap.FogHeightFalloff);
+		Ini.SetFloat(Section, Prefix + "SecondFogDensity", Snap.SecondFogDensity);
+		Ini.SetFloat(Section, Prefix + "SecondFogHeightFalloff", Snap.SecondFogHeightFalloff);
+		Ini.SetFloat(Section, Prefix + "SecondFogHeightOffset", Snap.SecondFogHeightOffset);
+		Ini.SetFloat3(Section, Prefix + "FogInscatteringLuminance", Snap.FogInscatteringLuminance);
+
+		Ini.SetBool(Section, Prefix + "InscatteringColorCubemap", Snap.InscatteringColorCubemap);
+		Ini.SetFloat(Section, Prefix + "InscatteringColorCubemapAngle", Snap.InscatteringColorCubemapAngle);
+		Ini.SetFloat3(Section, Prefix + "InscatteringTextureTint", Snap.InscatteringTextureTint);
+		Ini.SetFloat(Section, Prefix + "FullyDirectionalInscatteringColorDistance", Snap.FullyDirectionalInscatteringColorDistance);
+		Ini.SetFloat(Section, Prefix + "NonDirectionalInscatteringColorDistance", Snap.NonDirectionalInscatteringColorDistance);
+
+		Ini.SetFloat(Section, Prefix + "DirectionalInscatteringExponent", Snap.DirectionalInscatteringExponent);
+		Ini.SetFloat(Section, Prefix + "DirectionalInscatteringStartDistance", Snap.DirectionalInscatteringStartDistance);
+		Ini.SetFloat3(Section, Prefix + "DirectionalInscatteringLuminance", Snap.DirectionalInscatteringLuminance);
+
+		Ini.SetFloat(Section, Prefix + "FogMaxOpacity", Snap.FogMaxOpacity);
+		Ini.SetFloat(Section, Prefix + "StartDistance", Snap.StartDistance);
+		Ini.SetFloat(Section, Prefix + "EndDistance", Snap.EndDistance);
+		Ini.SetFloat(Section, Prefix + "FogCutoffDistance", Snap.FogCutoffDistance);
+
+		Ini.SetBool(Section, Prefix + "bEnableVolumetricFog", Snap.EnableVolumetricFog);
+		Ini.SetFloat(Section, Prefix + "VolumetricFogScatteringDistribution", Snap.VolumetricFogScatteringDistribution);
+		Ini.SetFloat3(Section, Prefix + "VolumetricFogAlbedo", Snap.VolumetricFogAlbedo);
+		Ini.SetFloat3(Section, Prefix + "VolumetricFogEmissive", Snap.VolumetricFogEmissive);
+		Ini.SetFloat(Section, Prefix + "VolumetricFogExtinctionScale", Snap.VolumetricFogExtinctionScale);
+		Ini.SetFloat(Section, Prefix + "VolumetricFogDistance", Snap.VolumetricFogDistance);
+		Ini.SetFloat(Section, Prefix + "VolumetricFogStartDistance", Snap.VolumetricFogStartDistance);
+		Ini.SetFloat(Section, Prefix + "VolumetricFogNearFadeInDistance", Snap.VolumetricFogNearFadeInDistance);
+		Ini.SetFloat(Section, Prefix + "VolumetricFogStaticLightingScatteringIntensity", Snap.VolumetricFogStaticLightingScatteringIntensity);
+		Ini.SetBool(Section, Prefix + "bOverrideLightColorsWithFogInscatteringColors", Snap.OverrideLightColorsWithFogInscatteringColors);
 	}
 }
 
@@ -1170,6 +1354,7 @@ void SettingsManager::ReadComponent(const ConfigFile& Ini, const std::string& Se
 	Ini.GetFloat(Section, Prefix + "ShadowBias", InOut.ShadowBias);
 	Ini.GetFloat(Section, Prefix + "ShadowSlopeBias", InOut.ShadowSlopeBias);
 	Ini.GetBool(Section, Prefix + "UseRayTracedDFShadows", InOut.UseRayTracedDistanceFieldShadows);
+	Ini.GetFloat(Section, Prefix + "VolumetricScatteringIntensity", InOut.VolumetricScatteringIntensity);
 
 	Ini.GetFloat(Section, Prefix + "DynamicShadowDistance", InOut.DynamicShadowDistance);
 	Ini.GetInt(Section, Prefix + "DynamicShadowCascades", InOut.DynamicShadowCascades);
@@ -1195,6 +1380,62 @@ void SettingsManager::ReadComponent(const ConfigFile& Ini, const std::string& Se
 	Ini.GetFloat(Section, Prefix + "SourceHeight", InOut.SourceHeight);
 	Ini.GetFloat(Section, Prefix + "BarnDoorAngle", InOut.BarnDoorAngle);
 	Ini.GetFloat(Section, Prefix + "BarnDoorLength", InOut.BarnDoorLength);
+
+	// Exponential Height Fog (クラス名一致は呼び出し側で確認済み)
+	if (InOut.bExponentialHeightFog)
+	{
+		Ini.GetFloat(Section, Prefix + "FogDensity", InOut.FogDensity);
+		Ini.GetFloat(Section, Prefix + "FogHeightFalloff", InOut.FogHeightFalloff);
+		Ini.GetFloat(Section, Prefix + "SecondFogDensity", InOut.SecondFogDensity);
+		Ini.GetFloat(Section, Prefix + "SecondFogHeightFalloff", InOut.SecondFogHeightFalloff);
+		Ini.GetFloat(Section, Prefix + "SecondFogHeightOffset", InOut.SecondFogHeightOffset);
+		Ini.GetFloat3(Section, Prefix + "FogInscatteringLuminance", InOut.FogInscatteringLuminance);
+
+		Ini.GetBool(Section, Prefix + "InscatteringColorCubemap", InOut.InscatteringColorCubemap);
+		Ini.GetFloat(Section, Prefix + "InscatteringColorCubemapAngle", InOut.InscatteringColorCubemapAngle);
+		Ini.GetFloat3(Section, Prefix + "InscatteringTextureTint", InOut.InscatteringTextureTint);
+		Ini.GetFloat(Section, Prefix + "FullyDirectionalInscatteringColorDistance", InOut.FullyDirectionalInscatteringColorDistance);
+		Ini.GetFloat(Section, Prefix + "NonDirectionalInscatteringColorDistance", InOut.NonDirectionalInscatteringColorDistance);
+
+		Ini.GetFloat(Section, Prefix + "DirectionalInscatteringExponent", InOut.DirectionalInscatteringExponent);
+		Ini.GetFloat(Section, Prefix + "DirectionalInscatteringStartDistance", InOut.DirectionalInscatteringStartDistance);
+		Ini.GetFloat3(Section, Prefix + "DirectionalInscatteringLuminance", InOut.DirectionalInscatteringLuminance);
+
+		Ini.GetFloat(Section, Prefix + "FogMaxOpacity", InOut.FogMaxOpacity);
+		Ini.GetFloat(Section, Prefix + "StartDistance", InOut.StartDistance);
+		Ini.GetFloat(Section, Prefix + "EndDistance", InOut.EndDistance);
+		Ini.GetFloat(Section, Prefix + "FogCutoffDistance", InOut.FogCutoffDistance);
+
+		Ini.GetBool(Section, Prefix + "bEnableVolumetricFog", InOut.EnableVolumetricFog);
+		Ini.GetFloat(Section, Prefix + "VolumetricFogScatteringDistribution", InOut.VolumetricFogScatteringDistribution);
+		Ini.GetFloat3(Section, Prefix + "VolumetricFogAlbedo", InOut.VolumetricFogAlbedo);
+		Ini.GetFloat3(Section, Prefix + "VolumetricFogEmissive", InOut.VolumetricFogEmissive);
+		Ini.GetFloat(Section, Prefix + "VolumetricFogExtinctionScale", InOut.VolumetricFogExtinctionScale);
+		Ini.GetFloat(Section, Prefix + "VolumetricFogDistance", InOut.VolumetricFogDistance);
+		Ini.GetFloat(Section, Prefix + "VolumetricFogStartDistance", InOut.VolumetricFogStartDistance);
+		Ini.GetFloat(Section, Prefix + "VolumetricFogNearFadeInDistance", InOut.VolumetricFogNearFadeInDistance);
+		Ini.GetFloat(Section, Prefix + "VolumetricFogStaticLightingScatteringIntensity", InOut.VolumetricFogStaticLightingScatteringIntensity);
+		Ini.GetBool(Section, Prefix + "bOverrideLightColorsWithFogInscatteringColors", InOut.OverrideLightColorsWithFogInscatteringColors);
+
+		// ---- 手編集 / 旧 INI に対するクランプ (ImGui のレンジと同値) ----
+		auto clampFloat = [](float& v, float lo, float hi) { v = v < lo ? lo : (v > hi ? hi : v); };
+		clampFloat(InOut.FogDensity, 0.0f, 10.0f);
+		clampFloat(InOut.FogHeightFalloff, 0.0f, 10.0f);
+		clampFloat(InOut.SecondFogDensity, 0.0f, 10.0f);
+		clampFloat(InOut.SecondFogHeightFalloff, 0.0f, 10.0f);
+		clampFloat(InOut.FogMaxOpacity, 0.0f, 1.0f);
+		clampFloat(InOut.StartDistance, 0.0f, 100000.0f);
+		clampFloat(InOut.EndDistance, 0.0f, 100000.0f);
+		clampFloat(InOut.FogCutoffDistance, 0.0f, 100000.0f);
+		clampFloat(InOut.DirectionalInscatteringExponent, 0.0f, 1000.0f);
+		clampFloat(InOut.DirectionalInscatteringStartDistance, 0.0f, 100000.0f);
+		clampFloat(InOut.VolumetricFogScatteringDistribution, -0.99f, 0.99f);
+		clampFloat(InOut.VolumetricFogExtinctionScale, 0.0f, 100.0f);
+		clampFloat(InOut.VolumetricFogDistance, 1.0f, 10000.0f);
+		clampFloat(InOut.VolumetricFogStartDistance, 0.0f, 10000.0f);
+		clampFloat(InOut.VolumetricFogNearFadeInDistance, 0.0f, 10000.0f);
+		clampFloat(InOut.VolumetricFogStaticLightingScatteringIntensity, 0.0f, 100.0f);
+	}
 }
 
 // ------------------------------------------------------------
@@ -1419,6 +1660,36 @@ void SettingsManager::ReadLumen(const ConfigFile& Ini, FLumenSceneData::Params& 
 	clampFloat(p.TranslucencyGIIntensity, 0.0f, 4.0f);
 	clampFloat(p.RadianceCacheSpacing, 0.25f, 4.0f);
 	clampInt(p.RadianceCacheProbesPerFrame, 16, 1024);
+}
+
+// ------------------------------------------------------------
+//  Volumetric Fog Params <-> [VolumetricFog] セクション
+//  r.VolumetricFog.* 相当のレンダラ設定 (フォグコンポーネントの
+//  プロパティは [Actor.N] 側)。キー名はフィールド名と一致させる。
+// ------------------------------------------------------------
+void SettingsManager::WriteVolumetricFog(ConfigFile& Ini, const FVolumetricFog::Params& p)
+{
+	const std::string sec = "VolumetricFog";
+
+	Ini.SetBool(sec, "bTemporalReprojection", p.bTemporalReprojection);
+	Ini.SetBool(sec, "bJitter", p.bJitter);
+	Ini.SetFloat(sec, "HistoryWeight", p.HistoryWeight);
+	Ini.SetFloat(sec, "InverseSquaredLightDistanceBiasScale", p.InverseSquaredLightDistanceBiasScale);
+}
+
+void SettingsManager::ReadVolumetricFog(const ConfigFile& Ini, FVolumetricFog::Params& p)
+{
+	const std::string sec = "VolumetricFog";
+
+	Ini.GetBool(sec, "bTemporalReprojection", p.bTemporalReprojection);
+	Ini.GetBool(sec, "bJitter", p.bJitter);
+	Ini.GetFloat(sec, "HistoryWeight", p.HistoryWeight);
+	Ini.GetFloat(sec, "InverseSquaredLightDistanceBiasScale", p.InverseSquaredLightDistanceBiasScale);
+
+	// ---- 手編集 / 旧 INI に対するクランプ (ImGui スライダーのレンジと同値) ----
+	auto clampFloat = [](float& v, float lo, float hi) { v = v < lo ? lo : (v > hi ? hi : v); };
+	clampFloat(p.HistoryWeight, 0.0f, 0.99f);
+	clampFloat(p.InverseSquaredLightDistanceBiasScale, 0.0f, 10.0f);
 }
 
 // ------------------------------------------------------------

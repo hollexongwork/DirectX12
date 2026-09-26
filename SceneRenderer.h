@@ -7,6 +7,7 @@ class FScene;
 class FShadowSceneRenderer;
 class FLightSceneProxy;
 class FLumenSceneData;
+class FFogSceneRenderer;
 struct FLumenFrameInputs;
 struct FSceneView;
 
@@ -21,9 +22,12 @@ struct FSceneView;
 //                            (フラスタム/距離カリング) + 可視プリミティブ -> G-Buffer
 //    RenderShadowDepths    : CSM + ローカルシャドウ深度 -> シャドウマップ
 //    RenderLighting        : ライトグリッド構築 (タイルドライトカリング)
-//                            + LinearDepth + デファードライティング -> SceneColor
+//                            + Volumetric Fog (froxel 積分) + LinearDepth
+//                            + デファードライティング -> SceneColor
+//                            + Exponential Height Fog パス (SceneColor へ合成)
 //    RenderTranslucency    : Translucent / Additive プリミティブを
 //                            後→前ソートで SceneColor へフォワード合成
+//                            (フォグはサーフェス位置で直接評価)
 //    RenderPostProcessing  : DOF -> AutoExposure -> Bloom -> LUT -> Tonemap
 //    EndFrame              : ImGui 描画 + Present
 //
@@ -119,6 +123,14 @@ private:
 	// 記録し、RenderLighting のデファードパスが b6 + t24-t27 で
 	// スクリーン GI (エミッシブ光源化を含む) を読む。
 	std::unique_ptr<FLumenSceneData> m_LumenScene;
+
+	// ---- Exponential Height Fog / Volumetric Fog (FFogSceneRenderer, FogRendering.h) ----
+	// RenderBasePass の InitFogConstants が FScene の ExponentialFogs[0] と
+	// ビュー / 太陽光から FOG 定数 (b7) を解決し、RenderLighting が
+	// Volumetric Fog のコンピュート (ライトグリッド後) とフォグパス
+	// (デファード直後) を記録する。トランスルーセンシーは b7 + t33/t34 を
+	// バインドしてサーフェス位置で直接評価する。
+	std::unique_ptr<FFogSceneRenderer> m_FogRenderer;
 
 	// ---- Lumen スクリーンスペーストレース用の履歴 ----
 	// CopySceneColorHistory (RenderPostProcessing 先頭) が毎フレーム
@@ -232,6 +244,9 @@ public:
 
 	// Lumen Surface Cache (ImGui の Lumen ウィンドウ用)
 	FLumenSceneData* GetLumenScene() { return m_LumenScene.get(); }
+
+	// Exponential Height Fog / Volumetric Fog (ImGui の Details / SettingsManager 用)
+	FFogSceneRenderer* GetFogRenderer() { return m_FogRenderer.get(); }
 
 	// ---- フラスタムカリング制御 (ImGui デバッグ用) ----
 	struct FCullingParams

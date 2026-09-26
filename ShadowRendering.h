@@ -240,6 +240,19 @@ public:
 	unsigned int GetNumShadowViews() const { return (unsigned int)m_ShadowViews.size(); }
 	unsigned int GetNumDistanceFieldObjects() const { return m_NumDFObjects; }
 
+	// ---- Volumetric Fog (FVolumetricFog, VolumetricFog.h) 用アクセサ ----
+	// ライト散乱コンピュートパスが CSM (t14) / ローカルアトラス (t15) /
+	// ローカルシャドウパラメータ (t16) と b5 の内容を読むためのもの。
+	// シャドウターゲットの常在状態は PIXEL_SHADER_RESOURCE (深度パス外)
+	// なので、コンピュートから読む側が NON_PIXEL へ一時遷移して戻すこと。
+	// InitDynamicShadows の後 (今フレーム分が確定した後) に呼ぶこと。
+	ID3D12Resource* GetCSMResource() const { return m_CSMTarget.Resource.Get(); }
+	unsigned int    GetCSMSRVIndex() const { return m_CSMTarget.SRVIndex; }
+	ID3D12Resource* GetLocalShadowResource() const { return m_LocalTarget.Resource.Get(); }
+	unsigned int    GetLocalShadowSRVIndex() const { return m_LocalTarget.SRVIndex; }
+	unsigned int    GetLocalShadowParamSRVIndex() const { return m_ShadowParamSRVIndex[m_ShadowParamFrame]; }
+	const DIRECTIONAL_SHADOW_CONSTANT& GetDirectionalShadowConstant() const { return m_DirectionalConstant; }
+
 private:
 	FShadowCullingStats m_CullingStats;
 };

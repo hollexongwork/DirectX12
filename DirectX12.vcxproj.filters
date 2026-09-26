@@ -108,6 +108,9 @@
     <Filter Include="ソース ファイル\System\Render\Lumen">
       <UniqueIdentifier>{e83d55f2-ea53-4f1f-8946-e8035c9396ba}</UniqueIdentifier>
     </Filter>
+    <Filter Include="ソース ファイル\System\Render\Fog">
+      <UniqueIdentifier>{350b32e1-24d0-428f-a68f-667588bd1092}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="ImGUI\imgui.cpp">
@@ -268,6 +271,18 @@
     </ClCompile>
     <ClCompile Include="CameraController.cpp">
       <Filter>ソース ファイル\GameObject\Camera</Filter>
+    </ClCompile>
+    <ClCompile Include="ExponentialHeightFog.cpp">
+      <Filter>ソース ファイル\GameObject</Filter>
+    </ClCompile>
+    <ClCompile Include="ExponentialHeightFogComponent.cpp">
+      <Filter>ソース ファイル\GameObject\Component</Filter>
+    </ClCompile>
+    <ClCompile Include="FogRendering.cpp">
+      <Filter>ソース ファイル\System\Render\Fog</Filter>
+    </ClCompile>
+    <ClCompile Include="VolumetricFog.cpp">
+      <Filter>ソース ファイル\System\Render\Fog</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -453,6 +468,18 @@
     </ClInclude>
     <ClInclude Include="CameraController.h">
       <Filter>ソース ファイル\GameObject\Camera</Filter>
+    </ClInclude>
+    <ClInclude Include="ExponentialHeightFog.h">
+      <Filter>ソース ファイル\GameObject</Filter>
+    </ClInclude>
+    <ClInclude Include="ExponentialHeightFogComponent.h">
+      <Filter>ソース ファイル\GameObject\Component</Filter>
+    </ClInclude>
+    <ClInclude Include="FogRendering.h">
+      <Filter>ソース ファイル\System\Render\Fog</Filter>
+    </ClInclude>
+    <ClInclude Include="VolumetricFog.h">
+      <Filter>ソース ファイル\System\Render\Fog</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
