@@ -16,7 +16,7 @@
 //
 //
 //  密度関数:  d(y) = FogDensity * exp2(-FogHeightFalloff * (y - FogHeight))
-//  透過率:    T = exp2(-∫ d ds)  (UE と同じく exp2 系で統一。
+//  透過率:    T = exp2(-∫ d ds)  (exp2 系で統一。
 //             CalculateLineIntegralShared の (1 - 2^-a)/a は
 //             ∫0^1 2^(-a t) dt の ln2 倍なので exp2 とちょうど整合する)
 // =============================================================

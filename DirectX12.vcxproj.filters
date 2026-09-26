@@ -684,25 +684,25 @@
     <FxCompile Include="Shader\LumenTracingHardware.hlsl">
       <Filter>Shader\Lumen</Filter>
     </FxCompile>
-    <FxCompile Include="HeightFogPS.hlsl">
+    <FxCompile Include="Shader\HeightFogPS.hlsl">
       <Filter>Shader\Fog</Filter>
     </FxCompile>
-    <FxCompile Include="HeightFogCommon.hlsl">
-      <Filter>Shader\Fog</Filter>
-    </FxCompile>
-    <FxCompile Include="ShadowProjectionCommon.hlsl">
+    <FxCompile Include="Shader\ShadowProjectionCommon.hlsl">
       <Filter>Shader\Shadow</Filter>
     </FxCompile>
-    <FxCompile Include="VolumetricFogAttributes_CS.hlsl">
+    <FxCompile Include="Shader\VolumetricFogAttributes_CS.hlsl">
       <Filter>Shader\Fog</Filter>
     </FxCompile>
-    <FxCompile Include="VolumetricFogCommon.hlsl">
+    <FxCompile Include="Shader\VolumetricFogCommon.hlsl">
       <Filter>Shader\Fog</Filter>
     </FxCompile>
-    <FxCompile Include="VolumetricFogIntegration_CS.hlsl">
+    <FxCompile Include="Shader\VolumetricFogIntegration_CS.hlsl">
       <Filter>Shader\Fog</Filter>
     </FxCompile>
-    <FxCompile Include="VolumetricFogLightScattering_CS.hlsl">
+    <FxCompile Include="Shader\VolumetricFogLightScattering_CS.hlsl">
+      <Filter>Shader\Fog</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\HeightFogCommon.hlsl">
       <Filter>Shader\Fog</Filter>
     </FxCompile>
   </ItemGroup>
