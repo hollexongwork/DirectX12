@@ -57,7 +57,7 @@ struct PS_OUTPUT
 #define LIGHT_FLAG_INVERSE_SQUARED (1u << 0)
 
 // FLightShaderParameters。
-// C++ 側 (LightSceneProxy.h) と 1:1 ミラー必須 (逐次パック 96 bytes)。
+// C++ 側 (LightSceneProxy.h) と 1:1 ミラー必須 (逐次パック 112 bytes)。
 // StructuredBuffer 用なので cbuffer の 16 バイト境界規則は適用されない。
 // Direction は「発光方向」(受光面 -> ライトではない) 点に注意。
 struct FLightShaderParameters
@@ -82,6 +82,10 @@ struct FLightShaderParameters
     float RectLightBarnLength; // バーンドア長 [m]
     uint Type; // LIGHT_TYPE_*
     uint Flags; // LIGHT_FLAG_*
+
+    // ---- Volumetric Fog (ULightComponentBase::VolumetricScatteringIntensity) ----
+    float VolumetricScatteringIntensity; // Volumetric Fog への散乱寄与スケール (0 = 寄与なし)
+    float3 LightPad0; // 16 バイト境界合わせ (未使用)
 };
 
 // FLocalShadowParameters。

@@ -111,6 +111,9 @@
     <Filter Include="ソース ファイル\System\Render\Fog">
       <UniqueIdentifier>{350b32e1-24d0-428f-a68f-667588bd1092}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Shader\Fog">
+      <UniqueIdentifier>{afa09335-21ba-49fc-9863-1c49dc14de87}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="ImGUI\imgui.cpp">
@@ -680,6 +683,27 @@
     </FxCompile>
     <FxCompile Include="Shader\LumenTracingHardware.hlsl">
       <Filter>Shader\Lumen</Filter>
+    </FxCompile>
+    <FxCompile Include="HeightFogPS.hlsl">
+      <Filter>Shader\Fog</Filter>
+    </FxCompile>
+    <FxCompile Include="HeightFogCommon.hlsl">
+      <Filter>Shader\Fog</Filter>
+    </FxCompile>
+    <FxCompile Include="ShadowProjectionCommon.hlsl">
+      <Filter>Shader\Shadow</Filter>
+    </FxCompile>
+    <FxCompile Include="VolumetricFogAttributes_CS.hlsl">
+      <Filter>Shader\Fog</Filter>
+    </FxCompile>
+    <FxCompile Include="VolumetricFogCommon.hlsl">
+      <Filter>Shader\Fog</Filter>
+    </FxCompile>
+    <FxCompile Include="VolumetricFogIntegration_CS.hlsl">
+      <Filter>Shader\Fog</Filter>
+    </FxCompile>
+    <FxCompile Include="VolumetricFogLightScattering_CS.hlsl">
+      <Filter>Shader\Fog</Filter>
     </FxCompile>
   </ItemGroup>
   <ItemGroup>

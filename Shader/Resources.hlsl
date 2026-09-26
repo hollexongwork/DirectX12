@@ -4,7 +4,7 @@
 #include "Structs.hlsl"
 
 // =============================================================
-//  SRV レジスタレイアウト (C++ TEXTURE_TYPE と 1:1 ミラー必須)
+//  SRV レジスタレイアウト (C++ TEXTURE_TYPE と 1:1 ミラー必須, t0..t34)
 //  ワールド座標 (深度 + InvViewProjection から再構築する)。
 // =============================================================
 
@@ -101,6 +101,18 @@ Texture2D<float4> LumenReflectionTexture : register(t29);
 Texture3D<float4> LumenRCSH_R : register(t30);
 Texture3D<float4> LumenRCSH_G : register(t31);
 Texture3D<float4> LumenRCSH_B : register(t32);
+
+// ---- Exponential Height Fog / Volumetric Fog (t33-t34, FogRendering.h) ----
+// t33: Inscattering Color Cubemap (FogStruct.FogInscatteringColorCubemap)。
+//      本エンジンでは IBL の prefilter キューブ (t7 と同一リソース。
+//      ミップ = ぼかし段階) を割り当てる。b7 の ExponentialFogParameters3.z
+//      が 0 のときは参照されない。
+// t34: Volumetric Fog の積分結果 (IntegratedLightScattering)。
+//      rgb = カメラからその froxel までの累積インスキャッタ, a = 透過率。
+//      VolumetricFogParameters / GridZParams (b7) でボリューム UV を求め、
+//      HeightFogCommon.hlsl の CombineVolumetricFog がサンプルする。
+TextureCube<float4> FogInscatteringColorCubemap : register(t33);
+Texture3D<float4> IntegratedLightScattering : register(t34);
 
 // ---- サンプラー ----
 SamplerState Sampler : register(s0); // ANISOTROPIC, WRAP

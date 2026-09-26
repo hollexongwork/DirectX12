@@ -5,7 +5,8 @@
 //  定数バッファ
 //  C++ 側 (RenderManager.h) の CONSTANT_TYPE と 1:1 ミラー必須:
 //    b0 = VIEW / b1 = PRIMITIVE / b2 = MATERIAL /
-//    b3 = FORWARD_LIGHT / b4 = POST_PROCESS / b5 = SHADOW
+//    b3 = FORWARD_LIGHT / b4 = POST_PROCESS / b5 = SHADOW /
+//    b6 = LUMEN / b7 = FOG
 // =============================================================
 
 // ---- PostProcess フラグ (PostProcess.Flags のビットマスク) ----
@@ -156,21 +157,21 @@ cbuffer PostProcessConstantBuffer : register(b4)
         // --- group 0 : Exposure / Tonemapper ---
         float Exposure;
         uint TonemapperMode; // 0=ACES(Narkowicz) 1=ACES(Hill) 2=None(clamp)
-        float BloomIntensity; 
-        float BloomThreshold; 
+        float BloomIntensity;
+        float BloomThreshold;
 
         // --- group 1 : White Balance ---
         float WhiteTemp; // 1500..15000 K
         float WhiteTint;
-        float ChromaticAberration; 
-        float VignetteIntensity; 
+        float ChromaticAberration;
+        float VignetteIntensity;
 
         // --- group 2 : Color Grading (global) ---
-        float4 ColorSaturation; 
-        float4 ColorContrast; 
-        float4 ColorGamma; 
-        float4 ColorGain; 
-        float4 ColorOffset; 
+        float4 ColorSaturation;
+        float4 ColorContrast;
+        float4 ColorGamma;
+        float4 ColorGain;
+        float4 ColorOffset;
 
         // --- group 3 : misc ---
         float FilmGrainIntensity;
@@ -246,6 +247,52 @@ cbuffer LumenSceneParameters : register(b6)
     // トロイダルアドレッシング: probeIndex = wrap(floor(worldPos / spacing))
     float4 LumenRadianceCacheParams0; // xyz = ボリューム最小コーナー [m], w = プローブ間隔 [m]
     float4 LumenRadianceCacheParams1; // x = プローブ数/軸, y = 有効 (0/1), z = 1/間隔, w = 予約
+};
+
+// -------------------------------------------------------------
+//  b7 : FogUniformParameters (FFogUniformParameters / FogStruct 相当)
+//  Exponential Height Fog + Volumetric Fog のビュー毎パラメータ。
+//  C++ 側 FOG_CONSTANT (FogRendering.h) と 1:1 ミラー必須 (192 bytes)。
+//  FSceneRenderer::RenderBasePass 先頭 (InitFogConstants) で毎フレーム
+//  解決され、フォグパス (HeightFogPS) / トランスルーセンシー
+//  (TranslucentPS) が HeightFogCommon.hlsl 経由で参照する。
+//  ※ 本エンジンは Y-up / メートル単位。UE の Z (高さ) は全て Y。
+//    密度 / 高さ減衰は [1/m] に換算済み (FExponentialHeightFogSceneInfo)。
+// -------------------------------------------------------------
+cbuffer FogUniformParameters : register(b7)
+{
+    // x = FogDensity0 * exp2(-HeightFalloff0 * (ObserverY - Height0)) (観測者高さで畳み込んだ密度)
+    // y = HeightFalloff0 [1/m], z = MaxWorldObserverHeight [m], w = StartDistance [m]
+    float4 ExponentialFogParameters;
+    // x = FogDensity1 * exp2(-HeightFalloff1 * (ObserverY - Height1)) (第 2 層)
+    // y = HeightFalloff1 [1/m], z = FogDensity1 [1/m], w = Height1 [m]
+    float4 ExponentialFogParameters2;
+    // rgb = FogInscatteringLuminance (キューブマップ使用時は InscatteringTextureTint)
+    // w   = 1 - FogMaxOpacity (= 最小透過率 MinFogOpacity)
+    float4 ExponentialFogColorParameter;
+    // x = FogDensity0 [1/m], y = Height0 [m], z = キューブマップ使用 (0/1), w = FogCutoffDistance [m] (0 = 無効)
+    float4 ExponentialFogParameters3;
+    // xyz = 受光点 -> ディレクショナルライト方向 (正規化)
+    // w   = DirectionalInscatteringStartDistance [m] (負 = Directional Inscattering 無効)
+    float4 InscatteringLightDirection;
+    // rgb = DirectionalInscatteringLuminance, w = DirectionalInscatteringExponent
+    float4 DirectionalInscatteringColor;
+    // x = sin(InscatteringColorCubemapAngle), y = cos(同) (Y 軸まわり回転), zw = 未使用
+    float4 SinCosInscatteringColorCubemapRotation;
+    // x = 1 / (FullyDirectional - NonDirectional 距離), y = -NonDirectional * x,
+    // z = 非指向性色に使う最終ミップ (NumMips - 1), w = 未使用
+    float4 FogInscatteringTextureParameters;
+    // x = EndDistance [m] (0 = 無効。UE 5.4 の EndDistance 相当: 積分レイ長のクランプ), yzw = 予約
+    float4 ExponentialFogParameters4;
+    // ---- Volumetric Fog (VolumetricFog.h) ----
+    // xyz = froxel Z 分布 (B, O, S): Slice = log2(ViewZ * B + O) * S
+    // w   = ApplyVolumetricFog (0/1)
+    float4 VolumetricFogGridZParams;
+    // x = VolumetricFogMaxDistance [m] (無効時 0), y = 1 / GridSizeZ,
+    // zw = SVPosition.xy -> ボリューム UV (1 / (GridSize.xy * GridPixelSize))
+    float4 VolumetricFogParameters;
+    // xyz = ビュー前方ベクトル (正規化。解析フォグの除外距離計算用), w = 未使用
+    float4 VolumetricFogViewForward;
 };
 
 #endif
