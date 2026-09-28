@@ -2,6 +2,7 @@
 #include "Scene.h"
 #include "PrimitiveComponent.h"
 #include "LightComponent.h"
+#include "ExponentialHeightFogComponent.h"
 
 void FScene::AddPrimitive(UPrimitiveComponent* Primitive)
 {
@@ -169,5 +170,63 @@ void FScene::UpdateAllLightSceneInfos()
 	{
 		component->SendRenderTransform();
 		component->ClearRenderTransformDirty();
+	}
+}
+
+// ============================================================
+//  Exponential Height Fog (FScene::AddExponentialHeightFog /
+//  RemoveExponentialHeightFog)
+//  プロキシは持たず、コンポーネントの値スナップショット
+//  (FExponentialHeightFogSceneInfo) を登録順に保持する。
+//  プロパティ / トランスフォーム変更はダーティリスト経由で
+//  その場で再スナップショットする (順序不変)。
+// ============================================================
+
+void FScene::AddExponentialHeightFog(UExponentialHeightFogComponent* FogComponent)
+{
+	if (FogComponent == nullptr) return;
+
+	for (const auto& info : m_ExponentialFogs)
+	{
+		if (info.Component == FogComponent) return;
+	}
+
+	m_ExponentialFogs.push_back(FExponentialHeightFogSceneInfo(FogComponent));
+	FogComponent->ClearRenderStateDirty();	// 生成直後は最新スナップショット
+}
+
+void FScene::RemoveExponentialHeightFog(UExponentialHeightFogComponent* FogComponent)
+{
+	m_ExponentialFogs.erase(
+		std::remove_if(m_ExponentialFogs.begin(), m_ExponentialFogs.end(),
+			[FogComponent](const FExponentialHeightFogSceneInfo& info) { return info.Component == FogComponent; }),
+		m_ExponentialFogs.end());
+
+	// ダーティリストからも除去する (ダングリングポインタ防止)
+	m_FogRenderStateDirtyList.erase(
+		std::remove(m_FogRenderStateDirtyList.begin(), m_FogRenderStateDirtyList.end(), FogComponent),
+		m_FogRenderStateDirtyList.end());
+
+	FogComponent->ClearRenderStateDirty();
+}
+
+void FScene::UpdateAllExponentialHeightFogSceneInfos()
+{
+	std::vector<UExponentialHeightFogComponent*> renderStateDirty;
+	renderStateDirty.swap(m_FogRenderStateDirtyList);
+
+	for (UExponentialHeightFogComponent* component : renderStateDirty)
+	{
+		auto it = std::find_if(m_ExponentialFogs.begin(), m_ExponentialFogs.end(),
+			[component](const FExponentialHeightFogSceneInfo& info) { return info.Component == component; });
+		if (it == m_ExponentialFogs.end())
+		{
+			component->ClearRenderStateDirty();
+			continue;
+		}
+
+		// その場で再スナップショット (登録順 = 優先度は不変)
+		*it = FExponentialHeightFogSceneInfo(component);
+		component->ClearRenderStateDirty();
 	}
 }

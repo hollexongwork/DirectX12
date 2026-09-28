@@ -2,10 +2,11 @@
 #include <string>
 #include <vector>
 #include <DirectXMath.h>
+#include "ImGuiManager.h"
 #include "PostProcessSettings.h"
 #include "AutoExposure.h"
 #include "LumenScene.h"
-#include "ImGuiManager.h"
+#include "VolumetricFog.h"
 #include "Camera.h"
 
 using namespace DirectX;
@@ -30,6 +31,8 @@ using namespace DirectX;
 //    - FLumenSceneData      : Params 一式 ([Lumen] セクション)。
 //                             DebugMode (Debug View) はデバッグ表示は
 //                             毎回 Off で起動
+//    - FVolumetricFog       : Params 一式 ([VolumetricFog] セクション。
+//                             r.VolumetricFog.* 相当のレンダラ設定)
 //    - ImGuiManager         : FLayoutSettings ([ImGui] セクション):
 //                             メニューバー / 各ウィンドウの表示フラグ /
 //                             Outliner スプリッタ比率。
@@ -66,6 +69,7 @@ using namespace DirectX;
 class UWorld;
 class FSceneRenderer;
 class FLumenSceneData;
+class FVolumetricFog;
 class ImGuiManager;
 class APostProcessVolume;
 class ColorGradingLUTBaker;
@@ -73,6 +77,7 @@ class ConfigFile;
 class AActor;
 class UActorComponent;
 class ULightComponent;
+class UExponentialHeightFogComponent;
 class Material;
 
 class SettingsManager
@@ -173,6 +178,9 @@ private:
 		float ShadowSlopeBias = 0.5f;
 		bool  UseRayTracedDistanceFieldShadows = false;
 
+		// Volumetric Fog への散乱寄与 (ULightComponentBase)
+		float VolumetricScatteringIntensity = 1.0f;
+
 		// ULocalLightComponent
 		float AttenuationRadius = 10.0f;
 		int   IntensityUnits = 2;				// ELightUnits::Lumens
@@ -202,6 +210,38 @@ private:
 		float DistanceFieldShadowDistance = 300.0f;		// m
 		float DistanceFieldTraceDistance = 100.0f;		// m
 		float LightSourceAngle = 1.0f;					// 度
+
+		// ---- UExponentialHeightFogComponent ----
+		// 既定値は ExponentialHeightFogComponent.h のコンストラクタと一致させる
+		bool     bExponentialHeightFog = false;
+		float    FogDensity = 0.02f;
+		float    FogHeightFalloff = 0.2f;
+		float    SecondFogDensity = 0.0f;
+		float    SecondFogHeightFalloff = 0.2f;
+		float    SecondFogHeightOffset = 0.0f;			// m
+		XMFLOAT3 FogInscatteringLuminance = { 0.447f, 0.638f, 1.0f };
+		bool     InscatteringColorCubemap = false;
+		float    InscatteringColorCubemapAngle = 0.0f;	// 度
+		XMFLOAT3 InscatteringTextureTint = { 1.0f, 1.0f, 1.0f };
+		float    FullyDirectionalInscatteringColorDistance = 1000.0f;	// m
+		float    NonDirectionalInscatteringColorDistance = 10.0f;		// m
+		float    DirectionalInscatteringExponent = 4.0f;
+		float    DirectionalInscatteringStartDistance = 100.0f;			// m
+		XMFLOAT3 DirectionalInscatteringLuminance = { 0.25f, 0.25f, 0.125f };
+		float    FogMaxOpacity = 1.0f;
+		float    StartDistance = 0.0f;					// m
+		float    EndDistance = 0.0f;					// m (0 = 無効)
+		float    FogCutoffDistance = 0.0f;				// m (0 = 無効)
+		bool     EnableVolumetricFog = false;
+		float    VolumetricFogScatteringDistribution = 0.2f;
+		XMFLOAT3 VolumetricFogAlbedo = { 1.0f, 1.0f, 1.0f };
+		XMFLOAT3 VolumetricFogEmissive = { 0.0f, 0.0f, 0.0f };
+		float    VolumetricFogExtinctionScale = 1.0f;
+		float    VolumetricFogDistance = 60.0f;			// m
+		float    VolumetricFogStartDistance = 0.0f;		// m
+		float    VolumetricFogNearFadeInDistance = 0.0f;	// m
+		float    VolumetricFogStaticLightingScatteringIntensity = 1.0f;
+		bool     OverrideLightColorsWithFogInscatteringColors = false;
 	};
 
 	// ---- アクター 1 体分のスナップショット ----
@@ -216,26 +256,32 @@ private:
 		bool  PPUnbound = true;
 		float PPBlendWeight = 1.0f;
 
+		// AExponentialHeightFog 固有 (bEnabled)
+		bool  bExponentialHeightFogActor = false;
+		bool  FogEnabled = true;
+
 		std::vector<ComponentSnapshot> Components;
 	};
 
+	ImGuiManager* m_ImGui = nullptr;			// ImGui レイアウト設定の永続化用
 	UWorld* m_World = nullptr;
 	APostProcessVolume* m_PostProcess = nullptr;
 	AutoExposure* m_AutoExposure = nullptr;
 	ColorGradingLUTBaker* m_LUTBaker = nullptr;
 	class FSceneRenderer* m_SceneRenderer = nullptr;	// トランスルーセンシーソート設定の永続化用
 	FLumenSceneData* m_Lumen = nullptr;			// Lumen Params の永続化用
-	ImGuiManager* m_ImGui = nullptr;			// ImGui レイアウト設定の永続化用
+	FVolumetricFog* m_VolumetricFog = nullptr;	// Volumetric Fog Params (r.VolumetricFog.*) の永続化用
 	ACameraActor* m_CameraActor = nullptr;		// ビューポート操作設定の永続化用
 
 	// ---- Default スナップショット (INI 適用「前」のコード初期値) ----
+	ImGuiManager::FLayoutSettings m_DefaultLayout{};
 	PP_SETTINGS          m_DefaultPP{};
 	float                m_DefaultEV = 0.0f;
 	AutoExposure::Params m_DefaultAE{};
 	std::string          m_DefaultLUTPath;
 	float                m_DefaultLUTWeight = 1.0f;
 	FLumenSceneData::Params       m_DefaultLumen{};
-	ImGuiManager::FLayoutSettings m_DefaultLayout{};
+	FVolumetricFog::Params        m_DefaultVolumetricFog{};
 	ACameraActor::FLevelEditorViewportSettings m_DefaultViewport{};
 
 	// ワールド内全アクター (m_DefaultActors[i] = スポーン順 i 番のアクター)
@@ -260,6 +306,9 @@ private:
 	static void        CaptureLightComponent(const ULightComponent* Light, ComponentSnapshot& InOut);
 	static void        ApplyLightComponent(ULightComponent* Light, const ComponentSnapshot& Snap);
 
+	static void        CaptureFogComponent(const UExponentialHeightFogComponent* Fog, ComponentSnapshot& InOut);
+	static void        ApplyFogComponent(UExponentialHeightFogComponent* Fog, const ComponentSnapshot& Snap);
+
 	// ActorSnapshot <-> INI セクション ([Actor.N])
 	static void WriteActor(ConfigFile& Ini, const std::string& Section, const ActorSnapshot& Snap);
 	static void ReadActor(const ConfigFile& Ini, const std::string& Section, ActorSnapshot& InOut);
@@ -267,6 +316,10 @@ private:
 	// ComponentSnapshot <-> INI キー群 (Prefix = "C<i>.")
 	static void WriteComponent(ConfigFile& Ini, const std::string& Section, const std::string& Prefix, const ComponentSnapshot& Snap);
 	static void ReadComponent(const ConfigFile& Ini, const std::string& Section, const std::string& Prefix, ComponentSnapshot& InOut);
+
+	// ImGuiManager::FLayoutSettings <-> [ImGui] セクション
+	static void WriteImGuiLayout(ConfigFile& Ini, const ImGuiManager::FLayoutSettings& l);
+	static void ReadImGuiLayout(const ConfigFile& Ini, ImGuiManager::FLayoutSettings& l);
 
 	// PP_SETTINGS のうち永続化対象フィールドのみ INI と往復する。
 	// Exposure (EV から毎 Tick 再計算) / FilmGrainTime / SceneTexelSize /
@@ -278,9 +331,9 @@ private:
 	static void WriteLumen(ConfigFile& Ini, const FLumenSceneData::Params& p);
 	static void ReadLumen(const ConfigFile& Ini, FLumenSceneData::Params& p);
 
-	// ImGuiManager::FLayoutSettings <-> [ImGui] セクション
-	static void WriteImGuiLayout(ConfigFile& Ini, const ImGuiManager::FLayoutSettings& l);
-	static void ReadImGuiLayout(const ConfigFile& Ini, ImGuiManager::FLayoutSettings& l);
+	// FVolumetricFog::Params <-> [VolumetricFog] セクション
+	static void WriteVolumetricFog(ConfigFile& Ini, const FVolumetricFog::Params& p);
+	static void ReadVolumetricFog(const ConfigFile& Ini, FVolumetricFog::Params& p);
 
 	// ACameraActor::FLevelEditorViewportSettings <-> [EditorViewport] セクション
 	static void WriteEditorViewport(ConfigFile& Ini, const ACameraActor::FLevelEditorViewportSettings& v);
@@ -297,6 +350,7 @@ public:
 	bool SaveCurrent() const;
 
 	// ---- Default (コード初期値) へ巻き戻す ----
+	void ResetImGuiLayout();		// ImGui レイアウト (ウィンドウ表示フラグ / スプリッタ比率)
 	void ResetPostProcess();		// PP_SETTINGS + EV + Artist LUT
 	void ResetAutoExposure();		// AutoExposure Params
 	void ResetActor(AActor* Actor);	// アクター 1 体 (ラベル + 全コンポーネント)
@@ -304,7 +358,7 @@ public:
 	void ResetLight(int Index);		// ライト 1 灯 (ライトのスポーン順インデックス)
 	void ResetAllLights();
 	void ResetLumen();				// Lumen Params (DebugMode は現在値を維持)
-	void ResetImGuiLayout();		// ImGui レイアウト (ウィンドウ表示フラグ / スプリッタ比率)
+	void ResetVolumetricFog();		// Volumetric Fog Params (r.VolumetricFog.* 相当)
 	void ResetEditorViewport();		// ビューポート操作設定 (カメラ速度 / 感度 / スムージング)
 	void ResetAll();
 

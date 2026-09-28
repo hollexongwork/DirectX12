@@ -8,6 +8,7 @@
 #include "ShadowRendering.h"
 #include "LightGridInjection.h"
 #include "LumenScene.h"
+#include "FogRendering.h"
 #include "IBLBaker.h"
 #include "AutoExposure.h"
 #include "ColorGradingLUTBaker.h"
@@ -46,6 +47,17 @@ FSceneRenderer::FSceneRenderer(RenderManager* RHI)
 	// Lumen Surface Cache (カード + アトラス + ライティングコンピュート)
 	m_LumenScene = std::make_unique<FLumenSceneData>(m_RHI);
 	m_LumenScene->Init();
+
+	// Exponential Height Fog + Volumetric Fog (froxel ボリューム構築)。
+	// Inscattering Color Cubemap には IBL の prefilter キューブ
+	// (ミップ = ぼかし段階) を割り当てる (InitIBL 済み)。
+	m_FogRenderer = std::make_unique<FFogSceneRenderer>(m_RHI);
+	m_FogRenderer->Init();
+	if (m_IBLBaker)
+	{
+		m_FogRenderer->SetInscatteringColorCubemap(
+			m_IBLBaker->GetPrefilterSRVIndex(), IBLBaker::PREFILTER_MIP_COUNT);
+	}
 }
 
 
@@ -517,6 +529,15 @@ void FSceneRenderer::RenderBasePass(FScene* Scene, const FSceneView& View)
 	// FORWARD_LIGHT 定数 / ライトバッファ (local, t13) へ解決する
 	SetupLightConstants(Scene);
 
+	// ---- FOG 定数 (b7: InitFogConstants) ----
+	// FScene の ExponentialFogs[0] を、カメラ高さ / 太陽ライトと合わせて
+	// ビュー毎のフォグパラメータへ解決する (フォグ不在なら恒等値)。
+	// Volumetric Fog のコンピュートとフォグパスは RenderLighting 側。
+	if (m_FogRenderer)
+	{
+		m_FogRenderer->InitFogConstants(Scene, m_ViewConstant, m_FrameDirectionalLight);
+	}
+
 	m_RHI->SetConstant(RenderManager::CONSTANT_TYPE::VIEW, &m_ViewConstant, sizeof(m_ViewConstant));
 	m_RHI->SetConstant(RenderManager::CONSTANT_TYPE::FORWARD_LIGHT, &m_ForwardLightConstant, sizeof(m_ForwardLightConstant));
 
@@ -754,7 +775,8 @@ void FSceneRenderer::CopySceneColorHistory()
 
 
 // ============================================================
-//  Lighting: LinearDepth -> Deferred lighting -> HDR SceneColor
+//  Lighting: Light Grid -> Volumetric Fog -> LinearDepth ->
+//            Deferred lighting -> Height Fog -> HDR SceneColor
 // ============================================================
 void FSceneRenderer::RenderLighting()
 {
@@ -778,6 +800,29 @@ void FSceneRenderer::RenderLighting()
 			m_ViewConstant,
 			m_LightBufferSRVIndex[m_LightBufferFrame],
 			m_ForwardLightConstant.NumLocalLights);
+	}
+
+	//======================================================
+	// Volumetric Fog : froxel ボリューム構築 (ComputeVolumetricFog)
+	//  シャドウマップ (RenderShadowDepths 済み) とライトグリッド
+	//  (直前の Dispatch) を読んで、カメラから各 froxel までの
+	//  累積インスキャッタ / 透過率 (t34) を作る。シーン深度には
+	//  依存しない。フォグパス (デファード直後) と半透明が参照する。
+	//  bEnableVolumetricFog = false / フォグ不在なら何もしない。
+	//======================================================
+	if (m_FogRenderer)
+	{
+		FFogSceneRenderer::FComputeInputs fogInputs;
+		fogInputs.View = &m_ViewConstant;
+		fogInputs.ForwardLightData = &m_ForwardLightConstant;
+		fogInputs.PrevViewProjectionT = m_PrevViewProjectionT;
+		fogInputs.bHistoryValid = m_bHistoryValid;
+		fogInputs.LightBufferSRVIndex = m_LightBufferSRVIndex[m_LightBufferFrame];
+		fogInputs.LightGrid = m_LightGrid.get();
+		fogInputs.ShadowRenderer = m_ShadowRenderer.get();
+		fogInputs.SkyIrradianceSRVIndex = m_IBLBaker ? m_IBLBaker->GetIrradianceSRVIndex() : 0;
+		fogInputs.DirectionalLight = m_FrameDirectionalLight;
+		m_FogRenderer->ComputeVolumetricFog(fogInputs);
 	}
 
 	// G-Buffer: RENDER_TARGET -> 読み取り (PIXEL | NON_PIXEL)。
@@ -920,6 +965,18 @@ void FSceneRenderer::RenderLighting()
 		}
 
 		DrawScreenPass();
+	}
+
+	//======================================================
+	// Exponential Height Fog Pass (RenderFog)
+	//  SceneColor が RENDER_TARGET のまま、深度から再構築した
+	//  ワールド座標で高さフォグ (+ Volumetric Fog の積分結果) を
+	//  One / SrcAlpha ブレンドで合成する。b0 はデファードパスの
+	//  バインドをそのまま使う。フォグ不在なら何もしない。
+	//======================================================
+	if (m_FogRenderer)
+	{
+		m_FogRenderer->RenderFog(m_ScreenQuad.get(), m_SceneTextures.DepthSRVIndex);
 	}
 
 	//======================================================
@@ -1142,6 +1199,14 @@ void FSceneRenderer::RenderTranslucency(FScene* Scene)
 	if (m_ShadowRenderer)
 	{
 		m_ShadowRenderer->BindShadowResources();
+	}
+
+	// ---- フォグ (b7: FOG 定数 / t33: キューブマップ / t34: Volumetric Fog) ----
+	// TranslucentPS がサーフェス位置で高さフォグ + Volumetric Fog を
+	// 直接評価して合成する (BasePassPixelShader の Fogging 相当)
+	if (m_FogRenderer)
+	{
+		m_FogRenderer->BindFogResources();
 	}
 
 	// ---- 描画 (後→前) ----

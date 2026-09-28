@@ -71,10 +71,14 @@ struct FLightShaderParameters
 	float        RectLightBarnLength;   // バーンドア長 [m]
 	unsigned int Type;                  // ELightType
 	unsigned int Flags;                 // LIGHT_FLAG_*
+
+	// ---- Volumetric Fog (ULightComponentBase::VolumetricScatteringIntensity) ----
+	float        VolumetricScatteringIntensity; // Volumetric Fog への散乱寄与スケール (0 = 寄与なし)
+	float        LightPad0[3];                  // 16 バイト境界合わせ (未使用)
 };
 
-static_assert(sizeof(FLightShaderParameters) == 96,
-	"FLightShaderParameters must be 96 bytes (HLSL Structs.hlsl と 1:1 ミラー)");
+static_assert(sizeof(FLightShaderParameters) == 112,
+	"FLightShaderParameters must be 112 bytes (HLSL Structs.hlsl と 1:1 ミラー)");
 
 class FLightSceneProxy
 {
@@ -98,6 +102,9 @@ protected:
 	float      m_RectBarnLength = 0.0f;
 	bool       m_bInverseSquared = true;
 	bool       m_bAffectsWorld = true;
+
+	// ---- Volumetric Fog (ULightComponentBase::VolumetricScatteringIntensity) ----
+	float      m_VolumetricScatteringIntensity = 1.0f;	// Volumetric Fog への散乱寄与スケール
 
 	// ---- シャドウ (FShadowSceneRenderer が参照) ----
 	bool  m_bCastShadows = true;
@@ -184,6 +191,9 @@ public:
 	const XMFLOAT3& GetDirection() const { return m_Direction; }
 	const XMFLOAT3& GetPosition() const { return m_Position; }
 
+	// ---- Volumetric Fog (FFogSceneRenderer) 用アクセサ ----
+	float GetVolumetricScatteringIntensity() const { return m_VolumetricScatteringIntensity; }
+
 	// ---- シャドウ (FShadowSceneRenderer) 用アクセサ ----
 	bool  CastsShadows() const { return m_bCastShadows; }
 	float GetShadowBias() const { return m_ShadowBias; }
@@ -218,5 +228,9 @@ public:
 		Out.RectLightBarnLength = m_RectBarnLength;
 		Out.Type = (unsigned int)m_Type;
 		Out.Flags = m_bInverseSquared ? LIGHT_FLAG_INVERSE_SQUARED : 0u;
+		Out.VolumetricScatteringIntensity = m_VolumetricScatteringIntensity;
+		Out.LightPad0[0] = 0.0f;
+		Out.LightPad0[1] = 0.0f;
+		Out.LightPad0[2] = 0.0f;
 	}
 };

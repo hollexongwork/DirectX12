@@ -14,7 +14,7 @@
 //    - ルートシグネチャ + PSO キャッシュ
 //    - リソース生成 (RT / テクスチャ / VB / IB) とバインド API
 //  ※ CONSTANT_TYPE / TEXTURE_TYPE の enum 値は HLSL レジスタと
-//    1:1 対応 (b0..b6 / t0..t32)。順序変更・挿入は禁止。
+//    1:1 対応 (b0..b7 / t0..t34)。順序変更・挿入は禁止。
 //    新規リソースは COUNT の直前に追加すること。
 // ============================================================
 
@@ -38,6 +38,8 @@ struct VERTEX_3D
 //    FORWARD_LIGHT_CONSTANT = FForwardLightData 相当 (b3)
 //    PP_SETTINGS            = パス毎パラメータ (b4, PostProcessSettings.h)
 //    DIRECTIONAL_SHADOW_CONSTANT = CSM シャドウ定数 (b5, ShadowRendering.h)
+//    LUMEN_CONSTANT         = Lumen 定数 (b6, LumenScene.h)
+//    FOG_CONSTANT           = Exponential Height Fog / Volumetric Fog 定数 (b7, FogRendering.h)
 //  ※ HLSL 側 (ConstantBuffers.hlsl) と 1:1 ミラー必須
 // ============================================================
 
@@ -144,6 +146,7 @@ enum class EBlendStatePreset
 	Translucent,	// SrcAlpha / InvSrcAlpha (BLEND_Translucent)
 	Additive,		// SrcAlpha / One (BLEND_Additive)
 	NoColorWrite,	// カラー書き込み無効 (半透明深度プリパス用)
+	HeightFog,		// One / SrcAlpha, RGB のみ (フォグパス: Dst * 透過率 + インスキャッタ。
 };
 
 // bTwoSided -> ラスタライザカリング
@@ -308,12 +311,13 @@ public:
 		POST_PROCESS,	// b4  パス毎ポストプロセスパラメータ (PP_SETTINGS)
 		SHADOW,			// b5  ディレクショナルシャドウ (CSM) 定数 (DIRECTIONAL_SHADOW_CONSTANT)
 		LUMEN,			// b6  Lumen Surface Cache / スクリーン GI 定数 (LUMEN_CONSTANT, LumenScene.h)
+		FOG,			// b7  Exponential Height Fog / Volumetric Fog 定数 (FOG_CONSTANT, FogRendering.h)
 	};
 
 	enum class TEXTURE_TYPE
 	{
 		// ---- G-Buffer / マテリアル共用 (ベースパス=マテリアル, ライティング=G-Buffer) ----
-		BASE_COLOR = (int)CONSTANT_TYPE::LUMEN + 1, // t0 GBufferC / SceneColor 入力
+		BASE_COLOR = (int)CONSTANT_TYPE::FOG + 1, // t0 GBufferC / SceneColor 入力
 		NORMAL,           // t1  GBufferA (World Normal)
 		MSRA,             // t2  GBufferB (Metallic/Specular/Roughness/AO) / ARM
 		DEPTH,            // t3  非線形深度 SRV
@@ -362,6 +366,10 @@ public:
 		LUMEN_RC_SH_R,         // t30 (Texture3D<float4>: Radiance Cache SH L1 (R チャンネル係数))
 		LUMEN_RC_SH_G,         // t31 (Texture3D<float4>: 同 G)
 		LUMEN_RC_SH_B,         // t32 (Texture3D<float4>: 同 B)
+
+		// ---- Exponential Height Fog / Volumetric Fog (FogRendering.h / HeightFogCommon.hlsl) ----
+		FOG_INSCATTERING_CUBEMAP,  // t33 (TextureCube<float4>: Inscattering Color Cubemap = IBL prefilter キューブ)
+		VOLUMETRIC_FOG_INTEGRATED, // t34 (Texture3D<float4>: Volumetric Fog 積分結果 IntegratedLightScattering)
 
 		// ---- Count ----
 		COUNT,

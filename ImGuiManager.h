@@ -80,6 +80,11 @@ private:
 	// ライト共通プロパティ (Lights ウィンドウと Details で共用)
 	void DrawLightComponentSection(class ULightComponent* Light);
 
+	// Exponential Height Fog (UExponentialHeightFogComponent の全プロパティ +
+	// Volumetric Fog + r.VolumetricFog.* 相当のレンダラ設定)
+	void DrawExponentialHeightFogSection(class UExponentialHeightFogComponent* Component);
+	void DrawExponentialHeightFogActorSection(class AExponentialHeightFog* Fog);
+
 	// マテリアル 1 スロット分のエディタ。変更があれば true を返す
 	// (呼び出し側で MarkRenderStateDirty すること)。
 	bool DrawMaterialEditor(class Material& Mat);

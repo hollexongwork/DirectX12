@@ -56,6 +56,10 @@ protected:
 	// (bUseRayTracedDistanceFieldShadows)。CastShadows が前提。
 	bool     m_bUseRayTracedDistanceFieldShadows = false;
 
+	// Volumetric Fog へのこのライトの散乱寄与スケール
+	// (ULightComponentBase::VolumetricScatteringIntensity。既定 1.0、0 で寄与なし)
+	float    m_VolumetricScatteringIntensity = 1.0f;
+
 	// レンダーステート変更フラグ。立っている = FScene の
 	// レンダーステートダーティリストにエンキュー済み (登録中のみ)。
 	// 次の FScene::UpdateAllLightSceneInfos でプロキシが再生成される。
@@ -90,6 +94,9 @@ public:
 
 	void SetUseRayTracedDistanceFieldShadows(bool bUse) { m_bUseRayTracedDistanceFieldShadows = bUse; MarkRenderStateDirty(); }
 	bool GetUseRayTracedDistanceFieldShadows() const { return m_bUseRayTracedDistanceFieldShadows; }
+
+	void  SetVolumetricScatteringIntensity(float Intensity) { m_VolumetricScatteringIntensity = Intensity; MarkRenderStateDirty(); }
+	float GetVolumetricScatteringIntensity() const { return m_VolumetricScatteringIntensity; }
 
 	// 発光方向 (正規化不要) を向くピッチ/ヨー/ロール (ラジアン) を返す。
 	// エンジン前方 +Z 規約 (FRotationMatrix::MakeFromX 相当)。

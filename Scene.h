@@ -11,6 +11,7 @@ class UPrimitiveComponent;
 class UCameraComponent;
 class ULightComponent;
 class APostProcessVolume;
+class UExponentialHeightFogComponent;
 
 // ============================================================
 //  FPrimitiveSceneInfo
@@ -41,6 +42,66 @@ struct FLightSceneInfo
 };
 
 // ============================================================
+//  FExponentialHeightFogSceneInfo
+//  FExponentialHeightFogSceneInfo (ScenePrivate.h) に相当する
+//  Exponential Height Fog のレンダー側スナップショット。
+//  UExponentialHeightFogComponent から FScene::AddExponentialHeightFog
+//  で生成され、FFogSceneRenderer (FogRendering.h) が毎フレーム
+//  FOG 定数 (b7) / Volumetric Fog のパラメータへ解決する。
+//
+//  単位はメートル系に換算済み (コンストラクタは FogRendering.cpp):
+//    - Density / HeightFalloff : コンポーネント値 / 10 [1/m]
+//    - 高さは Y。FogData[0].Height = コンポーネントのワールド Y
+//    - VolumetricFogEmissive : コンポーネント値 / 100 [/m]
+// ============================================================
+
+struct FExponentialHeightFogSceneInfo
+{
+	// 2 層の指数フォグ (FogData[0] = 第 1 層, [1] = SecondFogData)
+	struct FExponentialFogData
+	{
+		float Density = 0.0f;			// [1/m]
+		float Height = 0.0f;			// [m] (ワールド Y)
+		float HeightFalloff = 0.0f;		// [1/m]
+	};
+
+	const UExponentialHeightFogComponent* Component = nullptr;
+
+	FExponentialFogData FogData[2];
+	XMFLOAT3 FogColor = { 0.447f, 0.638f, 1.0f };	// FogInscatteringLuminance (キューブマップ使用時は InscatteringTextureTint)
+	float    FogMaxOpacity = 1.0f;
+	float    StartDistance = 0.0f;					// [m]
+	float    EndDistance = 0.0f;					// [m] (0 = 無効)
+	float    FogCutoffDistance = 0.0f;				// [m] (0 = 無効)
+
+	// Directional Inscattering
+	float    DirectionalInscatteringExponent = 4.0f;
+	float    DirectionalInscatteringStartDistance = 100.0f;	// [m]
+	XMFLOAT3 DirectionalInscatteringColor = { 0.25f, 0.25f, 0.125f };
+
+	// Inscattering Color Cubemap
+	bool     bInscatteringColorCubemap = false;		// true = キューブマップ (IBL prefilter) で色付け
+	float    InscatteringColorCubemapAngle = 0.0f;	// [rad]
+	float    FullyDirectionalInscatteringColorDistance = 1000.0f;	// [m]
+	float    NonDirectionalInscatteringColorDistance = 10.0f;		// [m]
+
+	// Volumetric Fog
+	bool     bEnableVolumetricFog = false;
+	float    VolumetricFogScatteringDistribution = 0.2f;	// HG の g (-0.99..0.99 にクランプ済み)
+	XMFLOAT3 VolumetricFogAlbedo = { 1.0f, 1.0f, 1.0f };
+	XMFLOAT3 VolumetricFogEmissive = { 0.0f, 0.0f, 0.0f };	// [/m] (換算済み)
+	float    VolumetricFogExtinctionScale = 1.0f;
+	float    VolumetricFogDistance = 60.0f;					// [m]
+	float    VolumetricFogStartDistance = 0.0f;				// [m]
+	float    VolumetricFogNearFadeInDistance = 0.0f;		// [m]
+	float    VolumetricFogStaticLightingScatteringIntensity = 1.0f;
+	bool     bOverrideLightColorsWithFogInscatteringColors = false;
+
+	FExponentialHeightFogSceneInfo() = default;
+	explicit FExponentialHeightFogSceneInfo(const UExponentialHeightFogComponent* InComponent);
+};
+
+// ============================================================
 //  FScene
 //  FScene に相当するレンダラ側のシーン表現。
 //  プリミティブ (コンポーネント + プロキシ) / アクティブカメラ /
@@ -53,6 +114,8 @@ struct FLightSceneInfo
 //  プリミティブと同じプロキシパターンで登録される。
 //  Phase 5 以降: ShadowMap 用の深度パス巡回もこの Primitives
 //  リストを再利用する。
+//  Exponential Height Fog: FScene::ExponentialFogs 相当の
+//  FExponentialHeightFogSceneInfo 列を持つ (レンダラは先頭を使う)。
 // ============================================================
 
 class FScene
@@ -77,6 +140,13 @@ private:
 	std::vector<UPrimitiveComponent*> m_PrimitiveTransformDirtyList;
 	std::vector<ULightComponent*>     m_LightRenderStateDirtyList;
 	std::vector<ULightComponent*>     m_LightTransformDirtyList;
+
+	// ---- Exponential Height Fog (FScene::ExponentialFogs) ----
+	// 登録順に保持し、レンダラは先頭 (ExponentialFogs[0]) のみ使う
+	// プロパティ / トランスフォーム変更はダーティリスト経由で
+	// UpdateAllExponentialHeightFogSceneInfos が再スナップショットする。
+	std::vector<FExponentialHeightFogSceneInfo>   m_ExponentialFogs;
+	std::vector<UExponentialHeightFogComponent*>  m_FogRenderStateDirtyList;
 
 	UCameraComponent* m_ActiveCamera = nullptr;
 	APostProcessVolume* m_PostProcessVolume = nullptr;
@@ -114,6 +184,22 @@ public:
 	void UpdateAllLightSceneInfos();
 
 	const std::vector<FLightSceneInfo>& GetLights() const { return m_Lights; }
+
+	// ---- Exponential Height Fog (FScene::AddExponentialHeightFog /
+	//      RemoveExponentialHeightFog / HasAnyExponentialHeightFog) ----
+	// 登録時に FExponentialHeightFogSceneInfo を生成して保持する
+	void AddExponentialHeightFog(UExponentialHeightFogComponent* FogComponent);
+	void RemoveExponentialHeightFog(UExponentialHeightFogComponent* FogComponent);
+	bool HasAnyExponentialHeightFog() const { return !m_ExponentialFogs.empty(); }
+
+	// コンポーネント側の MarkRenderStateDirty だけが呼ぶこと
+	void AddExponentialHeightFogRenderStateDirty(UExponentialHeightFogComponent* FogComponent) { m_FogRenderStateDirtyList.push_back(FogComponent); }
+
+	// ダーティリストにあるフォグだけ SceneInfo を再スナップショットする。
+	// UWorld::SendAllEndOfFrameUpdates から毎フレーム呼ばれる。
+	void UpdateAllExponentialHeightFogSceneInfos();
+
+	const std::vector<FExponentialHeightFogSceneInfo>& GetExponentialFogs() const { return m_ExponentialFogs; }
 
 	void              SetActiveCamera(UCameraComponent* Camera) { m_ActiveCamera = Camera; }
 	UCameraComponent* GetActiveCamera() const { return m_ActiveCamera; }

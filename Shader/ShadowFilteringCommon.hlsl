@@ -3,6 +3,7 @@
 
 #include "Common.hlsl"
 #include "DistanceFieldShadowing.hlsl"
+#include "ShadowProjectionCommon.hlsl"
 
 // =============================================================
 //  ShadowFilteringCommon
@@ -19,29 +20,11 @@
 //    - 深度バイアス   : NDC 空間で比較深度から減算 (CPU 側で正規化済み)
 //    - 法線オフセット : 受光点を法線方向へ押し出す (スロープバイアス相当)
 //  の 2 系統 (+ 深度パス PSO のラスタライザバイアス)。
+//
+//  投影 / PCF の本体はレジスタ非依存の ShadowProjectionCommon.hlsl
+//  (Volumetric Fog のコンピュートパスと共有)。ここはグラフィックス
+//  レジスタ (b5 / t14 / t15 / t16 / s2) を束ねる従来 API のみ。
 // =============================================================
-
-// -------------------------------------------------------------
-//  3x3 PCF (Texture2DArray + 比較サンプラ)
-// -------------------------------------------------------------
-float ShadowPCF3x3(Texture2DArray<float> ShadowMap, float Slice, float2 UV, float CompareDepth, float InvResolution)
-{
-    // 深度レンジ外 (far 越え) が境界白と誤比較しないようクランプ
-    CompareDepth = saturate(CompareDepth);
-
-    float sum = 0.0f;
-    [unroll]
-    for (int y = -1; y <= 1; ++y)
-    {
-        [unroll]
-        for (int x = -1; x <= 1; ++x)
-        {
-            float2 offset = float2(x, y) * InvResolution;
-            sum += ShadowMap.SampleCmpLevelZero(ShadowSampler, float3(UV + offset, Slice), CompareDepth);
-        }
-    }
-    return sum / 9.0f;
-}
 
 // -------------------------------------------------------------
 //  ディレクショナルライトの CSM シャドウ係数 (1 = 影なし)
@@ -67,22 +50,16 @@ float GetDirectionalShadow(float3 WorldPos, float3 N, float ViewDepth)
     if (ViewDepth < shadowDistance)
     {
         // カスケード選択 (未使用スロットの split は 1e9)
-        uint cascade = 0;
-        cascade += (ViewDepth > CascadeSplits.x) ? 1 : 0;
-        cascade += (ViewDepth > CascadeSplits.y) ? 1 : 0;
-        cascade += (ViewDepth > CascadeSplits.z) ? 1 : 0;
+        uint cascade = SelectShadowCascade(ViewDepth, CascadeSplits);
 
         if (cascade < numCascades)
         {
             // 法線オフセット + シャドウクリップへ投影 (オルソなので w=1)
             float3 offsetPos = WorldPos + N * CascadeNormalOffset[cascade];
-            float4 shadowClip = mul(float4(offsetPos, 1.0f), WorldToShadowCascade[cascade]);
 
-            float2 uv = shadowClip.xy * float2(0.5f, -0.5f) + 0.5f;
-            float compareDepth = shadowClip.z - CascadeDepthBias[cascade];
-
-            csm = ShadowPCF3x3(DirectionalShadowCascades, (float) cascade, uv, compareDepth,
-                DirectionalShadowParams.w);
+            csm = ProjectDirectionalCascadeShadow(DirectionalShadowCascades, ShadowSampler,
+                WorldToShadowCascade[cascade], CascadeDepthBias[cascade],
+                DirectionalShadowParams.w, cascade, offsetPos);
 
             csmFade = saturate((shadowDistance - ViewDepth) / max(shadowDistance - fadeStart, 1e-4f));
         }
@@ -110,23 +87,6 @@ float GetDirectionalShadow(float3 WorldPos, float3 N, float ViewDepth)
 
     return lerp(farShadow, csm, csmFade);
 }
-
-// -------------------------------------------------------------
-//  キューブ 6 面の基底 (C++ 側 ShadowRendering.cpp と 1:1 必須)
-//  面順: +X, -X, +Y, -Y, +Z, -Z
-// -------------------------------------------------------------
-static const float3 CubeFaceForward[6] =
-{
-    float3(1.0f, 0.0f, 0.0f), float3(-1.0f, 0.0f, 0.0f),
-    float3(0.0f, 1.0f, 0.0f), float3(0.0f, -1.0f, 0.0f),
-    float3(0.0f, 0.0f, 1.0f), float3(0.0f, 0.0f, -1.0f),
-};
-static const float3 CubeFaceUp[6] =
-{
-    float3(0.0f, 1.0f, 0.0f), float3(0.0f, 1.0f, 0.0f),
-    float3(0.0f, 0.0f, -1.0f), float3(0.0f, 0.0f, 1.0f),
-    float3(0.0f, 1.0f, 0.0f), float3(0.0f, 1.0f, 0.0f),
-};
 
 // -------------------------------------------------------------
 //  ローカルライト (Point / Spot / Rect) のシャドウ係数 (1 = 影なし)
@@ -159,70 +119,7 @@ float GetLocalLightShadow(FLightShaderParameters Light, FLocalShadowParameters S
 
     float3 offsetPos = WorldPos + N * Shadow.NormalOffsetWorld;
 
-    [branch]
-    if (Light.Type == LIGHT_TYPE_POINT)
-    {
-        // ---- ポイント: 支配軸から面選択 -> デバイス深度再構築 ----
-        float3 d = offsetPos - Light.Position;    // ライト -> 受光点
-        float3 ad = abs(d);
-
-        uint face;
-        float axisDepth;
-        if (ad.x >= ad.y && ad.x >= ad.z)
-        {
-            face = (d.x > 0.0f) ? 0 : 1;
-            axisDepth = ad.x;
-        }
-        else if (ad.y >= ad.z)
-        {
-            face = (d.y > 0.0f) ? 2 : 3;
-            axisDepth = ad.y;
-        }
-        else
-        {
-            face = (d.z > 0.0f) ? 4 : 5;
-            axisDepth = ad.z;
-        }
-
-        // LookToLH と同じ基底構成 (xaxis = cross(up, fwd), yaxis = cross(fwd, xaxis))
-        float3 fwd = CubeFaceForward[face];
-        float3 up = CubeFaceUp[face];
-        float3 xaxis = cross(up, fwd);      // 基底同士は直交単位なので正規化不要
-        float3 yaxis = cross(fwd, xaxis);
-
-        float zEye = max(axisDepth, Shadow.ShadowNearPlane + 1e-4f);
-        
-        // キューブ面ガードバンド: 描画側は 90 度よりわずかに広い FOV
-        // (tan(fov/2) = 1/guardScale) なので、受光側 NDC を同率で縮める。
-        // C++ 側 (ShadowRendering.h) の POINT_SHADOW_GUARD_TEXELS と 1:1
-        const float POINT_SHADOW_GUARD_TEXELS = 6.0f;
-        float guardScale = 1.0f - 2.0f * POINT_SHADOW_GUARD_TEXELS * Shadow.InvShadowResolution;
-
-        float2 ndc = float2(dot(d, xaxis), -dot(d, yaxis)) / zEye * guardScale;
-        float2 uv = ndc * 0.5f + 0.5f;
-
-        // 90 度透視 (PerspectiveFovLH) のデバイス深度:
-        //   z_ndc = f/(f-n) - f*n / ((f-n) * zEye)
-        float invRange = 1.0f / max(Shadow.ShadowFarPlane - Shadow.ShadowNearPlane, 1e-4f);
-        float fRange = Shadow.ShadowFarPlane * invRange;
-        float deviceZ = fRange - fRange * Shadow.ShadowNearPlane / zEye;
-
-        float slice = (float) (Shadow.ShadowSliceIndex + (int) face);
-        return ShadowPCF3x3(LocalLightShadows, slice, uv, deviceZ - Shadow.DepthBiasNDC,
-            Shadow.InvShadowResolution);
-    }
-
-    // ---- スポット / レクト: 単一透視投影 ----
-    float4 shadowClip = mul(float4(offsetPos, 1.0f), Shadow.WorldToShadow);
-    if (shadowClip.w <= 1e-4f)
-    {
-        return 1.0f;    // ライト背後 (投影の外) は影なし
-    }
-    shadowClip.xyz /= shadowClip.w;
-
-    float2 uv = shadowClip.xy * float2(0.5f, -0.5f) + 0.5f;
-    return ShadowPCF3x3(LocalLightShadows, (float) Shadow.ShadowSliceIndex, uv,
-        shadowClip.z - Shadow.DepthBiasNDC, Shadow.InvShadowResolution);
+    return ProjectLocalLightShadowMap(LocalLightShadows, ShadowSampler, Light, Shadow, offsetPos);
 }
 
 #endif

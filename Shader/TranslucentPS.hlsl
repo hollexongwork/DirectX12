@@ -4,6 +4,7 @@
 #include "RefractionCommon.hlsl"
 #include "ShadowFilteringCommon.hlsl"
 #include "LightGridCommon.hlsl"
+#include "HeightFogCommon.hlsl"
 
 // =============================================================
 //  TranslucentPS
@@ -33,6 +34,18 @@
 //  (同一メッシュの手前向き三角形や奥の半透明オブジェクト) を
 //  消さない。屈折背景そのものは半透明パス開始前のシーン
 //  (SceneColor 参照と同じ制約)。Additive は対象外。
+//
+//  Height Fog / Volumetric Fog (BasePassPixelShader の Fogging 相当):
+//  サーフェス位置で HeightFogCommon.hlsl のフォグ (b7 + t33/t34) を
+//  直接評価し、出力色へ合成する (ApplyTranslucencyFog):
+//    BLEND_Translucent : Color * Fog.a + Fog.rgb   (α = Opacity で
+//                        ブレンドされるので、透けた分の背景はフォグ
+//                        パス側の結果がそのまま残る)
+//    BLEND_Additive    : Color * Fog.a             (減衰のみ。加算光は
+//                        インスキャッタを持ち込まない)
+//  Unlit / 屈折経路にも同様に掛かる (UE のマテリアル既定
+//  "Apply Fogging" = true 相当。屈折背景は既にフォグ済みの
+//  SceneColor なので薄く二重に掛かるが UE も同じ挙動)。
 //
 //  深度は不透明結果に対するテストのみ (PSO: DepthRead、書き込みなし)。
 //  α = BaseColor テクスチャ α x 頂点カラー α x Material.Opacity。
@@ -149,6 +162,27 @@ float3 SampleLumenRadianceCacheGI(float3 WorldPos, float3 N)
         float3(0.0f, 0.0f, 0.0f));
 }
 
+// -------------------------------------------------------------
+//  フォグ合成 (BasePassPixelShader の MATERIALBLENDING_* 分岐相当)
+//    Color        : 面の最終色 (ライティング / エミッシブ / 屈折込み)
+//    WorldPos     : 受光点 (ワールド)
+//    SvPositionXY : ピクセル座標 (Volumetric Fog のボリューム UV 用)
+//    ViewDepth    : ビュー空間 Z
+// -------------------------------------------------------------
+float3 ApplyTranslucencyFog(float3 Color, float3 WorldPos, float2 SvPositionXY, float ViewDepth)
+{
+    float4 Fogging = ComputeFogInscatteringAndOpacity(WorldPos, SvPositionXY, ViewDepth);
+
+    [flatten]
+    if (Material.BlendMode == BLEND_ADDITIVE)
+    {
+        // 加算合成はフォグの透過率で減衰するだけ (インスキャッタは加えない)
+        return Color * Fogging.a;
+    }
+
+    return Color * Fogging.a + Fogging.rgb;
+}
+
 PS_OUTPUT main(PS_INPUT input, bool bIsFrontFace : SV_IsFrontFace)
 {
     PS_OUTPUT output;
@@ -185,11 +219,13 @@ PS_OUTPUT main(PS_INPUT input, bool bIsFrontFace : SV_IsFrontFace)
                 viewDepth,
                 GetMaterialRefraction());
             // カバレッジ合成はハードウェアブレンドに任せる
-            output.Color = float4(refracted, opacity);
+            output.Color = float4(
+                ApplyTranslucencyFog(refracted, worldPos, input.Position.xy, viewDepth), opacity);
             return output;
         }
 
-        output.Color = float4(emissive, opacity);
+        output.Color = float4(
+            ApplyTranslucencyFog(emissive, worldPos, input.Position.xy, viewDepth), opacity);
         return output;
     }
 
@@ -437,11 +473,13 @@ PS_OUTPUT main(PS_INPUT input, bool bIsFrontFace : SV_IsFrontFace)
         // は SrcAlpha/InvSrcAlpha ブレンドが行う。宛先はライブな
         // SceneColor なので、先に描かれた半透明面 (同一メッシュの
         // 手前向き三角形や奥の半透明オブジェクト) を消さない。
-        output.Color = float4(refracted, opacity);
+        output.Color = float4(
+            ApplyTranslucencyFog(refracted, worldPos, input.Position.xy, viewDepth), opacity);
     }
     else
     {
-        output.Color = float4(surfaceLighting, opacity);
+        output.Color = float4(
+            ApplyTranslucencyFog(surfaceLighting, worldPos, input.Position.xy, viewDepth), opacity);
     }
 
     return output;

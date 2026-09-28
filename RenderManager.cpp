@@ -513,12 +513,17 @@ static void BuildStaticSamplerDescs(D3D12_STATIC_SAMPLER_DESC(&OutSamplers)[3])
 void RenderManager::InitRootSignature()
 {
 	const unsigned int ROOT_PARAM_COUNT = (unsigned int)TEXTURE_TYPE::COUNT;
-	const unsigned int CBV_COUNT = (unsigned int)CONSTANT_TYPE::LUMEN + 1; // VIEW/PRIMITIVE/MATERIAL/FORWARD_LIGHT/POST_PROCESS/SHADOW/LUMEN
+	const unsigned int CBV_COUNT = (unsigned int)CONSTANT_TYPE::FOG + 1; // VIEW/PRIMITIVE/MATERIAL/FORWARD_LIGHT/POST_PROCESS/SHADOW/LUMEN/FOG
+
+	// ルートパラメータは全てデスクリプタテーブル (1 DWORD ずつ) なので
+	// 上限 64 DWORD に対して b0..b7 + t0..t34 = 43 DWORD
+	static_assert((unsigned int)TEXTURE_TYPE::COUNT <= 64,
+		"root signature exceeds 64 DWORDs (CONSTANT_TYPE + TEXTURE_TYPE)");
 
 	D3D12_ROOT_PARAMETER  rootParameters[ROOT_PARAM_COUNT]{};
 	D3D12_DESCRIPTOR_RANGE range[ROOT_PARAM_COUNT]{};
 
-	// 定数バッファ (b0..b4)
+	// 定数バッファ (b0..b7)
 	for (unsigned int i = 0; i < CBV_COUNT; i++)
 	{
 		range[i].NumDescriptors = 1;
@@ -618,6 +623,15 @@ void RenderManager::InitPipelines()
 
 	m_PipelineState["DeferredLighting"] =
 		CreatePipeline("Shader/cso/DeferredVS.cso", "Shader/cso/DeferredPS.cso", hdr, _countof(hdr));
+
+	// ---- Exponential Height Fog パス (FogRendering.h) ----
+	// デファードライティング後の HDR SceneColor に対し、深度から
+	// 再構築したワールド座標で高さフォグ (+ Volumetric Fog の積分結果)
+	// を合成するフルスクリーンパス。ブレンドは
+	//   SceneColor' = Src.rgb + SceneColor * Src.a (RGB のみ書き込み)
+	m_PipelineState["HeightFog"] =
+		CreatePipeline("Shader/cso/DeferredVS.cso", "Shader/cso/HeightFogPS.cso", hdr, _countof(hdr),
+			0, 0.0f, EBlendStatePreset::HeightFog);
 
 	// Tonemap pass: HDR SceneColor (+bloom) -> Post chain -> SDR back buffer
 	m_PipelineState["PostProcessTonemap"] =
@@ -1207,6 +1221,8 @@ static D3D12_RASTERIZER_DESC BuildRasterizerStateDesc(ECullModePreset CullPreset
 //   Opaque / Masked : One / Zero 上書き (従来通り)
 //   Translucent     : SrcAlpha / InvSrcAlpha (BLEND_Translucent)
 //   Additive        : SrcAlpha / One (BLEND_Additive)
+//   HeightFog       : One / SrcAlpha, RGB のみ書き込み (フォグパス。
+//                     Dst x 透過率 + インスキャッタ)
 // α チャンネルは合成後のシーンカバレッジ規約 (Zero / InvSrcAlpha 系)
 // ※ Substrate バッファ (BasePass RT3/RT4 = R32G32B32A32_UINT) の
 //   ような整数 RT はブレンド不可なので、その RT だけ BlendEnable を
@@ -1248,6 +1264,15 @@ static D3D12_BLEND_DESC BuildBlendStateDesc(EBlendStatePreset BlendPreset, const
 			rt.DestBlendAlpha = D3D12_BLEND_ZERO;
 			break;
 
+		case EBlendStatePreset::HeightFog:
+			// フォグパス: Dst * Src.a (透過率) + Src.rgb (インスキャッタ)。
+			// α は書かない (SceneColor の α は未使用のまま保持)
+			rt.SrcBlend = D3D12_BLEND_ONE;
+			rt.DestBlend = D3D12_BLEND_SRC_ALPHA;
+			rt.SrcBlendAlpha = D3D12_BLEND_ZERO;
+			rt.DestBlendAlpha = D3D12_BLEND_ONE;
+			break;
+
 		case EBlendStatePreset::Opaque:
 		default:
 			rt.SrcBlend = D3D12_BLEND_ONE;
@@ -1259,9 +1284,20 @@ static D3D12_BLEND_DESC BuildBlendStateDesc(EBlendStatePreset BlendPreset, const
 
 		rt.BlendOp = D3D12_BLEND_OP_ADD;
 		rt.BlendOpAlpha = D3D12_BLEND_OP_ADD;
-		rt.RenderTargetWriteMask = (BlendPreset == EBlendStatePreset::NoColorWrite)
-			? 0u
-			: D3D12_COLOR_WRITE_ENABLE_ALL;
+		if (BlendPreset == EBlendStatePreset::NoColorWrite)
+		{
+			rt.RenderTargetWriteMask = 0u;
+		}
+		else if (BlendPreset == EBlendStatePreset::HeightFog)
+		{
+			// CW_RGB 相当
+			rt.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_RED
+				| D3D12_COLOR_WRITE_ENABLE_GREEN | D3D12_COLOR_WRITE_ENABLE_BLUE;
+		}
+		else
+		{
+			rt.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+		}
 		rt.LogicOpEnable = FALSE;
 		rt.LogicOp = D3D12_LOGIC_OP_CLEAR;
 	}
