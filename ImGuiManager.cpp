@@ -1,6 +1,5 @@
 ﻿#include "Main.h"
 #include "RenderManager.h"
-#include "ImGUI/imgui_impl_dx12.h"
 #include "ImGUI/imgui.h"
 #include "ImGuiManager.h"
 #include "GameManager.h"
@@ -17,7 +16,6 @@
 #include "ColorGradingLUTBaker.h"
 #include "AutoExposure.h"
 #include "World.h"
-#include "Light.h"
 #include "LightComponent.h"
 #include "ExponentialHeightFog.h"
 #include "ExponentialHeightFogComponent.h"
@@ -45,19 +43,20 @@ static bool ContainsCaseInsensitive(const std::string& Haystack, const char* Nee
 	return h.find(n) != std::string::npos;
 }
 
-ImGuiManager::ImGuiManager()
+// 既定選択は Root。Root が無ければ先頭の所有コンポーネント。
+static UActorComponent* GetDefaultSelectedComponent(AActor* Actor)
 {
-
+	if (UActorComponent* root = Actor->GetRootComponent())
+		return root;
+	const auto& components = Actor->GetComponents();
+	return components.empty() ? nullptr : components.front().get();
 }
 
 void ImGuiManager::Start()
 {
 	m_SceneRenderer = GameManager::GetInstance()->GetSceneRenderer();
 
-	// ワールドからアクターを検索する
-	UWorld* world = GameManager::GetInstance()->GetWorld();
-	m_World = world;
-	m_PostProcess = world->GetActorOfClass<APostProcessVolume>();
+	m_World = GameManager::GetInstance()->GetWorld();
 	m_LUTBaker = m_SceneRenderer->GetColorGradingLUTBaker();
 	m_AutoExposure = m_SceneRenderer->GetAutoExposure();
 	m_Settings = GameManager::GetInstance()->GetSettingsManager();
@@ -80,7 +79,7 @@ void ImGuiManager::Draw()
 	// ---- Debug ----
 	if (m_Layout.bShowGBuffer)   BufferWindow();
 	if (m_Layout.bShowLightGrid) LightGridWindow();
-	if (m_Layout.bShowLumen)     LumenWindow();
+	if (m_Layout.bShowLumen)     LumenWindow();      // 表示切替は Settings メニュー
 	if (m_Layout.bShowCulling)   CullingWindow();
 }
 
@@ -144,12 +143,12 @@ void ImGuiManager::EditMenu()
 
 	ImGui::Separator();
 
-	if (ImGui::MenuItem("Save Settings", nullptr, false, m_Settings != nullptr))
+	if (ImGui::MenuItem("Save Settings"))
 	{
 		m_Settings->SaveCurrent();
 	}
 
-	if (ImGui::BeginMenu("Reset to Default", m_Settings != nullptr))
+	if (ImGui::BeginMenu("Reset to Default"))
 	{
 		if (ImGui::MenuItem("Selected Actor", nullptr, false, m_SelectedActor != nullptr))
 		{
@@ -225,7 +224,7 @@ void ImGuiManager::LightGridWindow()
 {
 	ImGui::Begin("Light Grid", &m_Layout.bShowLightGrid);
 
-	FLightGridInjection* grid = m_SceneRenderer ? m_SceneRenderer->GetLightGrid() : nullptr;
+	FLightGridInjection* grid = m_SceneRenderer->GetLightGrid();
 	if (grid == nullptr)
 	{
 		ImGui::TextUnformatted("Light grid is not available.");
@@ -253,7 +252,7 @@ void ImGuiManager::LightGridWindow()
 
 	const char* debugModes[] = { "Off", "Light Complexity", "Z Slices" };
 	int debugMode = (int)params.DebugMode;
-	if (ImGui::Combo("Debug View", &debugMode, debugModes, 3))
+	if (ImGui::Combo("Debug View", &debugMode, debugModes, IM_ARRAYSIZE(debugModes)))
 	{
 		params.DebugMode = (unsigned int)debugMode;
 	}
@@ -269,7 +268,7 @@ void ImGuiManager::LumenWindow()
 {
 	ImGui::Begin("Lumen", &m_Layout.bShowLumen);
 
-	FLumenSceneData* lumen = m_SceneRenderer ? m_SceneRenderer->GetLumenScene() : nullptr;
+	FLumenSceneData* lumen = m_SceneRenderer->GetLumenScene();
 	if (lumen == nullptr)
 	{
 		ImGui::TextUnformatted("Lumen scene is not available.");
@@ -287,8 +286,8 @@ void ImGuiManager::LumenWindow()
 	ImGui::Text("Captured   : %u this frame", stats.NumCapturedThisFrame);
 	ImGui::Text("Atlas      : %u x %u (%u px cards)",
 		LUMEN_ATLAS_WIDTH, LUMEN_ATLAS_HEIGHT, LUMEN_CARD_RESOLUTION);
-	ImGui::Text("Probes     : %u x %u (16px, octa 8x8)",
-		stats.NumProbesX, stats.NumProbesY);
+	ImGui::Text("Probes     : %u x %u (%upx, octa %ux%u)",
+		stats.NumProbesX, stats.NumProbesY, LUMEN_PROBE_DOWNSAMPLE, LUMEN_PROBE_OCTA_RES, LUMEN_PROBE_OCTA_RES);
 
 	if (lumen->IsHardwareRayTracingSupported())
 	{
@@ -307,7 +306,7 @@ void ImGuiManager::LumenWindow()
 	ImGui::Checkbox("Enable Lumen", &params.bEnabled);
 
 	const char* gatherModes[] = { "Off", "Per-Pixel Cone Trace", "Screen Probe Gather" };
-	ImGui::Combo("Gather Mode", &params.GatherMode, gatherModes, 3);
+	ImGui::Combo("Gather Mode", &params.GatherMode, gatherModes, IM_ARRAYSIZE(gatherModes));
 
 	if (lumen->IsHardwareRayTracingSupported())
 	{
@@ -323,7 +322,7 @@ void ImGuiManager::LumenWindow()
 	// Debug View は永続化対象外 (SettingsManager の [Lumen] に書かない。毎回 Off で起動)
 	const char* debugModes[] = { "Off", "GI Radiance", "Sky Visibility", "GI Diffuse", "Short Range AO" };
 	int debugMode = (int)params.DebugMode;
-	if (ImGui::Combo("Debug View", &debugMode, debugModes, 5))
+	if (ImGui::Combo("Debug View", &debugMode, debugModes, IM_ARRAYSIZE(debugModes)))
 	{
 		params.DebugMode = (unsigned int)debugMode;
 	}
@@ -443,13 +442,6 @@ void ImGuiManager::CullingWindow()
 {
 	ImGui::Begin("Culling", &m_Layout.bShowCulling);
 
-	if (m_SceneRenderer == nullptr)
-	{
-		ImGui::TextUnformatted("Scene renderer is not available.");
-		ImGui::End();
-		return;
-	}
-
 	// ---- 制御 ----
 	FSceneRenderer::FCullingParams& params = m_SceneRenderer->GetCullingParams();
 
@@ -499,9 +491,6 @@ void ImGuiManager::CullingWindow()
 // ============================================================
 void ImGuiManager::OutlinerWindow()
 {
-	if (!m_World)
-		return;
-
 	ValidateSelection();
 
 	Begin("Outliner", &m_Layout.bShowOutliner);
@@ -576,13 +565,11 @@ void ImGuiManager::DrawOutlinerSection()
 	Separator();
 
 	const auto& actors = m_World->GetActors();
-	int index = 0;
-	for (const auto& actorPtr : actors)
+	for (int index = 0; index < (int)actors.size(); ++index)
 	{
-		AActor* actor = actorPtr.get();
+		AActor* actor = actors[index].get();
 		if (actor->IsPendingKill())
 		{
-			++index;
 			continue;
 		}
 
@@ -592,7 +579,6 @@ void ImGuiManager::DrawOutlinerSection()
 		if (!ContainsCaseInsensitive(label, filter) &&
 			!ContainsCaseInsensitive(typeName, filter))
 		{
-			++index;
 			continue;
 		}
 
@@ -609,7 +595,6 @@ void ImGuiManager::DrawOutlinerSection()
 		}
 
 		PopID();
-		++index;
 	}
 }
 
@@ -643,18 +628,15 @@ void ImGuiManager::DrawDetailsSection()
 		}
 	}
 
-	if (m_Settings)
+	if (Button("Save Settings"))
 	{
-		if (Button("Save Settings"))
-		{
-			m_Settings->SaveCurrent();
-		}
-		SameLine();
-		if (Button("Reset Actor"))
-		{
-			m_Settings->ResetActor(actor);
-			strncpy_s(m_LabelBuffer, actor->GetActorLabel().c_str(), _TRUNCATE);
-		}
+		m_Settings->SaveCurrent();
+	}
+	SameLine();
+	if (Button("Reset Actor"))
+	{
+		m_Settings->ResetActor(actor);
+		strncpy_s(m_LabelBuffer, actor->GetActorLabel().c_str(), _TRUNCATE);
 	}
 
 	Separator();
@@ -714,7 +696,7 @@ void ImGuiManager::DrawDetailsSection()
 		}
 	}
 
-	// ---- アクター固有 (コンポーネントを持たないアクター) ----
+	// ---- アクター固有プロパティ (選択コンポーネントに依らず表示) ----
 	if (auto* volume = dynamic_cast<APostProcessVolume*>(actor))
 	{
 		DrawPostProcessVolumeSection(volume);
@@ -743,12 +725,7 @@ void ImGuiManager::SelectActor(AActor* Actor)
 
 	if (Actor)
 	{
-		// 既定選択は Root。Root が無ければ先頭の所有コンポーネント。
-		m_SelectedComponent = Actor->GetRootComponent();
-		if (m_SelectedComponent == nullptr && !Actor->GetComponents().empty())
-		{
-			m_SelectedComponent = Actor->GetComponents().front().get();
-		}
+		m_SelectedComponent = GetDefaultSelectedComponent(Actor);
 
 		strncpy_s(m_LabelBuffer, Actor->GetActorLabel().c_str(), _TRUNCATE);
 	}
@@ -763,7 +740,7 @@ void ImGuiManager::ValidateSelection()
 	}
 
 	// アクターの生存確認 (Destroy 済み / ワールド外なら選択解除)
-	if (!m_World || !m_World->ContainsActor(m_SelectedActor) || m_SelectedActor->IsPendingKill())
+	if (!m_World->ContainsActor(m_SelectedActor) || m_SelectedActor->IsPendingKill())
 	{
 		SelectActor(nullptr);
 		return;
@@ -785,11 +762,7 @@ void ImGuiManager::ValidateSelection()
 
 	if (!owned)
 	{
-		m_SelectedComponent = m_SelectedActor->GetRootComponent();
-		if (m_SelectedComponent == nullptr && !m_SelectedActor->GetComponents().empty())
-		{
-			m_SelectedComponent = m_SelectedActor->GetComponents().front().get();
-		}
+		m_SelectedComponent = GetDefaultSelectedComponent(m_SelectedActor);
 	}
 }
 
@@ -955,15 +928,15 @@ void ImGuiManager::DrawPrimitiveSection(UPrimitiveComponent* Component)
 	}
 
 	// ---- Translucency Sort Priority (UPrimitiveComponent 同名) ----
-	// 低い値が奥、高い値が手前。同値内は Translucency ウィンドウの
-	// ソートポリシーで後→前に並ぶ。不透明では無視される。既定 0。
+	// 低い値が奥、高い値が手前。同値内はソートポリシー (FSceneRenderer::
+	// FTranslucencyParams::SortPolicy / INI [Translucency]) で後→前に並ぶ。不透明では無視される。既定 0。
 	int sortPriority = Component->GetTranslucentSortPriority();
 	if (DragInt("Translucency Sort Priority", &sortPriority, 0.1f))
 	{
 		Component->SetTranslucentSortPriority(sortPriority);
 	}
 
-	// ---- ワールド境界 (CalcBounds の結果。毎フレーム更新) ----
+	// ---- ワールド境界 (CalcBounds の結果。ダーティ時に SendRenderTransform が更新) ----
 	const FBoxSphereBounds& bounds = Component->GetBounds();
 	TextDisabled("Bounds Origin  (%.2f, %.2f, %.2f)",
 		bounds.Origin.x, bounds.Origin.y, bounds.Origin.z);
@@ -1098,40 +1071,32 @@ void ImGuiManager::DrawPostProcessVolumeSection(APostProcessVolume* Volume)
 	if (!CollapsingHeader("Post Process Volume", ImGuiTreeNodeFlags_DefaultOpen))
 		return;
 
-	PP_SETTINGS& s = m_PostProcess->Settings();
+	PP_SETTINGS& s = Volume->Settings();
 
 	// ---- 永続化 (Saved/Config/EngineSettings.ini) ----
 	// 値は終了時に自動保存され、次回起動時に復元される。
-	// Reset to Default はこのウィンドウの内容 (PP 設定 + EV +
+	// Reset to Default はこのセクションの内容 (PP 設定 + EV +
 	// Artist LUT + AutoExposure) をコード初期値へ戻す。
-	if (m_Settings)
+	if (ImGui::Button("Reset to Default"))
 	{
-		if (ImGui::Button("Save Settings"))
-		{
-			m_Settings->SaveCurrent();
-		}
-		ImGui::SameLine();
-		if (ImGui::Button("Reset to Default"))
-		{
-			m_Settings->ResetPostProcess();
-			m_Settings->ResetAutoExposure();
-		}
-		ImGui::TextDisabled("Auto-saved on exit -> %s", SettingsManager::GetConfigPath());
-		ImGui::Separator();
+		m_Settings->ResetPostProcess();
+		m_Settings->ResetAutoExposure();
 	}
+	ImGui::TextDisabled("Auto-saved on exit -> %s", SettingsManager::GetConfigPath());
+	ImGui::Separator();
 
 	auto flagCheckbox = [&](const char* label, PP_FLAG flag)
 		{
-			bool on = m_PostProcess->HasFlag(flag);
+			bool on = Volume->HasFlag(flag);
 			if (ImGui::Checkbox(label, &on))
-				m_PostProcess->SetFlag(flag, on);
+				Volume->SetFlag(flag, on);
 		};
 
 	// ---- Exposure / Tonemapper ----
 	if (ImGui::CollapsingHeader("Exposure / Film", ImGuiTreeNodeFlags_DefaultOpen))
 	{
 		// Exposure
-		ImGui::SliderFloat("Exposure (EV)", &m_PostProcess->EV(), -8.0f, 8.0f);
+		ImGui::SliderFloat("Exposure (EV)", &Volume->EV(), -8.0f, 8.0f);
 		ImGui::Text("Linear: %.3f", s.Exposure);
 
 		// Tonemapper
@@ -1148,7 +1113,7 @@ void ImGuiManager::DrawPostProcessVolumeSection(APostProcessVolume* Volume)
 		if (m_AutoExposure)
 		{
 			m_AutoExposure->UpdateReadback();
-			if (m_PostProcess && m_PostProcess->HasFlag(PP_FLAG_AUTO_EXPOSURE))
+			if (Volume->HasFlag(PP_FLAG_AUTO_EXPOSURE))
 			{
 				ImGui::Separator();
 				ImGui::Text("Current Exposure : %.4f  (%.2f EV)",
@@ -1169,7 +1134,7 @@ void ImGuiManager::DrawPostProcessVolumeSection(APostProcessVolume* Volume)
 			ImGui::SliderFloat("Speed Down", &p.SpeedDown, 0.1f, 20.0f);
 			ImGui::SliderFloat("Exposure Compensation", &p.ExposureCompensation, -10.0f, 10.0f);
 			ImGui::TextDisabled("Manual EV is bypassed while Auto Exposure is on.");
-			if (m_Settings && ImGui::Button("Reset Auto Exposure"))
+			if (ImGui::Button("Reset Auto Exposure"))
 				m_Settings->ResetAutoExposure();
 		}
 	}
@@ -1249,12 +1214,12 @@ void ImGuiManager::DrawPostProcessVolumeSection(APostProcessVolume* Volume)
 			// 現在の選択インデックスを求める。
 			const std::string& cur = m_LUTBaker->GetArtistLUTPath();
 			int curIdx = -1;
+			std::error_code ec;
+			const fs::path curCanonical = fs::weakly_canonical(cur, ec);
 			for (int i = 0; i < (int)lutFiles.size(); ++i)
 			{
 				// パス表記の差異を吸収するため weakly_canonical で比較。
-				std::error_code ec;
-				if (fs::weakly_canonical(lutFiles[i], ec) ==
-					fs::weakly_canonical(cur, ec))
+				if (fs::weakly_canonical(lutFiles[i], ec) == curCanonical)
 				{
 					curIdx = i;
 					break;
@@ -1338,7 +1303,7 @@ void ImGuiManager::DrawPostProcessVolumeSection(APostProcessVolume* Volume)
 }
 
 // ============================================================
-//  ライト共通プロパティ (Lights ウィンドウ / Details 共用)
+//  ライト共通プロパティ (Details の "Light" セクション)
 // ============================================================
 void ImGuiManager::DrawLightComponentSection(ULightComponent* Light)
 {
@@ -1485,7 +1450,7 @@ void ImGuiManager::DrawLightComponentSection(ULightComponent* Light)
 
 		const char* unitNames[] = { "Unitless", "Candelas", "Lumens", "EV" };
 		int units = (int)local->GetIntensityUnits();
-		if (Combo("Intensity Units", &units, unitNames, 4))
+		if (Combo("Intensity Units", &units, unitNames, IM_ARRAYSIZE(unitNames)))
 		{
 			local->SetIntensityUnits((ELightUnits)units);
 		}
@@ -1800,7 +1765,7 @@ void ImGuiManager::DrawExponentialHeightFogSection(UExponentialHeightFogComponen
 			}
 
 			// ---- レンダラ設定 (r.VolumetricFog.* 相当。[VolumetricFog] に永続化) ----
-			FFogSceneRenderer* fogRenderer = m_SceneRenderer ? m_SceneRenderer->GetFogRenderer() : nullptr;
+			FFogSceneRenderer* fogRenderer = m_SceneRenderer->GetFogRenderer();
 			FVolumetricFog* volumetricFog = fogRenderer ? fogRenderer->GetVolumetricFog() : nullptr;
 			if (volumetricFog && TreeNodeEx("Renderer (r.VolumetricFog.*)", 0))
 			{
@@ -1819,7 +1784,7 @@ void ImGuiManager::DrawExponentialHeightFogSection(UExponentialHeightFogComponen
 				SliderFloat("History Weight", &params.HistoryWeight, 0.0f, 0.99f);
 				SliderFloat("Inverse Squared Light Distance Bias Scale", &params.InverseSquaredLightDistanceBiasScale, 0.0f, 10.0f);
 
-				if (m_Settings && Button("Reset Renderer Settings"))
+				if (Button("Reset Renderer Settings"))
 				{
 					m_Settings->ResetVolumetricFog();
 				}

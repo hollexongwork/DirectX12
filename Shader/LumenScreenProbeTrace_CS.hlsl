@@ -3,15 +3,15 @@
 
 // =============================================================
 //  LumenScreenProbeTrace_CS
-//  ScreenProbeTrace ‘Š“–Bƒvƒ[ƒu‚²‚Æ‚É hemi-octahedral 8x8 ‚Ì
-//  ƒŒƒC‚ğ”ò‚Î‚µA•úË‹P“x‚ğƒgƒŒ[ƒXƒ‰ƒfƒBƒAƒ“ƒXƒAƒgƒ‰ƒX‚Ö‘‚­:
-//    1. ƒXƒNƒŠ[ƒ“ƒXƒy[ƒXƒgƒŒ[ƒX (Œ»[“x + ‘OƒtƒŒ[ƒ€ SceneColor)
-//    2. ƒ~ƒX‚Í SDF (SWRT: ƒƒbƒVƒ… + Global) / HWRT (RayQuery)
-//    3. ‚³‚ç‚Éƒ~ƒX‚È‚ç prefilter ŠÂ‹« (ƒXƒJƒC)
+//  ScreenProbeTrace ç›¸å½“ã€‚ãƒ—ãƒ­ãƒ¼ãƒ–ã”ã¨ã« hemi-octahedral 8x8 ã®
+//  ãƒ¬ã‚¤ã‚’é£›ã°ã—ã€æ”¾å°„è¼åº¦ã‚’ãƒˆãƒ¬ãƒ¼ã‚¹ãƒ©ãƒ‡ã‚£ã‚¢ãƒ³ã‚¹ã‚¢ãƒˆãƒ©ã‚¹ã¸æ›¸ã:
+//    1. ã‚¹ã‚¯ãƒªãƒ¼ãƒ³ã‚¹ãƒšãƒ¼ã‚¹ãƒˆãƒ¬ãƒ¼ã‚¹ (ç¾æ·±åº¦ + å‰ãƒ•ãƒ¬ãƒ¼ãƒ  SceneColor)
+//    2. ãƒŸã‚¹æ™‚ã¯ SDF (SWRT: ãƒ¡ãƒƒã‚·ãƒ¥ + Global) / HWRT (RayQuery)
+//    3. ãã‚Œã§ã‚‚ãƒŸã‚¹ãªã‚‰ãƒ©ãƒ‡ã‚£ã‚¢ãƒ³ã‚¹ 0 (a ã«ã‚¹ã‚«ã‚¤å¯è¦–ç‡ã‚’è¨˜éŒ²ã€‚ã‚¹ã‚«ã‚¤ã®æ‹¡æ•£å¯„ä¸ã¯å—å…‰å´ IBL ãŒæ‹…ã†)
 //
 //    t19 = ProbeGeo / u4 = TraceRadiance ((PW*8) x (PH*8), RGBA16F)
-//         rgb = •úË‹P“x, a = ƒXƒJƒC‰Â‹—¦ (ƒqƒbƒg‚Å 0)
-//  Dispatch: (PW, PH, 1) - 1 ƒOƒ‹[ƒv = 1 ƒvƒ[ƒu (8x8 ƒXƒŒƒbƒh)
+//         rgb = æ”¾å°„è¼åº¦, a = ã‚¹ã‚«ã‚¤å¯è¦–ç‡ (ãƒ’ãƒƒãƒˆã§ 0)
+//  Dispatch: (PW, PH, 1) - 1 ã‚°ãƒ«ãƒ¼ãƒ— = 1 ãƒ—ãƒ­ãƒ¼ãƒ– (8x8 ã‚¹ãƒ¬ãƒƒãƒ‰)
 // =============================================================
 
 Texture2D<float4> ProbeGeoTexture : register(t19);
@@ -33,16 +33,12 @@ void main(uint3 GroupID : SV_GroupID, uint3 GroupThreadID : SV_GroupThreadID)
         return;
     }
 
-    // ---- ƒvƒ[ƒu‚Ìƒ[ƒ‹ƒhˆÊ’u (ƒAƒ“ƒJ[ƒsƒNƒZƒ‹‚©‚çÄ\’z) ----
-    const uint downsample = (uint) PassProbeParams0.z;
-    const uint2 screenSize = (uint2) PassProbeParams1.xy;
-    uint2 anchor = LumenGetProbeAnchor(probe);
-    float deviceDepth = LumenSceneDepth.Load(int3(anchor, 0));
-    float3 worldPos = LumenReconstructWorldPosition(anchor, deviceDepth);
+    // ---- ãƒ—ãƒ­ãƒ¼ãƒ–ã®ãƒ¯ãƒ¼ãƒ«ãƒ‰ä½ç½® (ã‚¢ãƒ³ã‚«ãƒ¼ãƒ”ã‚¯ã‚»ãƒ«ã‹ã‚‰å†æ§‹ç¯‰) ----
+    float3 worldPos = LumenGetProbeWorldPosition(probe);
 
     const float3 probeNormal = probeGeo.xyz;
 
-    // ---- ƒŒƒC•ûŒü (hemi-octahedral + ƒtƒŒ[ƒ€ƒWƒbƒ^) ----
+    // ---- ãƒ¬ã‚¤æ–¹å‘ (hemi-octahedral + ãƒ•ãƒ¬ãƒ¼ãƒ ã‚¸ãƒƒã‚¿) ----
     uint probeSeed = probe.x | (probe.y << 16);
     float2 jitter = LumenGetFrameJitter((uint) PassAtlasParams.w, probeSeed);
     float2 octaUV = ((float2) octaTexel + jitter) / 8.0f;
@@ -57,10 +53,10 @@ void main(uint3 GroupID : SV_GroupID, uint3 GroupThreadID : SV_GroupThreadID)
     const float bias = PassTraceParams.y;
     float3 rayStart = worldPos + probeNormal * bias;
 
-    // 8x8 ”¼‹…•ªŠ„‚ÌƒR[ƒ“”¼Šp tan (—§‘ÌŠp 2pi/64)
+    // 8x8 åŠçƒåˆ†å‰²ã®ã‚³ãƒ¼ãƒ³åŠè§’ tan (ç«‹ä½“è§’ 2pi/64)
     const float coneTan = 0.18f;
 
-    // ---- 1. ƒXƒNƒŠ[ƒ“ƒXƒy[ƒXƒgƒŒ[ƒX ----
+    // ---- 1. ã‚¹ã‚¯ãƒªãƒ¼ãƒ³ã‚¹ãƒšãƒ¼ã‚¹ãƒˆãƒ¬ãƒ¼ã‚¹ ----
     float3 radiance;
     [branch]
     if (LumenScreenSpaceTrace(rayStart, rayDir, maxTrace, bias, radiance))
@@ -69,14 +65,14 @@ void main(uint3 GroupID : SV_GroupID, uint3 GroupThreadID : SV_GroupThreadID)
         return;
     }
 
-    // ---- 2. SDF / HWRT ƒgƒŒ[ƒX ----
+    // ---- 2. SDF / HWRT ãƒˆãƒ¬ãƒ¼ã‚¹ ----
     FLumenTraceResult trace = TraceLumenRay(
         rayStart, rayDir, maxTrace, coneTan, PassNumLumenObjects);
 
-    // ƒ~ƒX•ûŒü‚ÍuƒXƒJƒC‰Â‹v‚Æ‚µ‚Ä a ‚É‹L˜^‚·‚é‚¾‚¯‚ÅAƒ‰ƒfƒBƒAƒ“ƒX‚Í
-    // ‰ÁZ‚µ‚È‚¢BƒXƒJƒC‚ÌŠgUŠñ—^‚ÍóŒõ‘¤ (DeferredPS) ‚Ì IBL ‚ª
-    // skyOcclusion = ƒXƒJƒC‰Â‹—¦ ‚ÅŒ¸Š‚µ‚½Œ`‚Å’S‚¤‚½‚ßA‚±‚±‚Å
-    // ÌŒõ‚·‚é‚Æ“ñdŒvã‚É‚È‚é (ƒsƒNƒZƒ‹–ˆƒR[ƒ“Œo˜H‚Æ“¯‚¶‹K–ñ)B
+    // ãƒŸã‚¹æ–¹å‘ã¯ã€Œã‚¹ã‚«ã‚¤å¯è¦–ã€ã¨ã—ã¦ a ã«è¨˜éŒ²ã™ã‚‹ã ã‘ã§ã€ãƒ©ãƒ‡ã‚£ã‚¢ãƒ³ã‚¹ã¯
+    // åŠ ç®—ã—ãªã„ã€‚ã‚¹ã‚«ã‚¤ã®æ‹¡æ•£å¯„ä¸ã¯å—å…‰å´ (DeferredPS) ã® IBL ãŒ
+    // skyOcclusion = ã‚¹ã‚«ã‚¤å¯è¦–ç‡ ã§æ¸›è¡°ã—ãŸå½¢ã§æ‹…ã†ãŸã‚ã€ã“ã“ã§
+    // æ¡å…‰ã™ã‚‹ã¨äºŒé‡è¨ˆä¸Šã«ãªã‚‹ (ãƒ”ã‚¯ã‚»ãƒ«æ¯ã‚³ãƒ¼ãƒ³çµŒè·¯ã¨åŒã˜è¦ç´„)ã€‚
     radiance = trace.bHit
         ? ResolveLumenRayRadiance(trace, rayStart, rayDir, PassRCParams1.w)
         : float3(0.0f, 0.0f, 0.0f);

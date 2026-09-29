@@ -125,8 +125,6 @@ void FBXModel::BuildRayTracingGeometry()
 
 	// スクラッチをこのスコープで解放するため即時完了させる
 	rm->FlushAndResetCommandList();
-
-	m_bBLASBuilt = true;
 }
 
 
@@ -210,9 +208,10 @@ bool FBXModel::Load(const char* filePath, bool flipUV)
 
 
 // ================================================================
-//  描画
-//  呼び出し元で PRIMITIVE_CONSTANT をセット済みであること。
-//  MATERIAL_CONSTANT / テクスチャはサブセットごとにここでセット。
+//  描画 (Draw)
+//  全サブセットを DrawSubset で順に描画する。
+//  PSO / 定数 / テクスチャのバインドは呼び出し元の責務で、
+//  サブセットごとのマテリアル切り替えは行わない。
 // ================================================================
 
 void FBXModel::Draw()
@@ -223,6 +222,14 @@ void FBXModel::Draw()
 		DrawSubset(i);
 
 }
+
+
+// ================================================================
+//  描画 (DrawSubset)
+//  呼び出し元 (FStaticMeshSceneProxy) が PSO / PRIMITIVE 定数と、
+//  そのパスが必要とするマテリアル定数・テクスチャをバインド済みであること。
+//  ここでは VB / IB / トポロジのみ設定して描画する。
+// ================================================================
 
 void FBXModel::DrawSubset(unsigned int index)
 {
@@ -386,8 +393,8 @@ std::unique_ptr<TEXTURE> FBXModel::LoadTextureFromMaterial(
 
 	for (char& c : pathStr) if (c == '/') c = '\\';
 
-	// BaseColor/Diffuse are sRGB-authored; all other maps (normal, ORM,
-	// metallic-roughness, AO) are linear.
+	// BaseColor / Diffuse は sRGB で作成されている。その他のマップ
+	// (法線 / ORM / メタリック・ラフネス / AO) はリニア。
 	bool sRGB = (type == aiTextureType_DIFFUSE) || (type == aiTextureType_BASE_COLOR);
 	auto tex = RenderManager::GetInstance()->LoadTexture(pathStr.c_str(), sRGB);
 	if (!tex)

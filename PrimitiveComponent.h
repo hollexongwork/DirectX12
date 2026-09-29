@@ -8,7 +8,7 @@
 //  CreateSceneProxy() でレンダー側ミラー (FPrimitiveSceneProxy) を
 //  生成・所有する。描画本体はプロキシへ移設済みで、レンダラは
 //  ゲーム側のこのクラスにはもう触れない。
-//  ShadowMap 実装時も深度パスは同じプロキシ列を巡回する。
+//  シャドウ深度パス (FShadowSceneRenderer) も同じプロキシ列を巡回する。
 //
 //  フラスタムカリング: SendRenderTransform が UpdateBounds ->
 //  SetTransform でワールド境界をプロキシへプッシュし、
@@ -17,7 +17,6 @@
 //  同じ場所で行われる (0 = 無制限)。
 // ============================================================
 
-class RenderManager;
 class FPrimitiveSceneProxy;
 
 class UPrimitiveComponent : public USceneComponent

@@ -240,20 +240,21 @@ void FLightGridInjection::Init()
 	m_LinksUAVIndex = createStructuredUAV(m_CulledLightLinks.Get(), maxLinks, 8); // uint2
 
 	m_Allocator = createUAVBuffer(2 * sizeof(unsigned int), L"LightGridAllocator");
-	{
-		// Raw (ByteAddress) UAV。InterlockedAdd で 2 つのカウンタを回す
-		m_AllocatorUAVIndex = m_Owner->AllocateDescriptor();
-		D3D12_UNORDERED_ACCESS_VIEW_DESC uav{};
-		uav.Format = DXGI_FORMAT_R32_TYPELESS;
-		uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
-		uav.Buffer.FirstElement = 0;
-		uav.Buffer.NumElements = 2;
-		uav.Buffer.StructureByteStride = 0;
-		uav.Buffer.CounterOffsetInBytes = 0;
-		uav.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
-		Device()->CreateUnorderedAccessView(m_Allocator.Get(), nullptr, &uav,
-			m_Owner->GetCPUDescriptorHandle(m_AllocatorUAVIndex));
-	}
+
+	// Raw (ByteAddress) UAV。InterlockedAdd で 2 つのカウンタを回す
+	// (shader-visible 側と下の CPU 専用クリアヒープ側の 2 つのビューを、この同じ desc から作る)
+	D3D12_UNORDERED_ACCESS_VIEW_DESC allocatorUAVDesc{};
+	allocatorUAVDesc.Format = DXGI_FORMAT_R32_TYPELESS;
+	allocatorUAVDesc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+	allocatorUAVDesc.Buffer.FirstElement = 0;
+	allocatorUAVDesc.Buffer.NumElements = 2;
+	allocatorUAVDesc.Buffer.StructureByteStride = 0;
+	allocatorUAVDesc.Buffer.CounterOffsetInBytes = 0;
+	allocatorUAVDesc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+
+	m_AllocatorUAVIndex = m_Owner->AllocateDescriptor();
+	Device()->CreateUnorderedAccessView(m_Allocator.Get(), nullptr, &allocatorUAVDesc,
+		m_Owner->GetCPUDescriptorHandle(m_AllocatorUAVIndex));
 
 	// ------------------------------------------------------------
 	//  出力バッファ (デファードパスが t19/t20 で読む)
@@ -277,14 +278,7 @@ void FLightGridInjection::Init()
 		HRESULT hr = Device()->CreateDescriptorHeap(&hd, IID_PPV_ARGS(&m_ClearHeap));
 		assert(SUCCEEDED(hr));
 
-		D3D12_UNORDERED_ACCESS_VIEW_DESC uav{};
-		uav.Format = DXGI_FORMAT_R32_TYPELESS;
-		uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
-		uav.Buffer.FirstElement = 0;
-		uav.Buffer.NumElements = 2;
-		uav.Buffer.StructureByteStride = 0;
-		uav.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
-		Device()->CreateUnorderedAccessView(m_Allocator.Get(), nullptr, &uav,
+		Device()->CreateUnorderedAccessView(m_Allocator.Get(), nullptr, &allocatorUAVDesc,
 			m_ClearHeap->GetCPUDescriptorHandleForHeapStart());
 	}
 

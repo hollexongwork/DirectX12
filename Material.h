@@ -111,12 +111,14 @@ private:
 		// ---- Substrate Slab BSDF ----
 		// bUseSubstrate = TRUE のときレガシー Metallic/Specular の
 		// 代わりに Slab (DiffuseAlbedo / F0 / F90 / SSS) で
-		// シェーディングする。MFP は TransmittanceColor + Thickness
-		// から HLSL 側 TransmittanceToMeanFreePath で導出。
+		// シェーディングする。MFP は TransmittanceColor と固定参照厚 1cm
+		// (SUBSTRATE_TRANSMITTANCE_REFERENCE_CM) から HLSL 側
+		// TransmittanceToMeanFreePath で導出し、Thickness は SSS 評価厚
+		// として濃度をスケールする。
 		XMFLOAT4		SubstrateDiffuseAlbedo;       // rgb (w 未使用)
 		XMFLOAT4		SubstrateF0;                  // rgb (w 未使用)
 		XMFLOAT4		SubstrateF90;                 // rgb (w 未使用)
-		XMFLOAT4		SubstrateTransmittanceColor;  // rgb = 透過色 (指定厚での透過率) / w = 予約 (未使用)
+		XMFLOAT4		SubstrateTransmittanceColor;  // rgb = 透過色 (参照厚 1cm あたりの透過率) / w = 予約 (未使用)
 		XMFLOAT4		SubstrateFuzzColor;           // rgb = ファズ色 / w = FuzzAmount
 
 		float			SubstrateAnisotropy;          // [-1,1] (評価は等方近似)

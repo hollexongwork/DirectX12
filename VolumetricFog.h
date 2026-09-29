@@ -161,6 +161,8 @@ private:
 	//  [12] UAV  u0  RWVBufferA                [13] UAV u1  RWVBufferB
 	//  [14] UAV  u2  RWLightScattering         [15] UAV u3  RWIntegratedLightScattering
 	//  static sampler s0 (線形クランプ) / s1 (シャドウ比較)
+	static constexpr unsigned int NUM_SRV_SLOTS = 11;	// t0..t10 (ルートパラメータ [1] から)
+	static constexpr unsigned int NUM_UAV_SLOTS = 4;	// u0..u3 (ルートパラメータ [1 + NUM_SRV_SLOTS] から)
 	ComPtr<ID3D12RootSignature> m_RootSignature;
 	ComPtr<ID3D12PipelineState> m_PSOAttributes;
 	ComPtr<ID3D12PipelineState> m_PSOLightScattering;
@@ -205,6 +207,13 @@ public:
 	// froxel Z 分布パラメータ (GetVolumetricFogGridZParams 相当)。
 	// FOG 定数 (b7) の VolumetricFogGridZParams にも使う。
 	static XMFLOAT3 ComputeGridZParams(float NearPlane, float FarPlane);
+
+	// Volumetric Fog の最大距離 (froxel 最終スライスの開始境界)。near + 1m 未満にはしない。
+	// FOG 定数 (b7) とコンピュート b0 の両方がこれを使うこと (不一致だと受光側のスライス参照がずれる)。
+	static float ComputeMaxDistance(float NearPlane, float VolumetricFogDistance)
+	{
+		return (VolumetricFogDistance > NearPlane + 1.0f) ? VolumetricFogDistance : (NearPlane + 1.0f);
+	}
 
 	// 今フレームの 3 パスを記録する。FogInfo が無効 / bEnableVolumetricFog
 	// = false のフレームは何もしない (呼び出し側が ApplyVolumetricFog = 0 にする)。

@@ -29,13 +29,8 @@
 class FStaticMeshSceneProxy : public FPrimitiveSceneProxy
 {
 private:
-	struct FSlot
-	{
-		Material                 Mat;
-		std::shared_ptr<TEXTURE> BaseColor;
-		std::shared_ptr<TEXTURE> Normal;
-		std::shared_ptr<TEXTURE> ARM;
-	};
+	// マテリアルスロットの値スナップショット (コンポーネント側と同じ型)
+	using FSlot = FMaterialSlot;
 
 	// 共有メッシュレンダーデータ (UStaticMesh::RenderData 相当)。
 	// メッシュ未設定のコンポーネントでは nullptr。
@@ -70,18 +65,8 @@ public:
 	FStaticMeshSceneProxy(UStaticMeshComponent* Component)
 		: FPrimitiveSceneProxy(Component)
 		, m_Mesh(Component->GetStaticMesh())
+		, m_Slots(Component->GetMaterialSlots())	// Material は値コピー / テクスチャは shared_ptr コピー (参照カウント +1)
 	{
-		const unsigned int num = Component->GetNumMaterialSlots();
-		m_Slots.resize(num);
-
-		for (unsigned int i = 0; i < num; ++i)
-		{
-			const FMaterialSlot& src = Component->GetMaterialSlot(i);
-			m_Slots[i].Mat = src.Mat;
-			m_Slots[i].BaseColor = src.BaseColor;	// shared_ptr コピー (参照カウント +1)
-			m_Slots[i].Normal = src.Normal;
-			m_Slots[i].ARM = src.ARM;
-		}
 	}
 
 	// Distance Field Shadows: 有効な SDF を持つメッシュを返す
@@ -315,12 +300,6 @@ Material& UStaticMeshComponent::GetMaterial(unsigned int SlotIndex)
 {
 	assert(SlotIndex < m_MaterialSlots.size());
 	return m_MaterialSlots[SlotIndex].Mat;
-}
-
-FMaterialSlot& UStaticMeshComponent::GetMaterialSlot(unsigned int SlotIndex)
-{
-	assert(SlotIndex < m_MaterialSlots.size());
-	return m_MaterialSlots[SlotIndex];
 }
 
 void UStaticMeshComponent::SetBaseColorTexture(unsigned int SlotIndex, const char* FilePath)

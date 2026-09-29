@@ -15,8 +15,9 @@ public:
 		// バー非表示中でも各ウィンドウの表示状態 (bShow*) は保持される。
 		bool  bShowMainMenuBar = true;
 
-		// Edit  : シーン編集用パネル (Outliner + Details を 1 ウィンドウに統合)
-		// Debug : レンダラのデバッグ表示 (G-Buffer / Light Grid / Lumen / Culling)
+		// Edit     : シーン編集用パネル (Outliner + Details を 1 ウィンドウに統合)
+		// Settings : Lumen
+		// Debug    : レンダラのデバッグ表示 (G-Buffer / Light Grid / Culling。Show/Hide All は Lumen も含む)
 		bool  bShowOutliner = true;
 		bool  bShowGBuffer = true;
 		bool  bShowLightGrid = true;
@@ -31,7 +32,6 @@ private:
 	class FSceneRenderer* m_SceneRenderer = nullptr;
 
 	class UWorld* m_World = nullptr;
-	class APostProcessVolume* m_PostProcess = nullptr;
 	class ColorGradingLUTBaker* m_LUTBaker = nullptr;
 	class AutoExposure* m_AutoExposure = nullptr;
 	class SettingsManager* m_Settings = nullptr;
@@ -77,7 +77,7 @@ private:
 	void DrawPostProcessVolumeSection(class APostProcessVolume* Volume);
 	void DrawViewportControlsSection(class ACameraActor* Camera);
 
-	// ライト共通プロパティ (Lights ウィンドウと Details で共用)
+	// ライト共通プロパティ (Details の "Light" セクション)
 	void DrawLightComponentSection(class ULightComponent* Light);
 
 	// Exponential Height Fog (UExponentialHeightFogComponent の全プロパティ +
@@ -90,9 +90,6 @@ private:
 	bool DrawMaterialEditor(class Material& Mat);
 
 public:
-	ImGuiManager();
-	~ImGuiManager() = default;
-
 	void Start();
 	void Draw();
 

@@ -5,10 +5,6 @@
       <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
       <Extensions>cpp;c;cc;cxx;c++;cppm;ixx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
     </Filter>
-    <Filter Include="リソース ファイル">
-      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
-      <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
-    </Filter>
     <Filter Include="ImGUI">
       <UniqueIdentifier>{3d6f2c07-986b-46fd-8148-c3ea834f1350}</UniqueIdentifier>
     </Filter>
@@ -17,9 +13,6 @@
     </Filter>
     <Filter Include="ImGUI\Manager">
       <UniqueIdentifier>{d97aacc9-29bf-4d19-ae5d-ec365bc2d89c}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Function">
-      <UniqueIdentifier>{dd29f691-19ba-40a2-9bc9-51ee1148080f}</UniqueIdentifier>
     </Filter>
     <Filter Include="ソース ファイル\Input">
       <UniqueIdentifier>{1cf6c347-6df5-4ac7-81c3-9b61dfc0d6a6}</UniqueIdentifier>
@@ -146,9 +139,6 @@
     <ClCompile Include="Input.cpp">
       <Filter>ソース ファイル\Input</Filter>
     </ClCompile>
-    <ClCompile Include="Polygon2D.cpp">
-      <Filter>ソース ファイル\GameObject</Filter>
-    </ClCompile>
     <ClCompile Include="Time.cpp">
       <Filter>ソース ファイル\System</Filter>
     </ClCompile>
@@ -160,6 +150,9 @@
     </ClCompile>
     <ClCompile Include="DirectionalLight.cpp">
       <Filter>ソース ファイル\GameObject\Lights</Filter>
+    </ClCompile>
+    <ClCompile Include="Polygon2D.cpp">
+      <Filter>ソース ファイル\GameObject</Filter>
     </ClCompile>
     <ClCompile Include="PointLight.cpp">
       <Filter>ソース ファイル\GameObject\Lights</Filter>
@@ -203,13 +196,13 @@
     <ClCompile Include="AutoExposure.cpp">
       <Filter>ソース ファイル\System\Render\PostProcess</Filter>
     </ClCompile>
+    <ClCompile Include="Light.cpp">
+      <Filter>ソース ファイル\GameObject\Lights\Base</Filter>
+    </ClCompile>
     <ClCompile Include="LightComponent.cpp">
       <Filter>ソース ファイル\GameObject\Lights\Base</Filter>
     </ClCompile>
     <ClCompile Include="LightSceneProxy.cpp">
-      <Filter>ソース ファイル\GameObject\Lights\Base</Filter>
-    </ClCompile>
-    <ClCompile Include="Light.cpp">
       <Filter>ソース ファイル\GameObject\Lights\Base</Filter>
     </ClCompile>
     <ClCompile Include="SpotLight.cpp">
@@ -319,9 +312,6 @@
     <ClInclude Include="ImGuiManager.h">
       <Filter>ImGUI\Manager</Filter>
     </ClInclude>
-    <ClInclude Include="Polygon2D.h">
-      <Filter>ソース ファイル\GameObject</Filter>
-    </ClInclude>
     <ClInclude Include="Input.h">
       <Filter>ソース ファイル\Input</Filter>
     </ClInclude>
@@ -345,6 +335,9 @@
     </ClInclude>
     <ClInclude Include="DirectionalLight.h">
       <Filter>ソース ファイル\GameObject\Lights</Filter>
+    </ClInclude>
+    <ClInclude Include="Polygon2D.h">
+      <Filter>ソース ファイル\GameObject</Filter>
     </ClInclude>
     <ClInclude Include="PointLight.h">
       <Filter>ソース ファイル\GameObject\Lights</Filter>
@@ -516,6 +509,9 @@
     <FxCompile Include="Shader\IBL\IBL_DownsampleCube.hlsl">
       <Filter>Shader\IBLBaker</Filter>
     </FxCompile>
+    <FxCompile Include="Shader\IBL\IBL_Common.hlsl">
+      <Filter>Shader\IBLBaker</Filter>
+    </FxCompile>
     <FxCompile Include="Shader\BloomUpsamplePS.hlsl">
       <Filter>Shader\PostProcess\Bloom</Filter>
     </FxCompile>
@@ -537,7 +533,7 @@
     <FxCompile Include="Shader\ColorSpace.hlsl">
       <Filter>Shader\Header</Filter>
     </FxCompile>
-    <FxCompile Include="shader\Common.hlsl">
+    <FxCompile Include="Shader\Common.hlsl">
       <Filter>Shader\Header</Filter>
     </FxCompile>
     <FxCompile Include="Shader\Constant.hlsl">
@@ -558,6 +554,9 @@
     <FxCompile Include="Shader\Structs.hlsl">
       <Filter>Shader\Header</Filter>
     </FxCompile>
+    <FxCompile Include="Shader\BasePassCommon.hlsl">
+      <Filter>Shader\Header</Filter>
+    </FxCompile>
     <FxCompile Include="Shader\DOFBlurPS.hlsl">
       <Filter>Shader\PostProcess\DOF</Filter>
     </FxCompile>
@@ -571,6 +570,9 @@
       <Filter>Shader\PostProcess\AutoExposure</Filter>
     </FxCompile>
     <FxCompile Include="Shader\AutoExposureHistogram_CS.hlsl">
+      <Filter>Shader\PostProcess\AutoExposure</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\AutoExposureCommon.hlsl">
       <Filter>Shader\PostProcess\AutoExposure</Filter>
     </FxCompile>
     <FxCompile Include="Shader\DeferredLightingCommon.hlsl">
@@ -616,6 +618,9 @@
       <Filter>Shader\LightGrid</Filter>
     </FxCompile>
     <FxCompile Include="Shader\LightGridInjection_CS.hlsl">
+      <Filter>Shader\LightGrid</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\LightGridInjectionCommon.hlsl">
       <Filter>Shader\LightGrid</Filter>
     </FxCompile>
     <FxCompile Include="Shader\LumenCardCapturePS.hlsl">
@@ -705,10 +710,5 @@
     <FxCompile Include="Shader\HeightFogCommon.hlsl">
       <Filter>Shader\Fog</Filter>
     </FxCompile>
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="packages.config">
-      <Filter>リソース ファイル</Filter>
-    </None>
   </ItemGroup>
 </Project>

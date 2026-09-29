@@ -3,18 +3,18 @@
 
 // =============================================================
 //  LumenReflections_CS
-//  LumenReflections ‘Š“–‚ÌƒXƒyƒLƒ…ƒ‰ GIBƒsƒNƒZƒ‹‚²‚Æ‚É”½ËƒŒƒC‚ğ
-//    1. ƒXƒNƒŠ[ƒ“ƒXƒy[ƒXƒgƒŒ[ƒX (‘OƒtƒŒ[ƒ€ SceneColor)
+//  LumenReflections ç›¸å½“ã®ã‚¹ãƒšã‚­ãƒ¥ãƒ© GIã€‚ãƒ”ã‚¯ã‚»ãƒ«ã”ã¨ã«åå°„ãƒ¬ã‚¤ã‚’
+//    1. ã‚¹ã‚¯ãƒªãƒ¼ãƒ³ã‚¹ãƒšãƒ¼ã‚¹ãƒˆãƒ¬ãƒ¼ã‚¹ (å‰ãƒ•ãƒ¬ãƒ¼ãƒ  SceneColor)
 //    2. SDF (SWRT) / RayQuery (HWRT)
-//  ‚Ì‡‚ÅƒgƒŒ[ƒX‚µAƒqƒbƒgæ‚Ì Surface Cache FinalLighting ‚ğ
-//  ÌŒõ‚·‚éBƒ~ƒX‚Í prefilter ŠÂ‹«‚ğƒ‰ƒtƒlƒX‘Î‰ƒ~ƒbƒv‚ÅÌŒõ
-//  (= Šù‘¶ IBL ‚Æ“¯ˆêÊ‘œ‚È‚Ì‚ÅƒV[ƒ€ƒŒƒX‚ÉƒtƒH[ƒ‹ƒoƒbƒN‚·‚é)B
+//  ã®é †ã§ãƒˆãƒ¬ãƒ¼ã‚¹ã—ã€ãƒ’ãƒƒãƒˆå…ˆã® Surface Cache FinalLighting ã‚’
+//  æ¡å…‰ã™ã‚‹ã€‚ãƒŸã‚¹ã¯ prefilter ç’°å¢ƒã‚’ãƒ©ãƒ•ãƒã‚¹å¯¾å¿œãƒŸãƒƒãƒ—ã§æ¡å…‰
+//  (= æ—¢å­˜ IBL ã¨åŒä¸€å†™åƒãªã®ã§ã‚·ãƒ¼ãƒ ãƒ¬ã‚¹ã«ãƒ•ã‚©ãƒ¼ãƒ«ãƒãƒƒã‚¯ã™ã‚‹)ã€‚
 //
-//  o—Í‚ÍƒvƒŒƒtƒBƒ‹ƒ^u·‚µ‘Ö‚¦vƒ‰ƒfƒBƒAƒ“ƒX:
-//    DeferredPS ‚ª IBL ƒXƒyƒLƒ…ƒ‰‚Ì prefiltered ƒTƒ“ƒvƒ‹‚ğ
-//    ‚±‚Ì’l‚Å lerp ‚·‚é (BRDF / ƒtƒŒƒlƒ‹d‚İ‚ÍŠù‘¶Œo˜H‚Ì‚Ü‚Ü)B
-//    t15 = GBufferA / t16 = [“x / t19 = GBufferB (ƒ‰ƒtƒlƒX)
-//    u4  = ReflectionTexture (RGBA16F): rgb = ƒ‰ƒfƒBƒAƒ“ƒX, a = ·‚µ‘Ö‚¦—¦
+//  å‡ºåŠ›ã¯ãƒ—ãƒ¬ãƒ•ã‚£ãƒ«ã‚¿ã€Œå·®ã—æ›¿ãˆã€ãƒ©ãƒ‡ã‚£ã‚¢ãƒ³ã‚¹:
+//    DeferredPS ãŒ IBL ã‚¹ãƒšã‚­ãƒ¥ãƒ©ã® prefiltered ã‚µãƒ³ãƒ—ãƒ«ã‚’
+//    ã“ã®å€¤ã§ lerp ã™ã‚‹ (BRDF / ãƒ•ãƒ¬ãƒãƒ«é‡ã¿ã¯æ—¢å­˜çµŒè·¯ã®ã¾ã¾)ã€‚
+//    t15 = GBufferA / t16 = æ·±åº¦ / t19 = GBufferB (ãƒ©ãƒ•ãƒã‚¹)
+//    u4  = ReflectionTexture (RGBA16F): rgb = ãƒ©ãƒ‡ã‚£ã‚¢ãƒ³ã‚¹, a = å·®ã—æ›¿ãˆç‡
 //  Dispatch: (ceil(W/8), ceil(H/8), 1)
 // =============================================================
 
@@ -52,21 +52,21 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float3 V = normalize(PassCameraOrigin.xyz - worldPos);
     float3 R = reflect(-V, N);
 
-    // ƒ‰ƒtƒlƒX -> ”½ËƒR[ƒ“”¼Šp tan (GGX ƒ[ƒu•‚Ì‹ß—)
+    // ãƒ©ãƒ•ãƒã‚¹ -> åå°„ã‚³ãƒ¼ãƒ³åŠè§’ tan (GGX ãƒ­ãƒ¼ãƒ–å¹…ã®è¿‘ä¼¼)
     float coneTan = max(roughness * roughness, 0.02f);
 
     const float maxTrace = PassTraceParams.x;
     const float bias = PassTraceParams.y;
     float3 rayStart = worldPos + N * bias;
 
-    // ƒ‰ƒtƒlƒXƒtƒF[ƒh (fadeStart..maxRoughness ‚Å IBL ‚Ö–ß‚·)B
-    // ·‚µ‘Ö‚¦—¦‚Í [0,1] ‚ğ•Û‚¿A‹­“x‚Íƒ‰ƒfƒBƒAƒ“ƒX‘¤‚ÉæZ‚·‚é
-    // (lerp ‚ÌŠO‘}‚ÅƒXƒyƒLƒ…ƒ‰‚ª•‰‚É‚È‚é‚Ì‚ğ–h‚®)
+    // ãƒ©ãƒ•ãƒã‚¹ãƒ•ã‚§ãƒ¼ãƒ‰ (fadeStart..maxRoughness ã§ IBL ã¸æˆ»ã™)ã€‚
+    // å·®ã—æ›¿ãˆç‡ã¯ [0,1] ã‚’ä¿ã¡ã€å¼·åº¦ã¯ãƒ©ãƒ‡ã‚£ã‚¢ãƒ³ã‚¹å´ã«ä¹—ç®—ã™ã‚‹
+    // (lerp ã®å¤–æŒ¿ã§ã‚¹ãƒšã‚­ãƒ¥ãƒ©ãŒè² ã«ãªã‚‹ã®ã‚’é˜²ã)
     const float replaceWeight = saturate(1.0f - saturate(
         (roughness - fadeStart) / max(maxRoughness - fadeStart, 0.001f)));
     const float intensity = PassReflectionParams.z;
 
-    // ---- 1. ƒXƒNƒŠ[ƒ“ƒXƒy[ƒXƒgƒŒ[ƒX ----
+    // ---- 1. ã‚¹ã‚¯ãƒªãƒ¼ãƒ³ã‚¹ãƒšãƒ¼ã‚¹ãƒˆãƒ¬ãƒ¼ã‚¹ ----
     float3 radiance;
     [branch]
     if (LumenScreenSpaceTrace(rayStart, R, maxTrace, bias, radiance))
@@ -75,26 +75,21 @@ void main(uint3 DTid : SV_DispatchThreadID)
         return;
     }
 
-    // ---- 2. SDF / HWRT ƒgƒŒ[ƒX ----
+    // ---- 2. SDF / HWRT ãƒˆãƒ¬ãƒ¼ã‚¹ ----
     FLumenTraceResult trace = TraceLumenRay(
         rayStart, R, maxTrace, coneTan, PassNumLumenObjects);
 
     [branch]
     if (trace.bHit)
     {
-        FLumenSceneObject hitObj = LumenSceneObjects[trace.HitObject];
-        float3 hitPos = rayStart + R * trace.HitT;
-        float3 hitNormal = ComputeLumenHitNormal(hitObj, hitPos, rayStart);
-        radiance = SampleLumenSurfaceCache(hitObj, hitPos, hitNormal);
+        radiance = ResolveLumenRayRadiance(trace, rayStart, R, 0.0f); // ãƒ’ãƒƒãƒˆ: Surface Cache æ¡å…‰ (SkySampleMip ã¯ãƒŸã‚¹æ™‚ã®ã¿å‚ç…§)
     }
     else
     {
-        // ƒ~ƒX: prefilter ŠÂ‹«‚ğƒ‰ƒtƒlƒX‘Î‰ƒ~ƒbƒv‚Å (IBL ‚Æ“¯ˆêÊ‘œ =
-        // ·‚µ‘Ö‚¦‚Ä‚àŒ©‚½–Ú‚ªŠù‘¶ IBL ‚Æˆê’v‚·‚é)
-        // ƒ~ƒX: prefilter ŠÂ‹«‚ğƒ‰ƒtƒlƒX‘Î‰ƒ~ƒbƒv‚Å (IBL ‚Æ“¯ˆêÊ‘œ =
-        // ·‚µ‘Ö‚¦‚Ä‚àŒ©‚½–Ú‚ªŠù‘¶ IBL ‚Æˆê’v‚·‚é)B‹­“x‚ÍŠ|‚¯‚È‚¢
-        // (Š|‚¯‚é‚Æ‘f‚Ì‹ó”½Ë‚¾‚¯‚ª–¾‚é‚³•Ï‰»‚µ‚Ä‚µ‚Ü‚¤)B
-        const float PREFILTER_MAX_MIP_F = 4.0f;
+        // ãƒŸã‚¹: prefilter ç’°å¢ƒã‚’ãƒ©ãƒ•ãƒã‚¹å¯¾å¿œãƒŸãƒƒãƒ—ã§ (IBL ã¨åŒä¸€å†™åƒ =
+        // å·®ã—æ›¿ãˆã¦ã‚‚è¦‹ãŸç›®ãŒæ—¢å­˜ IBL ã¨ä¸€è‡´ã™ã‚‹)ã€‚å¼·åº¦ã¯æ›ã‘ãªã„
+        // (æ›ã‘ã‚‹ã¨ç´ ã®ç©ºåå°„ã ã‘ãŒæ˜ã‚‹ã•å¤‰åŒ–ã—ã¦ã—ã¾ã†)ã€‚
+        const float PREFILTER_MAX_MIP_F = 4.0f; // PBR_Utility.hlsl PREFILTER_MAX_MIP / C++ IBLBaker::PREFILTER_MIP_COUNT - 1 ã¨ä¸€è‡´å¿…é ˆ
         RWReflections[pixel] = float4(LumenSkyPrefilter.SampleLevel(
             LumenTraceSampler, R, roughness * PREFILTER_MAX_MIP_F).rgb, replaceWeight);
         return;

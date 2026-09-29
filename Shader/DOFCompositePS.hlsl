@@ -5,8 +5,8 @@
 //
 //  入力:
 //    t0  = シャープ HDR SceneColor (フル解像度)
-//    t5  = 線形深度 (R = view距離)
-//    t13 = ハーフ解像度 DOF ブラー (RGB = color*|CoC|, A = |CoC|)
+//    t4  = 線形深度 (R = view距離)
+//    t12 = ハーフ解像度 DOF ブラー (RGB = color*|CoC|, A = |CoC|)
 //
 //  ブラーはプリマルチプライ済みなので、A で割って実色へ戻す。
 //  合成係数は「その画素の CoC」を smoothstep でならしたもの。焦点面付近で

@@ -9,7 +9,7 @@ FPrimitiveSceneProxy::FPrimitiveSceneProxy(const UPrimitiveComponent* Component)
 	XMStoreFloat4x4(&m_LocalToWorld, localToWorld);
 
 	// 境界は生成時点のトランスフォームで初期化する
-	// (以後は SendRenderTransform -> SetTransform が毎フレーム更新)
+	// (以後はトランスフォームダーティ時に SendRenderTransform -> SetTransform が更新)
 	m_Bounds = Component->CalcBounds(localToWorld);
 
 	m_Visible = Component->IsVisible();

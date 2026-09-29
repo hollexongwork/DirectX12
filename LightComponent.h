@@ -161,7 +161,7 @@ public:
 
 // ============================================================
 //  UDirectionalLightComponent
-//  強度は lux (照度)。減衰なし。ENV 定数 (b0) 経由で GPU へ渡される。
+//  強度は lux (照度)。減衰なし。VIEW 定数 (b0, DirectionalLightDirection / DirectionalLightColor) 経由で GPU へ渡される。
 // ============================================================
 class UDirectionalLightComponent : public ULightComponent
 {
@@ -221,6 +221,10 @@ class ULocalLightComponent : public ULightComponent
 protected:
 	float       m_AttenuationRadius = 10.0f;			// 既定 1000cm -> 10m
 	ELightUnits m_IntensityUnits = ELightUnits::Lumens;	// 既定 (逆二乗時は lm)
+
+	// IntensityUnits に従って m_Intensity を cd 相当へ換算する (逆二乗フォールオフ前提)。
+	// LumensSolidAngle は Lumens 時に除する立体角 (Point=4π, Spot=2π(1-cosθ), Rect=π)。
+	float ConvertIntensityUnitsToCandelas(float LumensSolidAngle) const;
 
 public:
 	void  SetAttenuationRadius(float Radius) { m_AttenuationRadius = Radius; MarkRenderStateDirty(); }

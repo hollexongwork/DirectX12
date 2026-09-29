@@ -3,12 +3,12 @@
 
 // =============================================================
 //  LumenRadianceCacheSH_CS
-//  Radiance Cache ‚Ì octahedral ƒ‰ƒfƒBƒAƒ“ƒX‚ğƒvƒ[ƒu‚²‚Æ‚É
-//  SH L1 ‚ÖË‰e‚µA3D ƒ{ƒŠƒ…[ƒ€ (N^3) ‚Ö‘‚­B”¼“§–¾ƒpƒX
-//  (TranslucentPS) ‚ª WRAP ƒTƒ“ƒvƒ‰‚Ìƒgƒ‰ƒCƒŠƒjƒA‚ÅÌŒõ‚·‚éB
-//    t19 = RC ƒ‰ƒfƒBƒAƒ“ƒXƒAƒgƒ‰ƒX
-//    u4..u6 = SH ƒ{ƒŠƒ…[ƒ€ R/G/B (Texture3D<float4>)
-//  Dispatch: (N/8, N/8, N) - 1 ƒXƒŒƒbƒh = 1 ƒvƒ[ƒu
+//  Radiance Cache ã® octahedral ãƒ©ãƒ‡ã‚£ã‚¢ãƒ³ã‚¹ã‚’ãƒ—ãƒ­ãƒ¼ãƒ–ã”ã¨ã«
+//  SH L1 ã¸å°„å½±ã—ã€3D ãƒœãƒªãƒ¥ãƒ¼ãƒ  (N^3) ã¸æ›¸ãã€‚åŠé€æ˜ãƒ‘ã‚¹
+//  (TranslucentPS) ãŒ WRAP ã‚µãƒ³ãƒ—ãƒ©ã®ãƒˆãƒ©ã‚¤ãƒªãƒ‹ã‚¢ã§æ¡å…‰ã™ã‚‹ã€‚
+//    t19 = RC ãƒ©ãƒ‡ã‚£ã‚¢ãƒ³ã‚¹ã‚¢ãƒˆãƒ©ã‚¹
+//    u4..u6 = SH ãƒœãƒªãƒ¥ãƒ¼ãƒ  R/G/B (Texture3D<float4>)
+//  Dispatch: (N/8, N/8, N) - 1 ã‚¹ãƒ¬ãƒƒãƒ‰ = 1 ãƒ—ãƒ­ãƒ¼ãƒ–
 // =============================================================
 
 Texture2D<float4> RadianceCacheAtlas : register(t19);
@@ -33,7 +33,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
     uint2 tileOrigin = uint2(probeLinear % 64u, probeLinear / 64u) * 8u;
 
-    // ---- SH L1 Ë‰e (‘S‹… = —§‘ÌŠp 4pi ‚ğ 64 ƒeƒNƒZƒ‹‚Å•ªŠ„) ----
+    // ---- SH L1 å°„å½± (å…¨çƒ = ç«‹ä½“è§’ 4pi ã‚’ 64 ãƒ†ã‚¯ã‚»ãƒ«ã§åˆ†å‰²) ----
     float4 shR = float4(0.0f, 0.0f, 0.0f, 0.0f);
     float4 shG = float4(0.0f, 0.0f, 0.0f, 0.0f);
     float4 shB = float4(0.0f, 0.0f, 0.0f, 0.0f);

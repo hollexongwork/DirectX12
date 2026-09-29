@@ -22,6 +22,43 @@
 
 
 // ============================================================
+//  スクリーンパス用ヘルパー (RenderDOF / RenderBloom 共用)
+// ============================================================
+namespace
+{
+	// PIXEL_SHADER_RESOURCE -> RENDER_TARGET
+	void TransitionToRenderTarget(ID3D12GraphicsCommandList* cl, RENDER_TARGET* rt)
+	{
+		cl->ResourceBarrier(1,
+			&CD3DX12_RESOURCE_BARRIER::Transition(rt->Resource.Get(),
+				D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+				D3D12_RESOURCE_STATE_RENDER_TARGET));
+	}
+
+	// RENDER_TARGET -> PIXEL_SHADER_RESOURCE
+	void TransitionToShaderResource(ID3D12GraphicsCommandList* cl, RENDER_TARGET* rt)
+	{
+		cl->ResourceBarrier(1,
+			&CD3DX12_RESOURCE_BARRIER::Transition(rt->Resource.Get(),
+				D3D12_RESOURCE_STATE_RENDER_TARGET,
+				D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
+	}
+
+	// フルスクリーンクアッドは NDC -1..1 を覆うため、ラスタライズ範囲は
+	// ビューポート / シザーだけで決まる。BeginFrame はバックバッファサイズの
+	// ままにしているので、小さいターゲット (Bloom ミップ / ハーフ解像度 DOF) は
+	// 必ず自前で設定すること (設定しないと左上隅にしか描かれない)。
+	void SetViewportAndScissor(ID3D12GraphicsCommandList* cl, int w, int h)
+	{
+		D3D12_VIEWPORT vp{ 0.0f, 0.0f, (FLOAT)w, (FLOAT)h, 0.0f, 1.0f };
+		D3D12_RECT     sc{ 0, 0, (LONG)w, (LONG)h };
+		cl->RSSetViewports(1, &vp);
+		cl->RSSetScissorRects(1, &sc);
+	}
+}
+
+
+// ============================================================
 //  Lifetime
 // ============================================================
 FSceneRenderer::~FSceneRenderer() = default;
@@ -98,12 +135,16 @@ void FSceneRenderer::InitScreenQuad()
 
 void FSceneRenderer::InitIBL()
 {
-	m_EnvironmentTexture = m_RHI->LoadTexture("Asset/Texture/kloppenheim_06_puresky_4k.dds", true);
+	// equirect 環境マップは IBL ベイクの入力としてのみ使う。Bake は末尾で
+	// FlushAndResetCommandList により GPU 完了まで待つため、ベイク後は
+	// ローカルのまま破棄してよい (TEXTURE のデストラクタが DeferredRelease
+	// 経由でリソース + SRV 枠を遅延解放する)。
+	std::unique_ptr<TEXTURE> environmentTexture = m_RHI->LoadTexture("Asset/Texture/kloppenheim_06_puresky_4k.dds", true);
 
 	// IBL の事前計算は IBLBaker に委譲
 	m_IBLBaker = std::make_unique<IBLBaker>(m_RHI);
 	m_IBLBaker->Init();
-	m_IBLBaker->Bake(m_EnvironmentTexture->Resource.Get(), m_EnvironmentTexture->SRVIndex);
+	m_IBLBaker->Bake(environmentTexture->Resource.Get(), environmentTexture->SRVIndex);
 }
 
 
@@ -163,8 +204,6 @@ void FSceneRenderer::InitDOF()
 	m_DOFPrep->Resource->SetName(L"DOFPrep");
 	m_DOFPing = m_RHI->CreateRenderTarget(m_DOFWidth, m_DOFHeight, DXGI_FORMAT_R16G16B16A16_FLOAT);
 	m_DOFPing->Resource->SetName(L"DOFPing");
-	m_DOFPong = m_RHI->CreateRenderTarget(m_DOFWidth, m_DOFHeight, DXGI_FORMAT_R16G16B16A16_FLOAT);
-	m_DOFPong->Resource->SetName(L"DOFPong");
 	m_DOFBlur = m_RHI->CreateRenderTarget(m_DOFWidth, m_DOFHeight, DXGI_FORMAT_R16G16B16A16_FLOAT);
 	m_DOFBlur->Resource->SetName(L"DOFBlur");
 
@@ -391,8 +430,6 @@ void FSceneRenderer::BeginFrame()
 			(float)(rect.bottom - rect.top) / m_RHI->GetBackBufferHeight());
 		ImGui::NewFrame();
 	}
-
-	m_RHI->SetPipelineState("BasePass");
 }
 
 
@@ -918,37 +955,9 @@ void FSceneRenderer::RenderLighting()
 		m_RHI->BindRootTableBySRVIndex(
 			(unsigned int)RenderManager::TEXTURE_TYPE::DEPTH, m_SceneTextures.DepthSRVIndex);
 
-		m_RHI->SetTexture(RenderManager::TEXTURE_TYPE::LINEAR_DEPTH, m_SceneTextures.LinearDepth.get());
-		m_RHI->SetTexture(RenderManager::TEXTURE_TYPE::ENVIRONMENT, m_EnvironmentTexture.get());
-
-		// IBL precomputed (t6 irradiance / t7 prefilter / t8 brdfLUT)
-		if (m_IBLBaker)
-		{
-			m_IBLBaker->BindTextures();
-		}
-
-		// ローカルライト (t13): 今フレーム分の StructuredBuffer
-		m_RHI->BindRootTableBySRVIndex(
-			(unsigned int)RenderManager::TEXTURE_TYPE::LIGHTS,
-			m_LightBufferSRVIndex[m_LightBufferFrame]);
-
-		// ライトグリッド (t19: セルヘッダ / t20: ライトインデックス列)
-		if (m_LightGrid)
-		{
-			m_RHI->BindRootTableBySRVIndex(
-				(unsigned int)RenderManager::TEXTURE_TYPE::NUM_CULLED_LIGHTS_GRID,
-				m_LightGrid->GetNumCulledLightsGridSRVIndex());
-			m_RHI->BindRootTableBySRVIndex(
-				(unsigned int)RenderManager::TEXTURE_TYPE::CULLED_LIGHT_DATA_GRID,
-				m_LightGrid->GetCulledLightDataGridSRVIndex());
-		}
-
-		// シャドウ (b5: CSM 定数 / t14: CSM / t15: ローカルアトラス /
-		// t16: ローカルシャドウパラメータ)
-		if (m_ShadowRenderer)
-		{
-			m_ShadowRenderer->BindShadowResources();
-		}
+		// フォワードライティング入力 (IBL t6-t8 / ローカルライト t13 /
+		// ライトグリッド t19-t20 / シャドウ b5 + t14-t18)
+		BindForwardLightingResources();
 
 		// Lumen スクリーン GI (b6: LUMEN 定数 / t24: オブジェクト /
 		// t25: カード / t26: FinalLighting / t27: 深度アトラス)。
@@ -956,10 +965,7 @@ void FSceneRenderer::RenderLighting()
 		// バインド済みのものを共用する。
 		if (m_LumenScene)
 		{
-			LUMEN_CONSTANT lumenConstant{};
-			m_LumenScene->FillLumenConstant(lumenConstant);
-			m_RHI->SetConstant(RenderManager::CONSTANT_TYPE::LUMEN,
-				&lumenConstant, sizeof(lumenConstant));
+			UploadLumenConstant();
 
 			m_LumenScene->BindLumenResources();
 		}
@@ -998,9 +1004,10 @@ void FSceneRenderer::RenderLighting()
 //  Additive マテリアルのプリミティブをフォワードシェーディング
 //  (TranslucentPS: デファードと同一のライト / シャドウ / IBL 入力)
 //  で合成する。
-//    - 深度は不透明結果に対するテストのみ (PSO: DepthRead、書き込みなし)
-//    - 描画順は TranslucentSortPolicy::SortByDistance
-//      (境界原点のカメラ距離で後→前)
+//    - 深度: Translucent はプリミティブごとに深度プリパス (DepthWrite,
+//      カラー無効) -> EQUAL 着色 (DepthReadEqual)。Additive は DepthRead の 1 パス
+//    - 描画順は TranslucencySortPriority 昇順 -> m_TranslucencyParams.SortPolicy
+//      (ETranslucentSortPolicy) の奥行きキーで後→前
 //    - ブレンドは PSO 側: Translucent = SrcAlpha/InvSrcAlpha,
 //      Additive = SrcAlpha/One (Two Sided はカリング無効バリアント)
 //  トランスルーセントプリミティブが 1 つも無いフレームは
@@ -1132,8 +1139,10 @@ void FSceneRenderer::RenderTranslucency(FScene* Scene)
 	}
 
 	// ---- 深度: SRV -> DEPTH_WRITE (DSV バインドのため) ----
-	// 不透明の深度に対するテストのみ。PSO (DepthRead) 側で書き込みが
-	// 無効化されているため深度値は変化しない。
+	// 深度プリパス (DepthWrite) が Translucent の最前面深度を深度バッファへ
+	// 書き込むため、このパス以降の深度バッファは不透明のみの深度ではなくなる
+	// (後段が t3 を読めば半透明の最前面深度が見える。LinearDepth (t4) は
+	// 不透明のみのまま)。
 	// ※ この間、TranslucentPS は深度 SRV (t3) を参照しないこと。
 	//   LinearDepth (t4) は深度バッファとは別リソースで SRV のまま
 	//   なので参照可 (屈折の深度棄却が使用する)。
@@ -1153,10 +1162,7 @@ void FSceneRenderer::RenderTranslucency(FScene* Scene)
 	// ---- Lumen (b6 + t30-t32): 半透明の Radiance Cache GI ----
 	if (m_LumenScene)
 	{
-		LUMEN_CONSTANT lumenConstant{};
-		m_LumenScene->FillLumenConstant(lumenConstant);
-		m_RHI->SetConstant(RenderManager::CONSTANT_TYPE::LUMEN,
-			&lumenConstant, sizeof(lumenConstant));
+		UploadLumenConstant();
 
 		m_LumenScene->BindTranslucencyResources();
 	}
@@ -1172,34 +1178,7 @@ void FSceneRenderer::RenderTranslucency(FScene* Scene)
 	m_RHI->SetTexture(RenderManager::TEXTURE_TYPE::LINEAR_DEPTH, m_SceneTextures.LinearDepth.get());
 
 	// ---- フォワードライティング入力 (デファードパスと同一セット) ----
-	// IBL precomputed (t6 irradiance / t7 prefilter / t8 brdfLUT)
-	if (m_IBLBaker)
-	{
-		m_IBLBaker->BindTextures();
-	}
-
-	// ローカルライト (t13): 今フレーム分の StructuredBuffer
-	m_RHI->BindRootTableBySRVIndex(
-		(unsigned int)RenderManager::TEXTURE_TYPE::LIGHTS,
-		m_LightBufferSRVIndex[m_LightBufferFrame]);
-
-	// ライトグリッド (t19: セルヘッダ / t20: ライトインデックス列)
-	if (m_LightGrid)
-	{
-		m_RHI->BindRootTableBySRVIndex(
-			(unsigned int)RenderManager::TEXTURE_TYPE::NUM_CULLED_LIGHTS_GRID,
-			m_LightGrid->GetNumCulledLightsGridSRVIndex());
-		m_RHI->BindRootTableBySRVIndex(
-			(unsigned int)RenderManager::TEXTURE_TYPE::CULLED_LIGHT_DATA_GRID,
-			m_LightGrid->GetCulledLightDataGridSRVIndex());
-	}
-
-	// シャドウ (b5: CSM 定数 / t14: CSM / t15: ローカルアトラス /
-	// t16: ローカルシャドウパラメータ / t17-t18: Distance Field)
-	if (m_ShadowRenderer)
-	{
-		m_ShadowRenderer->BindShadowResources();
-	}
+	BindForwardLightingResources();
 
 	// ---- フォグ (b7: FOG 定数 / t33: キューブマップ / t34: Volumetric Fog) ----
 	// TranslucentPS がサーフェス位置で高さフォグ + Volumetric Fog を
@@ -1245,7 +1224,7 @@ void FSceneRenderer::RenderTranslucency(FScene* Scene)
 
 
 // ============================================================
-//  Post processing: DOF -> AutoExposure -> Bloom -> LUT -> Tonemap
+//  Post processing: SceneColor 履歴 (Lumen) -> DOF -> AutoExposure -> Bloom -> LUT -> Tonemap
 // ============================================================
 void FSceneRenderer::RenderPostProcessing()
 {
@@ -1293,7 +1272,7 @@ void FSceneRenderer::RenderPostProcessing()
 		m_ColorGradingLUTBaker->UpdateIfDirty(m_FinalSettings);
 	}
 
-	// Restore the full ENV constant (full-res texel size) for the tonemap pass.
+	// Restore the full POST_PROCESS constant (b4, full-res texel size) for the tonemap pass.
 	UploadPostProcessConstant();
 
 	//======================================================
@@ -1302,9 +1281,8 @@ void FSceneRenderer::RenderPostProcessing()
 	//======================================================
 
 	// バックバッファ: PRESENT -> RENDER_TARGET
-	// (旧 DrawEnd はここを逆方向 (RT->PRESENT) にしていた「要見直し」箇所。
-	//  スワップチェーンバッファは PRESENT(COMMON) 開始なので、書き込み前に
-	//  RENDER_TARGET へ遷移し、Present 直前に戻すのが正しい)
+	// (スワップチェーンバッファは PRESENT(COMMON) 開始なので、書き込み前に
+	//  RENDER_TARGET へ遷移し、EndFrame の Present 直前に戻す)
 	cl->ResourceBarrier(1,
 		&CD3DX12_RESOURCE_BARRIER::Transition(
 			m_RHI->GetCurrentBackBufferResource(),
@@ -1386,6 +1364,50 @@ void FSceneRenderer::DrawScreenPass()
 }
 
 
+// デファードパス / トランスルーセンシーパス共通のフォワードライティング入力
+void FSceneRenderer::BindForwardLightingResources()
+{
+	// IBL precomputed (t6 irradiance / t7 prefilter / t8 brdfLUT)
+	if (m_IBLBaker)
+	{
+		m_IBLBaker->BindTextures();
+	}
+
+	// ローカルライト (t13): 今フレーム分の StructuredBuffer
+	m_RHI->BindRootTableBySRVIndex(
+		(unsigned int)RenderManager::TEXTURE_TYPE::LIGHTS,
+		m_LightBufferSRVIndex[m_LightBufferFrame]);
+
+	// ライトグリッド (t19: セルヘッダ / t20: ライトインデックス列)
+	if (m_LightGrid)
+	{
+		m_RHI->BindRootTableBySRVIndex(
+			(unsigned int)RenderManager::TEXTURE_TYPE::NUM_CULLED_LIGHTS_GRID,
+			m_LightGrid->GetNumCulledLightsGridSRVIndex());
+		m_RHI->BindRootTableBySRVIndex(
+			(unsigned int)RenderManager::TEXTURE_TYPE::CULLED_LIGHT_DATA_GRID,
+			m_LightGrid->GetCulledLightDataGridSRVIndex());
+	}
+
+	// シャドウ (b5: CSM 定数 / t14: CSM / t15: ローカルアトラス /
+	// t16: ローカルシャドウパラメータ / t17-t18: Distance Field)
+	if (m_ShadowRenderer)
+	{
+		m_ShadowRenderer->BindShadowResources();
+	}
+}
+
+
+// LUMEN 定数 (b6) を解決してアップロードする (m_LumenScene 非 null 前提)
+void FSceneRenderer::UploadLumenConstant()
+{
+	LUMEN_CONSTANT lumenConstant{};
+	m_LumenScene->FillLumenConstant(lumenConstant);
+	m_RHI->SetConstant(RenderManager::CONSTANT_TYPE::LUMEN,
+		&lumenConstant, sizeof(lumenConstant));
+}
+
+
 // ============================================================
 //  Gaussian Depth of Field.
 //   1. CoC/prep : SceneColor -> half-res (RGB=premul color, A=CoC)
@@ -1399,87 +1421,65 @@ void FSceneRenderer::RenderDOF()
 {
 	ID3D12GraphicsCommandList* cl = m_RHI->GetGraphicsCommandList();
 
-	auto toRT = [&](RENDER_TARGET* rt)
-		{
-			cl->ResourceBarrier(1,
-				&CD3DX12_RESOURCE_BARRIER::Transition(rt->Resource.Get(),
-					D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
-					D3D12_RESOURCE_STATE_RENDER_TARGET));
-		};
-	auto toSRV = [&](RENDER_TARGET* rt)
-		{
-			cl->ResourceBarrier(1,
-				&CD3DX12_RESOURCE_BARRIER::Transition(rt->Resource.Get(),
-					D3D12_RESOURCE_STATE_RENDER_TARGET,
-					D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
-		};
-	auto setVP = [&](int w, int h)
-		{
-			D3D12_VIEWPORT vp{ 0.0f, 0.0f, (FLOAT)w, (FLOAT)h, 0.0f, 1.0f };
-			D3D12_RECT     sc{ 0, 0, (LONG)w, (LONG)h };
-			cl->RSSetViewports(1, &vp);
-			cl->RSSetScissorRects(1, &sc);
-		};
-
 	const FLOAT clr[4] = { 0, 0, 0, 0 };
 
-	// 線形深度は RenderLighting 側で既に PIXEL_SHADER_RESOURCE。CoC 計算で t5 を読む。
+	// 線形深度は RenderLighting 側で既に読み取り状態 (PIXEL | NON_PIXEL)。CoC 計算で t4 を読む。
 	// SceneColor も入口で PIXEL_SHADER_RESOURCE。
 
-	// ---- 1. CoC / prep : SceneColor(t0) + LinearDepth(t5) -> DOFPrep ----
+	// ---- 1. CoC / prep : SceneColor(t0) + LinearDepth(t4) -> DOFPrep ----
 	// ハーフ解像度テクセルサイズを渡す (ブラー内で使用)。
 	SetTexelSize(m_DOFWidth, m_DOFHeight);
 	UploadPostProcessConstant();
 
-	toRT(m_DOFPrep.get());
+	TransitionToRenderTarget(cl, m_DOFPrep.get());
 	cl->OMSetRenderTargets(1, &m_DOFPrep->RTVHandle, TRUE, nullptr);
 	cl->ClearRenderTargetView(m_DOFPrep->RTVHandle, clr, 0, nullptr);
-	setVP(m_DOFWidth, m_DOFHeight);
+	SetViewportAndScissor(cl, m_DOFWidth, m_DOFHeight);
 	m_RHI->SetPipelineState("PostProcessDOFCoC");
 	m_RHI->SetTexture(RenderManager::TEXTURE_TYPE::BASE_COLOR, m_SceneTextures.SceneColor.get()); // t0
-	m_RHI->SetTexture(RenderManager::TEXTURE_TYPE::LINEAR_DEPTH, m_SceneTextures.LinearDepth.get()); // t5
+	m_RHI->SetTexture(RenderManager::TEXTURE_TYPE::LINEAR_DEPTH, m_SceneTextures.LinearDepth.get()); // t4
 	DrawScreenPass();
-	toSRV(m_DOFPrep.get());
+	TransitionToShaderResource(cl, m_DOFPrep.get());
 
 	// ---- 2. Horizontal blur : DOFPrep -> DOFPing (DofPad=0 => 水平) ----
 	m_FinalSettings.DofPad = 0.0f;
 	UploadPostProcessConstant();
-	toRT(m_DOFPing.get());
+	TransitionToRenderTarget(cl, m_DOFPing.get());
 	cl->OMSetRenderTargets(1, &m_DOFPing->RTVHandle, TRUE, nullptr);
 	cl->ClearRenderTargetView(m_DOFPing->RTVHandle, clr, 0, nullptr);
-	setVP(m_DOFWidth, m_DOFHeight);
+	SetViewportAndScissor(cl, m_DOFWidth, m_DOFHeight);
 	m_RHI->SetPipelineState("PostProcessDOFBlur");
 	m_RHI->SetTexture(RenderManager::TEXTURE_TYPE::BASE_COLOR, m_DOFPrep.get()); // t0
 	DrawScreenPass();
-	toSRV(m_DOFPing.get());
+	TransitionToShaderResource(cl, m_DOFPing.get());
 
 	// ---- 3. Vertical blur : DOFPing -> DOFBlur (DofPad=1 => 垂直) ----
 	m_FinalSettings.DofPad = 1.0f;
 	UploadPostProcessConstant();
-	toRT(m_DOFBlur.get());
+	TransitionToRenderTarget(cl, m_DOFBlur.get());
 	cl->OMSetRenderTargets(1, &m_DOFBlur->RTVHandle, TRUE, nullptr);
 	cl->ClearRenderTargetView(m_DOFBlur->RTVHandle, clr, 0, nullptr);
-	setVP(m_DOFWidth, m_DOFHeight);
+	SetViewportAndScissor(cl, m_DOFWidth, m_DOFHeight);
 	m_RHI->SetPipelineState("PostProcessDOFBlur");
 	m_RHI->SetTexture(RenderManager::TEXTURE_TYPE::BASE_COLOR, m_DOFPing.get()); // t0
 	DrawScreenPass();
-	toSRV(m_DOFBlur.get());
+	TransitionToShaderResource(cl, m_DOFBlur.get());
 	m_FinalSettings.DofPad = 0.0f;
 	UploadPostProcessConstant();
 
 	// ---- 4. Composite : sharp(t0) + DOFBlur(t12) -> DOFSharp(full-res) ----
 	//  SceneColor 自身を read/write 同時参照できないため、合成結果は一旦
 	//  full-res の DOFSharp に書き、その後 CopyResource で SceneColor に戻す。
-	toRT(m_DOFSharp.get());
+	TransitionToRenderTarget(cl, m_DOFSharp.get());
 	cl->OMSetRenderTargets(1, &m_DOFSharp->RTVHandle, TRUE, nullptr);
 	cl->ClearRenderTargetView(m_DOFSharp->RTVHandle, clr, 0, nullptr);
-	setVP(m_RHI->GetBackBufferWidth(), m_RHI->GetBackBufferHeight());
+	SetViewportAndScissor(cl, m_RHI->GetBackBufferWidth(), m_RHI->GetBackBufferHeight());
 	m_RHI->SetPipelineState("PostProcessDOFComposite");
 	m_RHI->SetTexture(RenderManager::TEXTURE_TYPE::BASE_COLOR, m_SceneTextures.SceneColor.get()); // t0 sharp
-	m_RHI->SetTexture(RenderManager::TEXTURE_TYPE::LINEAR_DEPTH, m_SceneTextures.LinearDepth.get()); // t5
+	m_RHI->SetTexture(RenderManager::TEXTURE_TYPE::LINEAR_DEPTH, m_SceneTextures.LinearDepth.get()); // t4
 	m_RHI->BindRootTableBySRVIndex((unsigned int)RenderManager::TEXTURE_TYPE::DOF, m_DOFBlur->SRVIndex); // t12
 	DrawScreenPass();
-	toSRV(m_DOFSharp.get());
+	TransitionToShaderResource(cl, m_DOFSharp.get());
 
 	// 合成結果 (DOFSharp) を SceneColor へコピーし直す。
 	//  SceneColor: SRV -> COPY_DEST, DOFSharp: SRV -> COPY_SOURCE
@@ -1498,7 +1498,7 @@ void FSceneRenderer::RenderDOF()
 			D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
 
 	// フル解像度ビューポート / テクセルサイズを復元。
-	setVP(m_RHI->GetBackBufferWidth(), m_RHI->GetBackBufferHeight());
+	SetViewportAndScissor(cl, m_RHI->GetBackBufferWidth(), m_RHI->GetBackBufferHeight());
 	SetTexelSize(m_RHI->GetBackBufferWidth(), m_RHI->GetBackBufferHeight());
 	UploadPostProcessConstant();
 }
@@ -1513,44 +1513,17 @@ void FSceneRenderer::RenderBloom()
 {
 	ID3D12GraphicsCommandList* cl = m_RHI->GetGraphicsCommandList();
 
-	auto toRT = [&](RENDER_TARGET* rt)
-		{
-			cl->ResourceBarrier(1,
-				&CD3DX12_RESOURCE_BARRIER::Transition(rt->Resource.Get(),
-					D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
-					D3D12_RESOURCE_STATE_RENDER_TARGET));
-		};
-	auto toSRV = [&](RENDER_TARGET* rt)
-		{
-			cl->ResourceBarrier(1,
-				&CD3DX12_RESOURCE_BARRIER::Transition(rt->Resource.Get(),
-					D3D12_RESOURCE_STATE_RENDER_TARGET,
-					D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
-		};
-
-	// The full-screen quad spans NDC -1..1, so the rasterised area is defined
-	// purely by the viewport/scissor. They are left at back-buffer size by
-	// BeginFrame, so each (smaller) bloom mip MUST set its own viewport or it
-	// would only be drawn into the top-left corner.
-	auto setVP = [&](int w, int h)
-		{
-			D3D12_VIEWPORT vp{ 0.0f, 0.0f, (FLOAT)w, (FLOAT)h, 0.0f, 1.0f };
-			D3D12_RECT     sc{ 0, 0, (LONG)w, (LONG)h };
-			cl->RSSetViewports(1, &vp);
-			cl->RSSetScissorRects(1, &sc);
-		};
-
 	const FLOAT clr[4] = { 0,0,0,1 };
 
 	// ---- Bright-pass: SceneColor -> m_BloomMip[0] ----
-	toRT(m_BloomMip[0].get());
+	TransitionToRenderTarget(cl, m_BloomMip[0].get());
 	cl->OMSetRenderTargets(1, &m_BloomMip[0]->RTVHandle, TRUE, nullptr);
 	cl->ClearRenderTargetView(m_BloomMip[0]->RTVHandle, clr, 0, nullptr);
-	setVP(m_BloomMipW[0], m_BloomMipH[0]);
+	SetViewportAndScissor(cl, m_BloomMipW[0], m_BloomMipH[0]);
 	m_RHI->SetPipelineState("PostProcessBloomThreshold");
 	m_RHI->SetTexture(RenderManager::TEXTURE_TYPE::BASE_COLOR, m_SceneTextures.SceneColor.get()); // t0
 	DrawScreenPass();
-	toSRV(m_BloomMip[0].get());
+	TransitionToShaderResource(cl, m_BloomMip[0].get());
 
 	// ---- Downsample chain: mip[i-1] -> mip[i] ----
 	for (int i = 1; i < BLOOM_MIPS; ++i)
@@ -1558,14 +1531,14 @@ void FSceneRenderer::RenderBloom()
 		SetTexelSize(m_BloomMipW[i - 1], m_BloomMipH[i - 1]);
 		UploadPostProcessConstant();
 
-		toRT(m_BloomMip[i].get());
+		TransitionToRenderTarget(cl, m_BloomMip[i].get());
 		cl->OMSetRenderTargets(1, &m_BloomMip[i]->RTVHandle, TRUE, nullptr);
 		cl->ClearRenderTargetView(m_BloomMip[i]->RTVHandle, clr, 0, nullptr);
-		setVP(m_BloomMipW[i], m_BloomMipH[i]);          // dest mip size
+		SetViewportAndScissor(cl, m_BloomMipW[i], m_BloomMipH[i]);          // dest mip size
 		m_RHI->SetPipelineState("PostProcessBloomDownsample");
 		m_RHI->SetTexture(RenderManager::TEXTURE_TYPE::BASE_COLOR, m_BloomMip[i - 1].get()); // t0 = source
 		DrawScreenPass();
-		toSRV(m_BloomMip[i].get());
+		TransitionToShaderResource(cl, m_BloomMip[i].get());
 	}
 
 	// ---- Upsample chain (deepest down mip -> up[0]) ----
@@ -1578,19 +1551,19 @@ void FSceneRenderer::RenderBloom()
 		SetTexelSize(m_BloomMipW[i + 1], m_BloomMipH[i + 1]);
 		UploadPostProcessConstant();
 
-		toRT(m_BloomUp[i].get());
+		TransitionToRenderTarget(cl, m_BloomUp[i].get());
 		cl->OMSetRenderTargets(1, &m_BloomUp[i]->RTVHandle, TRUE, nullptr);
 		cl->ClearRenderTargetView(m_BloomUp[i]->RTVHandle, clr, 0, nullptr);
-		setVP(m_BloomMipW[i], m_BloomMipH[i]);          // dest (up) mip size
+		SetViewportAndScissor(cl, m_BloomMipW[i], m_BloomMipH[i]);          // dest (up) mip size
 		m_RHI->SetPipelineState("PostProcessBloomUpsample");
 		m_RHI->SetTexture(RenderManager::TEXTURE_TYPE::BASE_COLOR, lowSrc);              // t0 low-res
 		m_RHI->SetTexture(RenderManager::TEXTURE_TYPE::BLOOM, m_BloomMip[i].get()); // t9 hi-res same-res mip
 		DrawScreenPass();
-		toSRV(m_BloomUp[i].get());
+		TransitionToShaderResource(cl, m_BloomUp[i].get());
 	}
 
 	// restore full-res viewport + texel size for the tonemap pass.
-	setVP(m_RHI->GetBackBufferWidth(), m_RHI->GetBackBufferHeight());
+	SetViewportAndScissor(cl, m_RHI->GetBackBufferWidth(), m_RHI->GetBackBufferHeight());
 	SetTexelSize(m_RHI->GetBackBufferWidth(), m_RHI->GetBackBufferHeight());
 	UploadPostProcessConstant();
 }

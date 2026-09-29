@@ -1,7 +1,7 @@
 #include "PostProcess_Utility.hlsl"
 
-// 3x3 tent upsample of t0 (lower-res blurred mip), added to t10
-// (higher-res mip already accumulated). SceneTexelSize = source mip texel.
+// 3x3 tent upsample of t0 (lower-res blurred mip), added to t9
+// (TextureBloom = 同解像度のダウンサンプル mip). SceneTexelSize = source mip texel.
 PS_OUTPUT main(PS_INPUT input)
 {
     PS_OUTPUT output;
@@ -20,7 +20,7 @@ PS_OUTPUT main(PS_INPUT input)
     s += TextureBaseColor.Sample(Sampler2, uv + t * float2( 1, 1)).rgb * 1.0f;
     s *= (1.0f / 16.0f);
 
-    float3 hi = TextureBloom.Sample(Sampler2, uv).rgb; // higher-res accumulator
+    float3 hi = TextureBloom.Sample(Sampler2, uv).rgb; // same-res downsample mip (t9)
     output.Color = float4(hi + s, 1.0f);
     return output;
 }

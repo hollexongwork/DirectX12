@@ -3,15 +3,14 @@
 
 // =============================================================
 //  LumenRadianceCache_CS
-//  LumenRadianceCache ‘Š“–‚Ìƒ[ƒ‹ƒh‹óŠÔƒvƒ[ƒuBƒJƒƒ‰üˆÍ‚Ì
-//  N^3 ƒOƒŠƒbƒh (ƒgƒƒCƒ_ƒ‹ƒAƒhƒŒƒbƒVƒ“ƒO) ‚ÌŠeƒvƒ[ƒu‚©‚ç
-//  octahedral 8x8 ‚Ì‘S‹…ƒŒƒC‚ğƒgƒŒ[ƒX‚µA•úË‹P“xƒAƒgƒ‰ƒX‚Ö‘‚­B
-//  XV‚ÍƒtƒŒ[ƒ€—\Z§ (PassRCParams1.y = ŠJn, z = ŒÂ”)B
+//  LumenRadianceCache ç›¸å½“ã®ãƒ¯ãƒ¼ãƒ«ãƒ‰ç©ºé–“ãƒ—ãƒ­ãƒ¼ãƒ–ã€‚ã‚«ãƒ¡ãƒ©å‘¨å›²ã®
+//  N^3 ã‚°ãƒªãƒƒãƒ‰ (ãƒˆãƒ­ã‚¤ãƒ€ãƒ«ã‚¢ãƒ‰ãƒ¬ãƒƒã‚·ãƒ³ã‚°) ã®å„ãƒ—ãƒ­ãƒ¼ãƒ–ã‹ã‚‰
+//  octahedral 8x8 ã®å…¨çƒãƒ¬ã‚¤ã‚’ãƒˆãƒ¬ãƒ¼ã‚¹ã—ã€æ”¾å°„è¼åº¦ã‚¢ãƒˆãƒ©ã‚¹ã¸æ›¸ãã€‚
+//  æ›´æ–°ã¯ãƒ•ãƒ¬ãƒ¼ãƒ äºˆç®—åˆ¶ (PassRCParams1.y = é–‹å§‹, z = å€‹æ•°)ã€‚
 //
-//    u4 = RC ƒ‰ƒfƒBƒAƒ“ƒXƒAƒgƒ‰ƒX ((N*N/8?) ŒÅ’è: 512x512 =
-//         64x64 ƒ^ƒCƒ‹ x 8x8 octaBƒ^ƒCƒ‹ = ƒeƒNƒXƒ`ƒƒ‹óŠÔ
-//         ƒŠƒjƒAƒvƒ[ƒu”Ô†)
-//  Dispatch: (1, 1, XVƒvƒ[ƒu”) - 1 ƒOƒ‹[ƒv = 1 ƒvƒ[ƒu (8x8)
+//    u4 = RC ãƒ©ãƒ‡ã‚£ã‚¢ãƒ³ã‚¹ã‚¢ãƒˆãƒ©ã‚¹ (512x512 å›ºå®š = 64x64 ã‚¿ã‚¤ãƒ« x 8x8 octaã€‚
+//         ã‚¿ã‚¤ãƒ« = ãƒ†ã‚¯ã‚¹ãƒãƒ£ç©ºé–“ãƒªãƒ‹ã‚¢ãƒ—ãƒ­ãƒ¼ãƒ–ç•ªå·)
+//  Dispatch: (1, 1, æ›´æ–°ãƒ—ãƒ­ãƒ¼ãƒ–æ•°) - 1 ã‚°ãƒ«ãƒ¼ãƒ— = 1 ãƒ—ãƒ­ãƒ¼ãƒ– (8x8)
 // =============================================================
 
 RWTexture2D<float4> RWRadianceCacheAtlas : register(u4);
@@ -22,43 +21,43 @@ void main(uint3 GroupID : SV_GroupID, uint3 GroupThreadID : SV_GroupThreadID)
     const int probesPerAxis = (int) PassRCParams1.x;
     const int numProbes = probesPerAxis * probesPerAxis * probesPerAxis;
 
-    // ƒeƒNƒXƒ`ƒƒ‹óŠÔƒŠƒjƒAƒvƒ[ƒu”Ô† (ƒ‰ƒEƒ“ƒhƒƒrƒ“ + ƒ‰ƒbƒv)
+    // ãƒ†ã‚¯ã‚¹ãƒãƒ£ç©ºé–“ãƒªãƒ‹ã‚¢ãƒ—ãƒ­ãƒ¼ãƒ–ç•ªå· (ãƒ©ã‚¦ãƒ³ãƒ‰ãƒ­ãƒ“ãƒ³ + ãƒ©ãƒƒãƒ—)
     const uint probeLinear =
         ((uint) PassRCParams1.y + GroupID.z) % (uint) numProbes;
 
-    // ƒeƒNƒXƒ`ƒƒ‹óŠÔ 3D ƒCƒ“ƒfƒbƒNƒX
+    // ãƒ†ã‚¯ã‚¹ãƒãƒ£ç©ºé–“ 3D ã‚¤ãƒ³ãƒ‡ãƒƒã‚¯ã‚¹
     int3 texIndex;
     texIndex.x = (int) (probeLinear % (uint) probesPerAxis);
     texIndex.y = (int) ((probeLinear / (uint) probesPerAxis) % (uint) probesPerAxis);
     texIndex.z = (int) (probeLinear / (uint) (probesPerAxis * probesPerAxis));
 
-    // ƒgƒƒCƒ_ƒ‹: ƒeƒNƒXƒ`ƒƒƒCƒ“ƒfƒbƒNƒX -> ƒ[ƒ‹ƒhƒZƒ‹
+    // ãƒˆãƒ­ã‚¤ãƒ€ãƒ«: ãƒ†ã‚¯ã‚¹ãƒãƒ£ã‚¤ãƒ³ãƒ‡ãƒƒã‚¯ã‚¹ -> ãƒ¯ãƒ¼ãƒ«ãƒ‰ã‚»ãƒ«
     const float spacing = PassRCParams0.w;
     int3 minWorldCell = (int3) floor(PassRCParams0.xyz / spacing + 0.5f);
     int3 worldCell = LumenRCWorldCellFromTexIndex(texIndex, minWorldCell, probesPerAxis);
 
     float3 probePos = ((float3) worldCell + 0.5f) * spacing;
 
-    // ---- octahedral ‘S‹…ƒŒƒC ----
+    // ---- octahedral å…¨çƒãƒ¬ã‚¤ ----
     const uint2 octaTexel = GroupThreadID.xy;
     float2 octaUV = ((float2) octaTexel + 0.5f) / 8.0f;
     float3 rayDir = LumenOctahedronToDirection(octaUV);
 
-    // ‘S‹… 64 •ªŠ„‚ÌƒR[ƒ“”¼Šp tan (—§‘ÌŠp 4pi/64)
+    // å…¨çƒ 64 åˆ†å‰²ã®ã‚³ãƒ¼ãƒ³åŠè§’ tan (ç«‹ä½“è§’ 4pi/64)
     const float coneTan = 0.25f;
     const float maxTrace = PassTraceParams.x;
 
     FLumenTraceResult trace = TraceLumenRay(
         probePos, rayDir, maxTrace, coneTan, PassNumLumenObjects);
 
-    // ƒXƒNƒŠ[ƒ“ƒvƒ[ƒu‚Æ“¯‚¶‹K–ñ: ƒ~ƒX‚Íƒ‰ƒfƒBƒAƒ“ƒX 0 (ƒXƒJƒC‚Í
-    // óŒõ‘¤ TranslucentPS ‚Ì IBL ‚ª’S‚¤‚½‚ß“ñdŒvã‚ğ”ğ‚¯‚é)B
-    // a = ‰Â‹—¦ («—ˆ‚ÌƒXƒJƒCÕ•Á—p)B
+    // ã‚¹ã‚¯ãƒªãƒ¼ãƒ³ãƒ—ãƒ­ãƒ¼ãƒ–ã¨åŒã˜è¦ç´„: ãƒŸã‚¹ã¯ãƒ©ãƒ‡ã‚£ã‚¢ãƒ³ã‚¹ 0 (ã‚¹ã‚«ã‚¤ã¯
+    // å—å…‰å´ TranslucentPS ã® IBL ãŒæ‹…ã†ãŸã‚äºŒé‡è¨ˆä¸Šã‚’é¿ã‘ã‚‹)ã€‚
+    // a = å¯è¦–ç‡ (å°†æ¥ã®ã‚¹ã‚«ã‚¤é®è”½ç”¨)ã€‚
     float3 radiance = trace.bHit
         ? ResolveLumenRayRadiance(trace, probePos, rayDir, PassRCParams1.w)
         : float3(0.0f, 0.0f, 0.0f);
 
-    // ƒAƒgƒ‰ƒXƒ^ƒCƒ‹: 64 ƒ^ƒCƒ‹/s (512 / 8)
+    // ã‚¢ãƒˆãƒ©ã‚¹ã‚¿ã‚¤ãƒ«: 64 ã‚¿ã‚¤ãƒ«/è¡Œ (512 / 8)
     uint2 tileOrigin = uint2(probeLinear % 64u, probeLinear / 64u) * 8u;
     RWRadianceCacheAtlas[tileOrigin + octaTexel] = float4(radiance, trace.Visibility);
 }

@@ -3,8 +3,6 @@
 #include "FogRendering.h"
 #include "ExponentialHeightFogComponent.h"
 #include "LightSceneProxy.h"
-#include "LightGridInjection.h"
-#include "ShadowRendering.h"
 #include <cmath>
 #include <cfloat>
 
@@ -195,7 +193,7 @@ void FFogSceneRenderer::InitFogConstants(const FScene* Scene, const VIEW_CONSTAN
 	if (m_bVolumetricFogActive)
 	{
 		const float nearPlane = View.NearFar.x;
-		const float maxDistance = (FogInfo.VolumetricFogDistance > nearPlane + 1.0f) ? FogInfo.VolumetricFogDistance : (nearPlane + 1.0f);
+		const float maxDistance = FVolumetricFog::ComputeMaxDistance(nearPlane, FogInfo.VolumetricFogDistance);
 		const XMFLOAT3 gridZ = FVolumetricFog::ComputeGridZParams(nearPlane, maxDistance);
 
 		const float gridW = (float)(m_VolumetricFog->GetGridSizeX() * VOLUMETRIC_FOG_GRID_PIXEL_SIZE);

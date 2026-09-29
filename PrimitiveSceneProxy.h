@@ -60,11 +60,11 @@ struct FPrimitiveViewRelevance
 class FPrimitiveSceneProxy
 {
 protected:
-	// コンポーネントのワールド行列 (転置前)。SendRenderTransform が毎フレーム更新する。
+	// コンポーネントのワールド行列 (転置前)。ダーティ時に SendRenderTransform が更新する (プッシュ型)。
 	XMFLOAT4X4 m_LocalToWorld;
 
 	// ワールド境界 (FPrimitiveSceneProxy が FPrimitiveSceneInfo 経由で
-	// 保持する Bounds に相当)。SendRenderTransform が毎フレーム更新する。
+	// 保持する Bounds に相当)。ダーティ時に SendRenderTransform が更新する (プッシュ型)。
 	FBoxSphereBounds m_Bounds;
 
 	// UPrimitiveComponent::TranslucencySortPriority のミラー
@@ -103,7 +103,7 @@ public:
 
 	// ---- トランスルーセンシーソート優先度 (TranslucencySortPriority) ----
 	// 低い値が奥、高い値が手前に描かれる。同値内は後→前ソート。
-	// SendRenderTransform が毎フレームコンポーネントからプッシュする。
+	// ダーティ時に SendRenderTransform がコンポーネントからプッシュする。
 	void SetTranslucencySortPriority(int Priority) { m_TranslucencySortPriority = Priority; }
 	int  GetTranslucencySortPriority() const { return m_TranslucencySortPriority; }
 	float GetMinDrawDistance() const { return m_MinDrawDistance; }
@@ -125,20 +125,21 @@ public:
 	// Translucent / Additive サブセットは描かないこと)
 	virtual void DrawPrimitive(RenderManager* RHI) const = 0;
 
-	// トランスルーセンシーパス (FSceneRenderer::RenderTranslucency)
-	// から呼ばれる描画。Translucent / Additive サブセットのみ描く。
-	// 既定は何も描かない (不透明専用プリミティブ)。
 	// トランスルーセンシーパスの描画モード
 	// (FSceneRenderer::RenderTranslucency の深度プリパス方式が使用)
 	enum class ETranslucencyDrawMode
 	{
-		Standard,		// 従来: 1 パス合成 (深度テストのみ)
+		Standard,		// 従来: 1 パス合成 (深度テストのみ。"Translucency" 系 PSO)。
+		// (現在の RenderTranslucency は渡さない。DrawTranslucency の既定引数用)
 		DepthPrepass,	// 深度のみ: プリミティブの最前面を深度へ焼く
 		// (BLEND_Translucent のみ。Additive は何も描かない)
 		ColorEqual,		// 着色: EQUAL 比較で最前面のみ合成
 		// (Additive はここで従来 PSO のまま描く)
 	};
 
+	// トランスルーセンシーパス (FSceneRenderer::RenderTranslucency)
+	// から呼ばれる描画。Translucent / Additive サブセットのみ描く。
+	// 既定は何も描かない (不透明専用プリミティブ)。
 	virtual void DrawTranslucency(RenderManager* RHI,
 		ETranslucencyDrawMode Mode = ETranslucencyDrawMode::Standard) const {
 	}
@@ -156,8 +157,7 @@ public:
 	virtual void DrawCardCapture(RenderManager* RHI) const {}
 
 protected:
-	// OBJECT 定数 (ワールド行列) を転置してアップロードする共通処理
-	// PRIMITIVE 定数 (b1, FPrimitiveUniformShaderParameters 相当) を
-	// プロキシのワールド行列からアップロードする。
+	// PRIMITIVE 定数 (b1, FPrimitiveUniformShaderParameters 相当) へ
+	// プロキシのワールド行列を転置してアップロードする共通処理。
 	void UploadPrimitiveConstant(RenderManager* RHI) const;
 };

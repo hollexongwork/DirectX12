@@ -77,7 +77,7 @@ public:
 	}
 
 	// ---- 一括検索 (UGameplayStatics::GetAllActorsOfClass 相当) ----
-	// ImGui のライトパネルなどが基底型 (ALight 等) で全件列挙する
+	// SettingsManager::ResetAllLights などが基底型 (ALight 等) で全件列挙する
 	template <class T>
 	void GetActorsOfClass(std::vector<T*>& OutActors) const
 	{

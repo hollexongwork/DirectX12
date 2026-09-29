@@ -148,22 +148,8 @@ PS_OUTPUT main(PS_INPUT input)
     if (LumenGatherMode == 2u)
     {
         float4 diffuseIndirect = LumenDiffuseIndirectTexture.Load(int3(input.Position.xy, 0));
-
-        [branch]
-        if (diffuseIndirect.a < 0.0f)
-        {
-            // a < 0 = プローブ未カバー (シルエット / 16px より細い形状で
-            // 周囲のプローブが全て別物体)。Integrate が黒を書く代わりに
-            // マークするので、ここでピクセル毎コーントレースにフォールバック
-            // する (エッジピクセルのみなのでコストは限定的)
-            LumenScreenGather(worldPos.xyz, normal, uint2(input.Position.xy),
-                lumenRadiance, lumenSkyVisibility);
-        }
-        else
-        {
-            lumenRadiance = diffuseIndirect.rgb;
-            lumenSkyVisibility = diffuseIndirect.a;
-        }
+        lumenRadiance = diffuseIndirect.rgb;
+        lumenSkyVisibility = diffuseIndirect.a;
     }
     else if (bLumenScreenGI != 0u)
     {
@@ -342,19 +328,15 @@ PS_OUTPUT main(PS_INPUT input)
     [branch]
     if (LumenGatherMode != 0u && LumenDebugMode != 0u)
     {
-        if (LumenDebugMode == 1u)
+        if (LumenDebugMode == 1u || LumenDebugMode == 4u)
         {
+            // 4 (Short Range AO): Integrate_CS が rgb に AO を書いている
+            // (GatherMode 2 のみ。ピクセル毎経路では GI ラディアンスのまま)
             output.Color.rgb = lumenRadiance;
         }
         else if (LumenDebugMode == 2u)
         {
             output.Color.rgb = lumenSkyVisibility.xxx;
-        }
-        else if (LumenDebugMode == 4u)
-        {
-            // Short Range AO: Integrate_CS が rgb に AO を書いている
-            // (GatherMode 2 のみ。ピクセル毎経路では GI ラディアンスのまま)
-            output.Color.rgb = lumenRadiance;
         }
         else
         {

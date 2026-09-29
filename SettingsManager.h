@@ -47,12 +47,14 @@ using namespace DirectX;
 //        アクターラベル / APostProcessVolume 固有プロパティ /
 //        全所有コンポーネント (C<i>. プレフィックス) の
 //          - USceneComponent    : Location / Rotation / Scale
-//          - UPrimitiveComponent: Visible / CastShadow / AffectDistanceField
+//          - UPrimitiveComponent: Visible / CastShadow / AffectDistanceField /
+//                                 Min・MaxDrawDistance / TranslucencySortPriority
 //          - UCameraComponent   : FOV / NearClip / FarClip
 //          - UPolygon2DComponent: VertexColor
 //          - マテリアルスロット  : M<j>. プレフィックス
 //            (UStaticMeshComponent 全スロット / UFieldQuadComponent)
 //          - ULightComponent 系  : 型別プロパティ一式
+//          - UExponentialHeightFogComponent : フォグ / Volumetric Fog プロパティ一式
 //
 //  同定はスポーン順のインデックス ([Actor.N]) + クラス名一致で行い、
 //  クラス名が一致しないセクション / コンポーネントは安全のため
@@ -68,9 +70,6 @@ using namespace DirectX;
 
 class UWorld;
 class FSceneRenderer;
-class FLumenSceneData;
-class FVolumetricFog;
-class ImGuiManager;
 class APostProcessVolume;
 class ColorGradingLUTBaker;
 class ConfigFile;
@@ -106,7 +105,7 @@ private:
 		XMFLOAT4 SubstrateDiffuseAlbedo = { 0.18f, 0.18f, 0.18f, 1.0f };
 		XMFLOAT4 SubstrateF0 = { 0.04f, 0.04f, 0.04f, 1.0f };
 		XMFLOAT4 SubstrateF90 = { 1.0f, 1.0f, 1.0f, 1.0f };
-		XMFLOAT4 SubstrateTransmittanceColor = { 0.5f, 0.5f, 0.5f, 1.0f };	// w = SSSMFPScale
+		XMFLOAT4 SubstrateTransmittanceColor = { 0.5f, 0.5f, 0.5f, 1.0f };	// w = 予約 (未使用)
 		XMFLOAT4 SubstrateFuzzColor = { 1.0f, 1.0f, 1.0f, 0.0f };			// w = FuzzAmount
 		float    SubstrateAnisotropy = 0.0f;
 		float    SubstrateSSSPhaseAnisotropy = 0.0f;
@@ -268,7 +267,7 @@ private:
 	APostProcessVolume* m_PostProcess = nullptr;
 	AutoExposure* m_AutoExposure = nullptr;
 	ColorGradingLUTBaker* m_LUTBaker = nullptr;
-	class FSceneRenderer* m_SceneRenderer = nullptr;	// トランスルーセンシーソート設定の永続化用
+	FSceneRenderer* m_SceneRenderer = nullptr;	// トランスルーセンシーソート設定の永続化用
 	FLumenSceneData* m_Lumen = nullptr;			// Lumen Params の永続化用
 	FVolumetricFog* m_VolumetricFog = nullptr;	// Volumetric Fog Params (r.VolumetricFog.*) の永続化用
 	ACameraActor* m_CameraActor = nullptr;		// ビューポート操作設定の永続化用

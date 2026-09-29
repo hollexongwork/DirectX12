@@ -136,16 +136,8 @@ void AutoExposure::Init()
         D3D12_HEAP_PROPERTIES prop{};
         prop.Type = D3D12_HEAP_TYPE_DEFAULT;
 
-        D3D12_RESOURCE_DESC d{};
-        d.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-        d.Width = HISTOGRAM_BINS * sizeof(unsigned int);
-        d.Height = 1;
-        d.DepthOrArraySize = 1;
-        d.MipLevels = 1;
-        d.Format = DXGI_FORMAT_UNKNOWN;
-        d.SampleDesc.Count = 1;
-        d.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-        d.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        const CD3DX12_RESOURCE_DESC d = CD3DX12_RESOURCE_DESC::Buffer(
+            HISTOGRAM_BINS * sizeof(unsigned int), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
 
         HRESULT hr = Device()->CreateCommittedResource(&prop, D3D12_HEAP_FLAG_NONE,
             &d, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
@@ -161,16 +153,8 @@ void AutoExposure::Init()
         D3D12_HEAP_PROPERTIES prop{};
         prop.Type = D3D12_HEAP_TYPE_DEFAULT;
 
-        D3D12_RESOURCE_DESC d{};
-        d.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-        d.Width = 2 * sizeof(float);
-        d.Height = 1;
-        d.DepthOrArraySize = 1;
-        d.MipLevels = 1;
-        d.Format = DXGI_FORMAT_UNKNOWN;
-        d.SampleDesc.Count = 1;
-        d.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-        d.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        const CD3DX12_RESOURCE_DESC d = CD3DX12_RESOURCE_DESC::Buffer(
+            2 * sizeof(float), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
 
         HRESULT hr = Device()->CreateCommittedResource(&prop, D3D12_HEAP_FLAG_NONE,
             &d, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
@@ -179,20 +163,26 @@ void AutoExposure::Init()
         m_Result->SetName(L"AutoExposureResult");
     }
 
+    // Raw (R32_TYPELESS) バッファ UAV の desc。シェーダ可視ヒープと
+    // クリア用 CPU ヒープ (m_ClearHeap) で同一ビューを作るため共有する。
+    auto rawBufferUAV = [](UINT numElements)
+    {
+        D3D12_UNORDERED_ACCESS_VIEW_DESC d{};
+        d.Format = DXGI_FORMAT_R32_TYPELESS;
+        d.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+        d.Buffer.NumElements = numElements;
+        d.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+        return d;
+    };
+    const D3D12_UNORDERED_ACCESS_VIEW_DESC histUav = rawBufferUAV(HISTOGRAM_BINS); // 256 raw uints
+    const D3D12_UNORDERED_ACCESS_VIEW_DESC resultUav = rawBufferUAV(2);
+
     // ------------------------------------------------------------
     //  UAV : Histogram (Raw byte-address buffer, R32_TYPELESS).
     // ------------------------------------------------------------
     {
         m_HistogramUAVIndex = m_Owner->AllocateDescriptor();
-        D3D12_UNORDERED_ACCESS_VIEW_DESC uav{};
-        uav.Format = DXGI_FORMAT_R32_TYPELESS;
-        uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
-        uav.Buffer.FirstElement = 0;
-        uav.Buffer.NumElements = HISTOGRAM_BINS;          // 256 raw uints
-        uav.Buffer.StructureByteStride = 0;
-        uav.Buffer.CounterOffsetInBytes = 0;
-        uav.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
-        Device()->CreateUnorderedAccessView(m_Histogram.Get(), nullptr, &uav,
+        Device()->CreateUnorderedAccessView(m_Histogram.Get(), nullptr, &histUav,
             m_Owner->GetCPUDescriptorHandle(m_HistogramUAVIndex));
     }
 
@@ -201,15 +191,7 @@ void AutoExposure::Init()
     // ------------------------------------------------------------
     {
         m_ResultUAVIndex = m_Owner->AllocateDescriptor();
-        D3D12_UNORDERED_ACCESS_VIEW_DESC uav{};
-        uav.Format = DXGI_FORMAT_R32_TYPELESS;
-        uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
-        uav.Buffer.FirstElement = 0;
-        uav.Buffer.NumElements = 2;
-        uav.Buffer.StructureByteStride = 0;
-        uav.Buffer.CounterOffsetInBytes = 0;
-        uav.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
-        Device()->CreateUnorderedAccessView(m_Result.Get(), nullptr, &uav,
+        Device()->CreateUnorderedAccessView(m_Result.Get(), nullptr, &resultUav,
             m_Owner->GetCPUDescriptorHandle(m_ResultUAVIndex));
     }
 
@@ -248,26 +230,12 @@ void AutoExposure::Init()
         D3D12_CPU_DESCRIPTOR_HANDLE base = m_ClearHeap->GetCPUDescriptorHandleForHeapStart();
 
         // slot 0 : histogram raw UAV
-        D3D12_UNORDERED_ACCESS_VIEW_DESC hUav{};
-        hUav.Format = DXGI_FORMAT_R32_TYPELESS;
-        hUav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
-        hUav.Buffer.FirstElement = 0;
-        hUav.Buffer.NumElements = HISTOGRAM_BINS;
-        hUav.Buffer.StructureByteStride = 0;
-        hUav.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
-        Device()->CreateUnorderedAccessView(m_Histogram.Get(), nullptr, &hUav, base);
+        Device()->CreateUnorderedAccessView(m_Histogram.Get(), nullptr, &histUav, base);
 
         // slot 1 : result raw UAV (for the one-time zero init)
         D3D12_CPU_DESCRIPTOR_HANDLE rHandle = base;
         rHandle.ptr += inc;
-        D3D12_UNORDERED_ACCESS_VIEW_DESC rUav{};
-        rUav.Format = DXGI_FORMAT_R32_TYPELESS;
-        rUav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
-        rUav.Buffer.FirstElement = 0;
-        rUav.Buffer.NumElements = 2;
-        rUav.Buffer.StructureByteStride = 0;
-        rUav.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
-        Device()->CreateUnorderedAccessView(m_Result.Get(), nullptr, &rUav, rHandle);
+        Device()->CreateUnorderedAccessView(m_Result.Get(), nullptr, &resultUav, rHandle);
     }
 
     // ------------------------------------------------------------
@@ -277,15 +245,7 @@ void AutoExposure::Init()
         D3D12_HEAP_PROPERTIES prop{};
         prop.Type = D3D12_HEAP_TYPE_UPLOAD;
 
-        D3D12_RESOURCE_DESC d{};
-        d.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-        d.Width = (sizeof(EXPOSURE_PARAMS) + 255) & ~255u;
-        d.Height = 1;
-        d.DepthOrArraySize = 1;
-        d.MipLevels = 1;
-        d.Format = DXGI_FORMAT_UNKNOWN;
-        d.SampleDesc.Count = 1;
-        d.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        const CD3DX12_RESOURCE_DESC d = CD3DX12_RESOURCE_DESC::Buffer((sizeof(EXPOSURE_PARAMS) + 255) & ~255u);
 
         // フレーム毎にダブルバッファ (in-flight フレームとの書き込み競合防止)
         for (int i = 0; i < 2; ++i)
@@ -307,15 +267,7 @@ void AutoExposure::Init()
         D3D12_HEAP_PROPERTIES prop{};
         prop.Type = D3D12_HEAP_TYPE_READBACK;
 
-        D3D12_RESOURCE_DESC d{};
-        d.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-        d.Width = 2 * sizeof(float);
-        d.Height = 1;
-        d.DepthOrArraySize = 1;
-        d.MipLevels = 1;
-        d.Format = DXGI_FORMAT_UNKNOWN;
-        d.SampleDesc.Count = 1;
-        d.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        const CD3DX12_RESOURCE_DESC d = CD3DX12_RESOURCE_DESC::Buffer(2 * sizeof(float));
 
         HRESULT hr = Device()->CreateCommittedResource(&prop, D3D12_HEAP_FLAG_NONE,
             &d, D3D12_RESOURCE_STATE_COPY_DEST, nullptr,

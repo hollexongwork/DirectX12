@@ -1,6 +1,5 @@
 ﻿#include "Main.h"
-#include "RenderManager.h"
-#include "GameManager.h"
+#include "World.h"
 #include "Sky.h"
 #include "Camera.h"
 
@@ -31,18 +30,11 @@ ASky::ASky()
 	material.Params.Unlit = TRUE;
 }
 
-void ASky::BeginPlay()
-{
-	UWorld* world = GameManager::GetInstance()->GetWorld();
-	m_Camera = world->GetActorOfClass<ACameraActor>();
-}
-
 void ASky::Tick(float DeltaTime)
 {
 	if (!m_Camera)
 	{
-		UWorld* world = GameManager::GetInstance()->GetWorld();
-		m_Camera = world->GetActorOfClass<ACameraActor>();
+		m_Camera = GetWorld()->GetActorOfClass<ACameraActor>();
 
 		if (!m_Camera)
 		{

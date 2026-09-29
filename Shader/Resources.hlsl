@@ -16,7 +16,7 @@ Texture2D<float4> TextureNormal : register(t1); // GBufferA: World Normal (.w = 
 Texture2D<float4> TextureMSRA : register(t2); // GBufferB: R=Metallic G=Specular B=Roughness A=AO
 Texture2D<float> TextureDepth : register(t3); // 非線形深度
 Texture2D<float2> TextureLinearDepth : register(t4); // R=view距離 G=正規化0..1
-Texture2D<float4> TextureEnvironment : register(t5); // 環境マップ (equirect)
+Texture2D<float4> TextureEnvironment : register(t5); // 予約・未使用 (equirect 環境マップは IBLBaker のベイク入力のみ。t0..t34 ミラー維持のため宣言は残す)
 
 // ---- IBL ----
 TextureCube<float4> IrradianceCube : register(t6); // 拡散 irradiance (畳み込み済)

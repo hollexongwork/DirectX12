@@ -72,7 +72,7 @@ public:
 
 	// 1 フレーム分のシミュレーション。
 	// 位置 [m] と回転 [rad, x = pitch / y = yaw / z = roll] を更新する。
-	// MovementSpeedScale = フライト速度段階 (ACameraActor::GetCameraSpeed) x スカラー。
+	// MovementSpeedScale = フライト速度段階 (ACameraActor::GetCameraSpeedScale) x スカラー。
 	void UpdateSimulation(const FCameraControllerUserImpulseData& UserImpulseData, float DeltaTime, float MovementSpeedScale,
 		XMFLOAT3& InOutCameraPosition, XMFLOAT3& InOutCameraRotation);
 

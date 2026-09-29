@@ -25,7 +25,7 @@ Material::Material()
 	Params.SubstrateDiffuseAlbedo      = { 0.18f, 0.18f, 0.18f, 1.0f };
 	Params.SubstrateF0                 = { 0.04f, 0.04f, 0.04f, 1.0f };
 	Params.SubstrateF90                = { 1.0f, 1.0f, 1.0f, 1.0f };
-	Params.SubstrateTransmittanceColor = { 0.5f, 0.5f, 0.5f, 1.0f }; // w = SSSMFPScale
+	Params.SubstrateTransmittanceColor = { 0.5f, 0.5f, 0.5f, 1.0f }; // w = 予約 (未使用)
 	Params.SubstrateFuzzColor          = { 1.0f, 1.0f, 1.0f, 0.0f }; // w = FuzzAmount
 
 	Params.SubstrateAnisotropy         = 0.0f;

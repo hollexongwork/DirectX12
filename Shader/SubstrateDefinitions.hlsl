@@ -14,8 +14,8 @@
 //    [0] ヘッダ (BSDF 種別 / SSSType / フラグ)
 //    [1] F0.rgb (unorm8) | SSSMFPScale (unorm8)
 //    [2] F90.rgb (unorm8) | SSSPhaseAnisotropy (snorm8)
-//    [3] SSSMFP.rg (f16 x 2) [m]
-//    [4] SSSMFP.b (f16) | Thickness (f16) [m]
+//    [3] SSSMFP.rg (f16 x 2) [cm] (格納単位。実行時は [m]、SubstratePackSlabData 参照)
+//    [4] SSSMFP.b (f16) | Thickness (f16) [cm] (同上)
 //    [5] EmissiveColor (R9G9B9E5 共有指数)
 //    [6] FuzzColor.rgb (unorm8) | FuzzAmount (unorm8)
 //    [7] FuzzRoughness | SecondRoughness | SecondRoughnessWeight |
@@ -66,7 +66,7 @@
 // ---- レイヤー既定値 (最下層スラブの暗黙厚は 0.01 cm) ----
 #define SUBSTRATE_LAYER_DEFAULT_THICKNESS_CM 0.01f
 
-// F0 がこの値を下回ると F90 は黒へフェードする 
+// F0 がこの値を下回ると F90 は黒へフェードする
 #define SUBSTRATE_MIN_F0_FOR_F90 0.02f
 
 // SharedLocalBases (API パリティ用。本エンジンは単一基底)

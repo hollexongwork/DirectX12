@@ -25,7 +25,7 @@ namespace
 	};
 	static_assert(sizeof(DF_BAKE_PARAMS) == 48, "DF_BAKE_PARAMS must mirror HLSL cbuffer");
 
-	// float -> half (IEEE 754 binary16, 最近接丸め簡易版)
+	// float -> half (IEEE 754 binary16, 切り捨て簡易版。非正規数は 0、オーバーフローは最大値へ)
 	unsigned short FloatToHalf(float Value)
 	{
 		unsigned int bits;
@@ -136,20 +136,10 @@ FDistanceFieldAtlas::FDistanceFieldAtlas(RenderManager* RHI)
 
 	// ---- ベイクパラメータ CB (UPLOAD, 256B) ----
 	{
-		D3D12_HEAP_PROPERTIES prop{};
-		prop.Type = D3D12_HEAP_TYPE_UPLOAD;
-
-		D3D12_RESOURCE_DESC d{};
-		d.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-		d.Width = 256;
-		d.Height = 1;
-		d.DepthOrArraySize = 1;
-		d.MipLevels = 1;
-		d.Format = DXGI_FORMAT_UNKNOWN;
-		d.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-		d.SampleDesc.Count = 1;
-
-		HRESULT hr = device->CreateCommittedResource(&prop, D3D12_HEAP_FLAG_NONE, &d,
+		HRESULT hr = device->CreateCommittedResource(
+			&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+			D3D12_HEAP_FLAG_NONE,
+			&CD3DX12_RESOURCE_DESC::Buffer(256),
 			D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&m_BakeParamBuffer));
 		assert(SUCCEEDED(hr));
 		m_BakeParamBuffer->SetName(L"DFBakeParams");
@@ -196,20 +186,10 @@ FDistanceFieldAtlas::FDistanceFieldAtlas(RenderManager* RHI)
 
 	// ---- アトラスアップロード用スクラッチ (RowPitch 256 x 64 x 64 = 1MB) ----
 	{
-		D3D12_HEAP_PROPERTIES prop{};
-		prop.Type = D3D12_HEAP_TYPE_UPLOAD;
-
-		D3D12_RESOURCE_DESC d{};
-		d.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-		d.Width = 256ull * DF_VOLUME_RES * DF_VOLUME_RES;
-		d.Height = 1;
-		d.DepthOrArraySize = 1;
-		d.MipLevels = 1;
-		d.Format = DXGI_FORMAT_UNKNOWN;
-		d.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-		d.SampleDesc.Count = 1;
-
-		HRESULT hr = device->CreateCommittedResource(&prop, D3D12_HEAP_FLAG_NONE, &d,
+		HRESULT hr = device->CreateCommittedResource(
+			&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+			D3D12_HEAP_FLAG_NONE,
+			&CD3DX12_RESOURCE_DESC::Buffer(256ull * DF_VOLUME_RES * DF_VOLUME_RES),
 			D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&m_UploadScratch));
 		assert(SUCCEEDED(hr));
 		m_UploadScratch->SetName(L"DFAtlasUploadScratch");
@@ -281,20 +261,10 @@ void FDistanceFieldAtlas::BakeOnGPU(const std::vector<XMFLOAT3>& TriangleVertice
 	// ---- 三角形バッファ (UPLOAD + StructuredBuffer SRV) ----
 	ComPtr<ID3D12Resource> triangleBuffer;
 	{
-		D3D12_HEAP_PROPERTIES prop{};
-		prop.Type = D3D12_HEAP_TYPE_UPLOAD;
-
-		D3D12_RESOURCE_DESC d{};
-		d.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-		d.Width = sizeof(XMFLOAT3) * TriangleVertices.size();
-		d.Height = 1;
-		d.DepthOrArraySize = 1;
-		d.MipLevels = 1;
-		d.Format = DXGI_FORMAT_UNKNOWN;
-		d.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-		d.SampleDesc.Count = 1;
-
-		HRESULT hr = device->CreateCommittedResource(&prop, D3D12_HEAP_FLAG_NONE, &d,
+		HRESULT hr = device->CreateCommittedResource(
+			&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+			D3D12_HEAP_FLAG_NONE,
+			&CD3DX12_RESOURCE_DESC::Buffer(sizeof(XMFLOAT3) * TriangleVertices.size()),
 			D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&triangleBuffer));
 		assert(SUCCEEDED(hr));
 
@@ -322,20 +292,10 @@ void FDistanceFieldAtlas::BakeOnGPU(const std::vector<XMFLOAT3>& TriangleVertice
 	// ---- 出力ボリュームバッファ (DEFAULT + UAV) ----
 	ComPtr<ID3D12Resource> volumeBuffer;
 	{
-		D3D12_RESOURCE_DESC d{};
-		d.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-		d.Width = voxelCount * sizeof(float);
-		d.Height = 1;
-		d.DepthOrArraySize = 1;
-		d.MipLevels = 1;
-		d.Format = DXGI_FORMAT_UNKNOWN;
-		d.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-		d.SampleDesc.Count = 1;
-		d.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-
 		HRESULT hr = device->CreateCommittedResource(
 			&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
-			D3D12_HEAP_FLAG_NONE, &d,
+			D3D12_HEAP_FLAG_NONE,
+			&CD3DX12_RESOURCE_DESC::Buffer(voxelCount * sizeof(float), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS),
 			D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(&volumeBuffer));
 		assert(SUCCEEDED(hr));
 	}
@@ -356,20 +316,10 @@ void FDistanceFieldAtlas::BakeOnGPU(const std::vector<XMFLOAT3>& TriangleVertice
 	// ---- リードバック ----
 	ComPtr<ID3D12Resource> readback;
 	{
-		D3D12_HEAP_PROPERTIES prop{};
-		prop.Type = D3D12_HEAP_TYPE_READBACK;
-
-		D3D12_RESOURCE_DESC d{};
-		d.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-		d.Width = voxelCount * sizeof(float);
-		d.Height = 1;
-		d.DepthOrArraySize = 1;
-		d.MipLevels = 1;
-		d.Format = DXGI_FORMAT_UNKNOWN;
-		d.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-		d.SampleDesc.Count = 1;
-
-		HRESULT hr = device->CreateCommittedResource(&prop, D3D12_HEAP_FLAG_NONE, &d,
+		HRESULT hr = device->CreateCommittedResource(
+			&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_READBACK),
+			D3D12_HEAP_FLAG_NONE,
+			&CD3DX12_RESOURCE_DESC::Buffer(voxelCount * sizeof(float)),
 			D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&readback));
 		assert(SUCCEEDED(hr));
 	}
@@ -401,11 +351,6 @@ void FDistanceFieldAtlas::BakeOnGPU(const std::vector<XMFLOAT3>& TriangleVertice
 
 		const unsigned int groups = DF_VOLUME_RES / 4;	// numthreads(4,4,4)
 		cl->Dispatch(groups, groups, groups);
-
-		D3D12_RESOURCE_BARRIER uavBarrier{};
-		uavBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-		uavBarrier.UAV.pResource = volumeBuffer.Get();
-		cl->ResourceBarrier(1, &uavBarrier);
 
 		cl->ResourceBarrier(1,
 			&CD3DX12_RESOURCE_BARRIER::Transition(volumeBuffer.Get(),
@@ -557,7 +502,7 @@ void FDistanceFieldAtlas::AddMesh(const char* FilePath,
 	UploadSlot(slot, voxels);
 	m_NumAllocatedSlots++;
 
-	// ---- メッシュ情報 (半テクセル内側マッピングでスロット間ブリード防止) ----
+	// ---- メッシュ情報 ----
 	const float atlasWidth = (float)(DF_VOLUME_RES * MAX_DF_MESHES);
 	const float res = (float)DF_VOLUME_RES;
 

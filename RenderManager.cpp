@@ -386,7 +386,6 @@ void RenderManager::InitImGui()
 {
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
-	ImGui::GetIO();
 
 	ImGui::StyleColorsDark();
 
@@ -446,9 +445,7 @@ void RenderManager::InitConstantBuffers()
 			desc.BufferLocation = m_ConstantBuffer[i]->GetGPUVirtualAddress() + j * CONSTANT_BUFFER_SIZE;
 			desc.SizeInBytes = CONSTANT_BUFFER_SIZE;
 
-			D3D12_CPU_DESCRIPTOR_HANDLE handle = OffsetCPUHandle(
-				m_SRVDescriptorHeap->GetCPUDescriptorHandleForHeapStart(),
-				index, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+			D3D12_CPU_DESCRIPTOR_HANDLE handle = GetCPUDescriptorHandle(index);
 
 			m_Device->CreateConstantBufferView(&desc, handle);
 			m_ConstantBufferView[i][j] = index;
@@ -609,12 +606,6 @@ void RenderManager::InitPipelines()
 		DXGI_FORMAT_R32G32B32A32_UINT,
 	};
 
-	m_PipelineState["Unlit"] =
-		CreatePipeline("Shader/cso/UnlitVS.cso", "Shader/cso/UnlitPS.cso", ldr, _countof(ldr));
-
-	m_PipelineState["Lit"] =
-		CreatePipeline("Shader/cso/LitVS.cso", "Shader/cso/LitPS.cso", hdr, _countof(hdr));
-
 	m_PipelineState["BasePass"] =
 		CreatePipeline("Shader/cso/GeometryVS.cso", "Shader/cso/GeometryPS.cso", gbuffer, _countof(gbuffer));
 
@@ -669,9 +660,14 @@ void RenderManager::InitPipelines()
 
 	// ---- トランスルーセンシーパス (BLEND_Translucent / BLEND_Additive) ----
 	// デファードライティング後の HDR SceneColor へフォワードで合成する
-	// (FSceneRenderer::RenderTranslucency)。深度はテストのみ (DepthRead)。
-	// シェーダは両モード共通 (TranslucentPS)、ブレンドステートのみ異なる:
+	// (FSceneRenderer::RenderTranslucency)。
+	// シェーダは両モード共通 (TranslucentPS)。ブレンドステート:
 	//   Translucent = SrcAlpha / InvSrcAlpha, Additive = SrcAlpha / One
+	// Additive は順序非依存のため深度テストのみ (DepthRead) の 1 パスで描き、
+	// Translucent は下の深度プリパス + Equal PSO の 2 パスで描く。
+	// Translucency / TranslucencyTwoSided は ETranslucencyDrawMode::Standard
+	// (深度プリパスを使わない 1 パス合成。深度はテストのみ = DepthRead) 用。
+	// 現在の RenderTranslucency は DepthPrepass / ColorEqual のみを渡すため未使用。
 	m_PipelineState["Translucency"] =
 		CreatePipeline("Shader/cso/GeometryVS.cso", "Shader/cso/TranslucentPS.cso", hdr, _countof(hdr),
 			0, 0.0f, EBlendStatePreset::Translucent, ECullModePreset::Back, EDepthStatePreset::DepthRead);
@@ -753,7 +749,7 @@ void RenderManager::InitPipelines()
 
 
 // ============================================================
-//  Frame (FSceneRenderer から呼ばれる)
+//  Frame (BeginFrame / Present は FSceneRenderer、WaitGPU は終了時 / FlushAndResetCommandList から呼ばれる)
 // ============================================================
 void RenderManager::WaitGPU()
 {
@@ -769,22 +765,30 @@ void RenderManager::WaitGPU()
 }
 
 
-// フレーム先頭: シェーダ可視ヒープ / ルートシグネチャ / 定数リング /
-// ビューポートを設定する。パス列 (G-Buffer -> デファード -> ポスプロ)
-// は FSceneRenderer が駆動する。
-void RenderManager::BeginFrame()
+// シェーダ可視ヒープ / ルートシグネチャ / ビューポート / シザー
+// (BeginFrame と Reset 後の復帰で共通)
+void RenderManager::SetDefaultGraphicsState()
 {
 	// シェーダ可視デスクリプタヒープ + ルートシグネチャ
 	ID3D12DescriptorHeap* dh[] = { m_SRVDescriptorHeap.Get() };
 	m_GraphicsCommandList->SetDescriptorHeaps(_countof(dh), dh);
 	m_GraphicsCommandList->SetGraphicsRootSignature(m_RootSignature.Get());
 
-	// 定数バッファのリングインデックス初期化
-	m_ConstantBufferIndex[m_RTIndex] = 0;
-
 	// ビューポート / シザー
 	m_GraphicsCommandList->RSSetViewports(1, &m_Viewport);
 	m_GraphicsCommandList->RSSetScissorRects(1, &m_ScissorRect);
+}
+
+
+// フレーム先頭: シェーダ可視ヒープ / ルートシグネチャ / 定数リング /
+// ビューポートを設定する。パス列 (G-Buffer -> デファード -> ポスプロ)
+// は FSceneRenderer が駆動する。
+void RenderManager::BeginFrame()
+{
+	SetDefaultGraphicsState();
+
+	// 定数バッファのリングインデックス初期化
+	m_ConstantBufferIndex[m_RTIndex] = 0;
 }
 
 
@@ -977,7 +981,7 @@ std::unique_ptr<RENDER_TARGET> RenderManager::CreateRenderTarget(unsigned int Wi
 	assert(SUCCEEDED(hr));
 
 	renderTarget->SRVIndex = CreateShaderResourceView(renderTarget->Resource.Get());
-	renderTarget->SRVHandle = GetShaderResourceViewHandle(renderTarget->SRVIndex);
+	renderTarget->SRVHandle = GetGPUDescriptorHandle(renderTarget->SRVIndex);
 	renderTarget->RTVIndex = CreateRenderTargetView(renderTarget->Resource.Get());
 	renderTarget->RTVHandle = GetRenderTargetViewHandle(renderTarget->RTVIndex);
 
@@ -1029,9 +1033,7 @@ std::unique_ptr<INDEX_BUFFER> RenderManager::CreateIndexBuffer(unsigned int Size
 // ============================================================
 void RenderManager::BindRootTableBySRVIndex(unsigned int RootParameter, unsigned int SRVIndex)
 {
-	D3D12_GPU_DESCRIPTOR_HANDLE handle = OffsetGPUHandle(
-		m_SRVDescriptorHeap->GetGPUDescriptorHandleForHeapStart(),
-		SRVIndex, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+	D3D12_GPU_DESCRIPTOR_HANDLE handle = GetGPUDescriptorHandle(SRVIndex);
 
 	m_GraphicsCommandList->SetGraphicsRootDescriptorTable(RootParameter, handle);
 }
@@ -1450,9 +1452,7 @@ unsigned int RenderManager::CreateShaderResourceView(ID3D12Resource* Resource)
 {
 	unsigned int index = AllocateSRVSlot();
 
-	D3D12_CPU_DESCRIPTOR_HANDLE handle = OffsetCPUHandle(
-		m_SRVDescriptorHeap->GetCPUDescriptorHandleForHeapStart(),
-		index, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+	D3D12_CPU_DESCRIPTOR_HANDLE handle = GetCPUDescriptorHandle(index);
 
 	D3D12_RESOURCE_DESC resDesc = Resource->GetDesc();
 
@@ -1468,14 +1468,6 @@ unsigned int RenderManager::CreateShaderResourceView(ID3D12Resource* Resource)
 }
 
 
-D3D12_GPU_DESCRIPTOR_HANDLE RenderManager::GetShaderResourceViewHandle(unsigned int SRVIndex)
-{
-	return OffsetGPUHandle(
-		m_SRVDescriptorHeap->GetGPUDescriptorHandleForHeapStart(),
-		SRVIndex, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-}
-
-
 void RenderManager::ReleaseShaderResourceView(unsigned int SRVIndex)
 {
 	// 即時返却すると次の Allocate が同じ枠を掴み、in-flight の
@@ -1485,6 +1477,8 @@ void RenderManager::ReleaseShaderResourceView(unsigned int SRVIndex)
 }
 
 
+// ※ MipLevel は現状未反映 (desc = nullptr のため常にミップ 0 の RTV になる)。
+//    ミップ別 RTV が必要になったら D3D12_RENDER_TARGET_VIEW_DESC の MipSlice に渡すこと。
 unsigned int RenderManager::CreateRenderTargetView(ID3D12Resource* Resource, unsigned int MipLevel)
 {
 	unsigned int index = AllocateRTVSlot();
@@ -1626,9 +1620,5 @@ void RenderManager::FlushAndResetCommandList()
 	// SDF ベイク / BLAS ビルド) から呼ばれるとフレーム途中で状態が
 	// 失われ、以降の SetConstant / SetTexture が
 	// 「デスクリプタヒープが設定されていない」エラーになる。
-	ID3D12DescriptorHeap* heaps[] = { m_SRVDescriptorHeap.Get() };
-	m_GraphicsCommandList->SetDescriptorHeaps(_countof(heaps), heaps);
-	m_GraphicsCommandList->SetGraphicsRootSignature(m_RootSignature.Get());
-	m_GraphicsCommandList->RSSetViewports(1, &m_Viewport);
-	m_GraphicsCommandList->RSSetScissorRects(1, &m_ScissorRect);
+	SetDefaultGraphicsState();
 }

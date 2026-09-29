@@ -23,37 +23,17 @@
 //  is stateful exactly like EyeAdaptation texture.
 //
 //  Root signature (compute, independent):
-//    b0 : EXPOSURE_PARAMS    (same layout as the histogram pass)
+//    b0 : EXPOSURE_PARAMS    (AutoExposureCommon.hlsl, shared with the histogram pass)
 //    u0 : Histogram          (RWByteAddressBuffer, 256 * uint)   [read]
 //    u1 : Result             (RWByteAddressBuffer, >=2 * float)  [read+write]
 //         Result[0] = adapted exposure scale (used by tonemap)
 //         Result[1] = adapted average luminance (for ImGui readout)
 // ============================================================
 
-#define HISTOGRAM_BINS 256
-
-cbuffer EXPOSURE_PARAMS : register(b0)
-{
-    uint SceneWidth;
-    uint SceneHeight;
-    float MinLogLuminance;
-    float MaxLogLuminance;
-
-    float LowPercent;
-    float HighPercent;
-    float MinBrightness;
-    float MaxBrightness;
-
-    float SpeedUp;
-    float SpeedDown;
-    float ExposureCompensation;
-    float DeltaTime;
-};
+#include "AutoExposureCommon.hlsl"
 
 RWByteAddressBuffer Histogram : register(u0);
 RWByteAddressBuffer Result : register(u1);
-
-groupshared float gs_Weighted[HISTOGRAM_BINS];
 
 // Inverse of the histogram bin mapping (bins 1..254 carry signal,
 // bin 0 is the reserved black bucket, bin 255 is the saturated bucket).
@@ -66,19 +46,9 @@ float BinToLogLuminance(uint bin)
 [numthreads(HISTOGRAM_BINS, 1, 1)]
 void main(uint GIdx : SV_GroupIndex)
 {
-    // Load this thread's bin count and stash a per-bin weighted log term.
-    uint binCount = Histogram.Load(GIdx * 4u);
-
-    // Bin 0 (near-black) contributes to the total count for percentile
-    // accounting but carries no luminance weight.
-    float logLum = (GIdx == 0u) ? 0.0f : BinToLogLuminance(GIdx);
-    gs_Weighted[GIdx] = (GIdx == 0u) ? 0.0f : logLum * (float) binCount;
-
-    GroupMemoryBarrierWithGroupSync();
-
     // Single-thread serial reduction (256 bins is tiny). Thread 0 does the
-    // percentile clipping + averaging; all the data it needs is either in
-    // the histogram buffer or gs_Weighted.
+    // percentile clipping + averaging, reading everything it needs directly
+    // from the histogram buffer.
     if (GIdx == 0u)
     {
         // Total pixel count across all bins.

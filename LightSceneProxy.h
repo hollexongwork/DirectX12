@@ -24,7 +24,7 @@ class ULightComponent;
 // ---- ライト種別 (HLSL 側 LIGHT_TYPE_* と 1:1。順序変更禁止) ----
 enum class ELightType : unsigned int
 {
-	Directional = 0,	// ENV 定数 (b0) 経由。ライトバッファには積まれない
+	Directional = 0,	// VIEW 定数 (b0) 経由。ライトバッファには積まれない
 	Point = 1,
 	Spot = 2,
 	Rect = 3,
@@ -34,7 +34,7 @@ enum class ELightType : unsigned int
 #define LIGHT_FLAG_INVERSE_SQUARED (1u << 0)
 
 // レンダラが 1 フレームに扱えるローカルライト (Point/Spot/Rect) の上限。
-// FSceneRenderer のライトバッファと ImGui 表示が参照する。
+// FSceneRenderer のライトバッファ / FShadowSceneRenderer のローカルシャドウ / ライトグリッドが参照する。
 static const unsigned int MAX_LOCAL_LIGHTS = 64;
 
 // ============================================================
@@ -43,7 +43,7 @@ static const unsigned int MAX_LOCAL_LIGHTS = 64;
 //  StructuredBuffer<FLightShaderParameters> (t13, ForwardLocalLights) として毎フレーム
 //  アップロードされる。HLSL 側 (Structs.hlsl) と 1:1 ミラー必須。
 //  StructuredBuffer は cbuffer と違いパディング規則が無い逐次
-//  レイアウトなので、両側とも 96 バイトで完全一致させること。
+//  レイアウトなので、両側とも 112 バイトで完全一致させること。
 //
 //    - Rect ライトは SourceRadius = 半幅、
 //      SourceLength = 半高を流用する
@@ -83,7 +83,7 @@ static_assert(sizeof(FLightShaderParameters) == 112,
 class FLightSceneProxy
 {
 protected:
-	// ---- トランスフォーム (SendRenderTransform が毎フレーム更新) ----
+	// ---- トランスフォーム (ダーティ時に SendRenderTransform が更新) ----
 	XMFLOAT3 m_Position = { 0.0f, 0.0f, 0.0f };
 	XMFLOAT3 m_Direction = { 0.0f, 0.0f, 1.0f };	// 発光方向 (コンポーネント +Z)
 	XMFLOAT3 m_Tangent = { 1.0f, 0.0f, 0.0f };		// 幅軸 (コンポーネント +X)
@@ -129,7 +129,7 @@ public:
 	FLightSceneProxy(const ULightComponent* Component);
 	virtual ~FLightSceneProxy() = default;
 
-	// ---- 毎フレーム更新 (ULightComponent::SendRenderTransform) ----
+	// ---- トランスフォームダーティ時に更新 (ULightComponent::SendRenderTransform) ----
 	void SetTransform(const XMFLOAT3& Position, const XMFLOAT3& Direction, const XMFLOAT3& Tangent)
 	{
 		m_Position = Position;
@@ -161,12 +161,6 @@ public:
 	{
 		m_RectBarnCosAngle = BarnCosAngle;
 		m_RectBarnLength = BarnLength;
-	}
-
-	void SetShadowParameters(float ShadowBias, float ShadowSlopeBias)
-	{
-		m_ShadowBias = ShadowBias;
-		m_ShadowSlopeBias = ShadowSlopeBias;
 	}
 
 	void SetDirectionalShadowParameters(float DynamicShadowDistance, int NumCascades, float DistributionExponent, float FadeoutFraction)

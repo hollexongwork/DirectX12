@@ -72,12 +72,10 @@ void FSceneTextures::Init(RenderManager* RHI)
 		srvDesc.Texture2D.MostDetailedMip = 0;
 
 		RHI->GetDevice()->CreateShaderResourceView(RHI->GetDepthBufferResource(), &srvDesc, srvHandle);
-
-		DepthSRVHandle = RHI->GetGPUDescriptorHandle(DepthSRVIndex);
 	}
 
 	// ---- 常在読み取り状態を (PIXEL | NON_PIXEL) へ引き上げる ----
-	// G-Buffer / LinearDepth / PrevSceneColor は Lumen のコンピュート
+	// G-Buffer / LinearDepth / PrevSceneColor / PrevLinearDepth は Lumen のコンピュート
 	// パス (スクリーンプローブ / 反射) からも読まれるため、
 	// 「読み取り状態」を PIXEL 単独から (PIXEL | NON_PIXEL) に統一する。
 	// (CreateRenderTarget の初期状態は PIXEL のみ。以降の全遷移は
@@ -86,28 +84,21 @@ void FSceneTextures::Init(RenderManager* RHI)
 		const D3D12_RESOURCE_STATES readState =
 			D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
 
-		D3D12_RESOURCE_BARRIER barriers[8] = {
-			CD3DX12_RESOURCE_BARRIER::Transition(GBufferC->Resource.Get(),
-				D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, readState),
-			CD3DX12_RESOURCE_BARRIER::Transition(GBufferA->Resource.Get(),
-				D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, readState),
-			CD3DX12_RESOURCE_BARRIER::Transition(GBufferB->Resource.Get(),
-				D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, readState),
-			CD3DX12_RESOURCE_BARRIER::Transition(SubstrateMaterial0->Resource.Get(),
-				D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, readState),
-			CD3DX12_RESOURCE_BARRIER::Transition(SubstrateMaterial1->Resource.Get(),
-				D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, readState),
-			CD3DX12_RESOURCE_BARRIER::Transition(LinearDepth->Resource.Get(),
-				D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, readState),
-			CD3DX12_RESOURCE_BARRIER::Transition(PrevSceneColor->Resource.Get(),
-				D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, readState),
-			CD3DX12_RESOURCE_BARRIER::Transition(PrevLinearDepth->Resource.Get(),
-				D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, readState),
+		RENDER_TARGET* const readTargets[] = {
+			GBufferC.get(), GBufferA.get(), GBufferB.get(),
+			SubstrateMaterial0.get(), SubstrateMaterial1.get(),
+			LinearDepth.get(), PrevSceneColor.get(), PrevLinearDepth.get(),
 		};
+		D3D12_RESOURCE_BARRIER barriers[_countof(readTargets)];
+		for (UINT i = 0; i < _countof(readTargets); ++i)
+		{
+			barriers[i] = CD3DX12_RESOURCE_BARRIER::Transition(readTargets[i]->Resource.Get(),
+				D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, readState);
+		}
 		RHI->GetGraphicsCommandList()->ResourceBarrier(_countof(barriers), barriers);
 	}
 
-	// ImGui 表示用の線形深度 SRV (R チャンネルをグレースケール表示)
+	// ImGui 表示用の線形深度 SRV (G チャンネルをグレースケール表示)
 	{
 		unsigned int dispIndex = RHI->AllocateDescriptor();
 

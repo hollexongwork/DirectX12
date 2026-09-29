@@ -3,24 +3,24 @@
 
 // =============================================================
 //  LumenSceneLightingCommon
-//  Lumen ƒRƒ“ƒsƒ…[ƒgƒpƒXŒQ‚Ì‹¤’ÊƒŒƒCƒAƒEƒgB
-//  C++ ‘¤ FLumenSceneData ‚Ì“Æ—§ƒRƒ“ƒsƒ…[ƒgƒ‹[ƒgƒVƒOƒlƒ`ƒƒ‚Æ
-//  1:1 ƒ~ƒ‰[•K{ (LumenScene.cpp InitComputePipelines):
+//  Lumen ã‚³ãƒ³ãƒ”ãƒ¥ãƒ¼ãƒˆãƒ‘ã‚¹ç¾¤ã®å…±é€šãƒ¬ã‚¤ã‚¢ã‚¦ãƒˆã€‚
+//  C++ å´ FLumenSceneData ã®ç‹¬ç«‹ã‚³ãƒ³ãƒ”ãƒ¥ãƒ¼ãƒˆãƒ«ãƒ¼ãƒˆã‚·ã‚°ãƒãƒãƒ£ã¨
+//  1:1 ãƒŸãƒ©ãƒ¼å¿…é ˆ (LumenScene.cpp InitComputePipelines):
 //
-//    [0]      b0      : FLumenPassParams (ƒ‹[ƒg CBV)
-//    [1..28]  t0..t27 : SRV ƒe[ƒuƒ‹
-//    [29..36] u0..u7  : UAV ƒe[ƒuƒ‹
-//    [37]     t28     : TLAS (ƒ‹[ƒg SRV, HWRT ƒoƒŠƒAƒ“ƒg‚Ì‚İQÆ)
-//    s0               : ƒŠƒjƒAƒNƒ‰ƒ“ƒv
+//    [0]      b0      : FLumenPassParams (ãƒ«ãƒ¼ãƒˆ CBV)
+//    [1..28]  t0..t27 : SRV ãƒ†ãƒ¼ãƒ–ãƒ«
+//    [29..36] u0..u7  : UAV ãƒ†ãƒ¼ãƒ–ãƒ«
+//    [37]     t28     : TLAS (ãƒ«ãƒ¼ãƒˆ SRV, HWRT ãƒãƒªã‚¢ãƒ³ãƒˆã®ã¿å‚ç…§)
+//    s0               : ãƒªãƒ‹ã‚¢ã‚¯ãƒ©ãƒ³ãƒ—
 //
-//  ---- SRV ƒŒƒWƒXƒ^‹K–ñ ----
-//  t0..t14  : ‘SƒpƒX‹¤’Ê (Lumen ƒV[ƒ“ / ƒAƒgƒ‰ƒX / IBL / Global SDF)
-//  t15..t18 : ƒXƒNƒŠ[ƒ“ŒnƒpƒX‹¤’Ê (G-Buffer / [“x / —š—ğ)
-//  t19..t27 : ƒpƒXŒÅ—L (ŠeƒVƒF[ƒ_‚ª—p“r‚ğéŒ¾‚·‚é)
+//  ---- SRV ãƒ¬ã‚¸ã‚¹ã‚¿è¦ç´„ ----
+//  t0..t14  : å…¨ãƒ‘ã‚¹å…±é€š (Lumen ã‚·ãƒ¼ãƒ³ / ã‚¢ãƒˆãƒ©ã‚¹ / IBL / Global SDF)
+//  t15..t18, t25 : ã‚¹ã‚¯ãƒªãƒ¼ãƒ³ç³»ãƒ‘ã‚¹å…±é€š (G-Buffer / æ·±åº¦ / å±¥æ­´)
+//  t19..t24, t26, t27 : ãƒ‘ã‚¹å›ºæœ‰ (å„ã‚·ã‚§ãƒ¼ãƒ€ãŒç”¨é€”ã‚’å®£è¨€ã™ã‚‹)
 //
-//  ---- UAV ƒŒƒWƒXƒ^‹K–ñ ----
-//  u0..u3   : Direct / Indirect / Final / Global SDF ƒNƒŠƒbƒvƒ}ƒbƒv
-//  u4..u7   : ƒpƒXŒÅ—Lo—Í
+//  ---- UAV ãƒ¬ã‚¸ã‚¹ã‚¿è¦ç´„ ----
+//  u0..u3   : Direct / Indirect / Final / Global SDF ã‚¯ãƒªãƒƒãƒ—ãƒãƒƒãƒ—
+//  u4..u7   : ãƒ‘ã‚¹å›ºæœ‰å‡ºåŠ›
 // =============================================================
 
 #include "Structs.hlsl"
@@ -29,48 +29,48 @@
 #define LUMEN_PI 3.14159265358979323846f
 #endif
 
-// ƒAƒgƒ‰ƒX‚Ìƒ^ƒCƒ‹—ñ” (C++ LUMEN_ATLAS_TILES_X ‚Æ 1:1)
+// ã‚¢ãƒˆãƒ©ã‚¹ã®ã‚¿ã‚¤ãƒ«åˆ—æ•° (C++ LUMEN_ATLAS_TILES_X ã¨ 1:1)
 #define LUMEN_ATLAS_TILES_X 16u
 
-// Global Distance Field ƒNƒŠƒbƒvƒ}ƒbƒv‰ğ‘œ“x (C++ LUMEN_GLOBAL_SDF_RESOLUTION ‚Æ 1:1)
+// Global Distance Field ã‚¯ãƒªãƒƒãƒ—ãƒãƒƒãƒ—è§£åƒåº¦ (C++ LUMEN_GLOBAL_SDF_RESOLUTION ã¨ 1:1)
 #define LUMEN_GLOBAL_SDF_RESOLUTION 128.0f
 
 // -------------------------------------------------------------
-//  b0 : FLumenPassParams (C++ LumenScene.h ‚Æ 1:1 ƒ~ƒ‰[•K{, 528B)
+//  b0 : FLumenPassParams (C++ LumenScene.h ã¨ 1:1 ãƒŸãƒ©ãƒ¼å¿…é ˆ, 528B)
 // -------------------------------------------------------------
 cbuffer LumenPassParams : register(b0)
 {
-    uint CardStartIndex; // æ“ªƒJ[ƒh (GDF ƒrƒ‹ƒh‚Å‚ÍƒNƒŠƒbƒvƒ}ƒbƒv”Ô†)
-    uint NumCardsToProcess; // ˆ—ƒJ[ƒh” (GroupID.z ‚ÌãŒÀ)
-    uint PassNumLumenObjects; // —LŒø Lumen ƒIƒuƒWƒFƒNƒg”
-    uint PassNumLocalLights; // ƒ[ƒJƒ‹ƒ‰ƒCƒg—LŒø”
+    uint CardStartIndex; // å…ˆé ­ã‚«ãƒ¼ãƒ‰ (GDF ãƒ“ãƒ«ãƒ‰ã§ã¯ã‚¯ãƒªãƒƒãƒ—ãƒãƒƒãƒ—ç•ªå·)
+    uint NumCardsToProcess; // å‡¦ç†ã‚«ãƒ¼ãƒ‰æ•° (ã‚«ãƒ¼ãƒ‰ãƒ‘ã‚¹ã§ã¯ C++ Dispatch ã® Z ã¨ä¸€è‡´ã€‚ã‚·ã‚§ãƒ¼ãƒ€ã¯å‚ç…§ã—ãªã„ / ã‚­ãƒ£ãƒ—ãƒãƒ£ç¢ºèªç”¨)
+    uint PassNumLumenObjects; // æœ‰åŠ¹ Lumen ã‚ªãƒ–ã‚¸ã‚§ã‚¯ãƒˆæ•°
+    uint PassNumLocalLights; // ãƒ­ãƒ¼ã‚«ãƒ«ãƒ©ã‚¤ãƒˆæœ‰åŠ¹æ•°
 
-    float4 PassDirectionalLightDirection; // xyz=óŒõ–Ê->ƒ‰ƒCƒg, w=—LŒø (0/1)
-    float4 PassDirectionalLightColor; // rgb=üŒ`F x ‹­“x (lux)
-    float4 PassAtlasParams; // xy=1/ƒAƒgƒ‰ƒXƒTƒCƒY, z=ƒJ[ƒh‰ğ‘œ“x, w=ƒtƒŒ[ƒ€”Ô†
-    float4 PassTraceParams; // x=Å‘åƒgƒŒ[ƒX‹——£[m], y=–ÊƒoƒCƒAƒX[m], z=RadiosityƒŒƒC”, w=Emissiveƒu[ƒXƒg
-    float4 PassGlobalSDF0; // xyz=ƒNƒŠƒbƒvƒ}ƒbƒv0’†S, w=”¼Œa [m] (0 = –³Œø)
-    float4 PassGlobalSDF1; // xyz=ƒNƒŠƒbƒvƒ}ƒbƒv1’†S, w=”¼Œa [m]
-    float4 PassProbeParams0; // x=ƒvƒ[ƒu”X, y=ƒvƒ[ƒu”Y, z=ƒ_ƒEƒ“ƒTƒ“ƒvƒ‹(16), w=octa‰ğ‘œ“x(8)
-    float4 PassProbeParams1; // x=‰æ–Ê•, y=‰æ–Ê‚, z=ƒeƒ“ƒ|ƒ‰ƒ‹ƒ¿, w=—š—ğ—LŒø(0/1)
-    float4 PassCameraOrigin; // xyz=ƒJƒƒ‰ˆÊ’u, w=ƒfƒBƒe[ƒ‹ƒgƒŒ[ƒX‹——£ [m]
-    float4 PassPrevCameraOrigin; // xyz=‘OƒtƒŒ[ƒ€ƒJƒƒ‰ˆÊ’u, w=ƒXƒNƒŠ[ƒ“ƒgƒŒ[ƒXŒú‚İ [m]
-    float4 PassRCParams0; // xyz=Radiance Cache Å¬ƒR[ƒi[, w=ƒvƒ[ƒuŠÔŠu [m]
-    float4 PassRCParams1; // x=ƒvƒ[ƒu”/², y=XVŠJnƒvƒ[ƒu, z=XVƒvƒ[ƒu”, w=ƒXƒJƒCƒTƒ“ƒvƒ‹ƒ~ƒbƒv
-    float4 PassReflectionParams; // x=Å‘åƒ‰ƒtƒlƒX, y=ƒtƒF[ƒhŠJn, z=‹­“x, w=ƒXƒNƒŠ[ƒ“ƒgƒŒ[ƒX—LŒø
-    float4 PassRadiosityParams; // x=Radiosity ƒeƒ“ƒ|ƒ‰ƒ‹ƒ¿, y=ƒtƒ‹‰ğ‘œ“x GI ƒeƒ“ƒ|ƒ‰ƒ‹ƒ¿ (1 = ’~Ï‚È‚µ), z=Short Range AO ƒfƒoƒbƒO•\¦, w=ƒxƒ“ƒgƒm[ƒ}ƒ‹—LŒø
+    float4 PassDirectionalLightDirection; // xyz=å—å…‰é¢->ãƒ©ã‚¤ãƒˆ, w=æœ‰åŠ¹ (0/1)
+    float4 PassDirectionalLightColor; // rgb=ç·šå½¢è‰² x å¼·åº¦ (lux)
+    float4 PassAtlasParams; // xy=1/ã‚¢ãƒˆãƒ©ã‚¹ã‚µã‚¤ã‚º, z=ã‚«ãƒ¼ãƒ‰è§£åƒåº¦, w=ãƒ•ãƒ¬ãƒ¼ãƒ ç•ªå·
+    float4 PassTraceParams; // x=æœ€å¤§ãƒˆãƒ¬ãƒ¼ã‚¹è·é›¢[m], y=é¢ãƒã‚¤ã‚¢ã‚¹[m], z=Radiosityãƒ¬ã‚¤æ•°, w=Emissiveãƒ–ãƒ¼ã‚¹ãƒˆ
+    float4 PassGlobalSDF0; // xyz=ã‚¯ãƒªãƒƒãƒ—ãƒãƒƒãƒ—0ä¸­å¿ƒ, w=åŠå¾„ [m] (0 = ç„¡åŠ¹)
+    float4 PassGlobalSDF1; // xyz=ã‚¯ãƒªãƒƒãƒ—ãƒãƒƒãƒ—1ä¸­å¿ƒ, w=åŠå¾„ [m]
+    float4 PassProbeParams0; // x=ãƒ—ãƒ­ãƒ¼ãƒ–æ•°X, y=ãƒ—ãƒ­ãƒ¼ãƒ–æ•°Y, z=ãƒ€ã‚¦ãƒ³ã‚µãƒ³ãƒ—ãƒ«(16), w=octaè§£åƒåº¦(8)
+    float4 PassProbeParams1; // x=ç”»é¢å¹…, y=ç”»é¢é«˜, z=ãƒ†ãƒ³ãƒãƒ©ãƒ«Î±, w=å±¥æ­´æœ‰åŠ¹(0/1)
+    float4 PassCameraOrigin; // xyz=ã‚«ãƒ¡ãƒ©ä½ç½®, w=ãƒ‡ã‚£ãƒ†ãƒ¼ãƒ«ãƒˆãƒ¬ãƒ¼ã‚¹è·é›¢ [m]
+    float4 PassPrevCameraOrigin; // xyz=å‰ãƒ•ãƒ¬ãƒ¼ãƒ ã‚«ãƒ¡ãƒ©ä½ç½®, w=ã‚¹ã‚¯ãƒªãƒ¼ãƒ³ãƒˆãƒ¬ãƒ¼ã‚¹åšã¿ [m]
+    float4 PassRCParams0; // xyz=Radiance Cache æœ€å°ã‚³ãƒ¼ãƒŠãƒ¼, w=ãƒ—ãƒ­ãƒ¼ãƒ–é–“éš” [m]
+    float4 PassRCParams1; // x=ãƒ—ãƒ­ãƒ¼ãƒ–æ•°/è»¸, y=æ›´æ–°é–‹å§‹ãƒ—ãƒ­ãƒ¼ãƒ–, z=æ›´æ–°ãƒ—ãƒ­ãƒ¼ãƒ–æ•°, w=ã‚¹ã‚«ã‚¤ã‚µãƒ³ãƒ—ãƒ«ãƒŸãƒƒãƒ—
+    float4 PassReflectionParams; // x=æœ€å¤§ãƒ©ãƒ•ãƒã‚¹, y=ãƒ•ã‚§ãƒ¼ãƒ‰é–‹å§‹, z=å¼·åº¦, w=ã‚¹ã‚¯ãƒªãƒ¼ãƒ³ãƒˆãƒ¬ãƒ¼ã‚¹æœ‰åŠ¹
+    float4 PassRadiosityParams; // x=Radiosity ãƒ†ãƒ³ãƒãƒ©ãƒ«Î±, y=ãƒ•ãƒ«è§£åƒåº¦ GI ãƒ†ãƒ³ãƒãƒ©ãƒ«Î± (1 = è“„ç©ãªã—), z=Short Range AO ãƒ‡ãƒãƒƒã‚°è¡¨ç¤º, w=ãƒ™ãƒ³ãƒˆãƒãƒ¼ãƒãƒ«æœ‰åŠ¹
 
-    float4x4 PassViewProjection; // ƒ[ƒ‹ƒh -> ƒNƒŠƒbƒv (“]’uÏ‚İ)
-    float4x4 PassInvViewProjection; // ƒNƒŠƒbƒv -> ƒ[ƒ‹ƒh (“]’uÏ‚İ)
-    float4x4 PassPrevViewProjection; // ‘OƒtƒŒ[ƒ€‚Ìƒ[ƒ‹ƒh -> ƒNƒŠƒbƒv (“]’uÏ‚İ)
-    float4x4 PassPrevInvViewProjection; // ‘OƒtƒŒ[ƒ€‚ÌƒNƒŠƒbƒv -> ƒ[ƒ‹ƒh (“]’uÏ‚İ)
+    float4x4 PassViewProjection; // ãƒ¯ãƒ¼ãƒ«ãƒ‰ -> ã‚¯ãƒªãƒƒãƒ— (è»¢ç½®æ¸ˆã¿)
+    float4x4 PassInvViewProjection; // ã‚¯ãƒªãƒƒãƒ— -> ãƒ¯ãƒ¼ãƒ«ãƒ‰ (è»¢ç½®æ¸ˆã¿)
+    float4x4 PassPrevViewProjection; // å‰ãƒ•ãƒ¬ãƒ¼ãƒ ã®ãƒ¯ãƒ¼ãƒ«ãƒ‰ -> ã‚¯ãƒªãƒƒãƒ— (è»¢ç½®æ¸ˆã¿)
+    float4x4 PassPrevInvViewProjection; // å‰ãƒ•ãƒ¬ãƒ¼ãƒ ã®ã‚¯ãƒªãƒƒãƒ— -> ãƒ¯ãƒ¼ãƒ«ãƒ‰ (è»¢ç½®æ¸ˆã¿)
 
-    float4 PassProbeJitter; // xy=¡ƒtƒŒ[ƒ€‚Ìƒvƒ[ƒu”z’uƒWƒbƒ^ [px], zw=‘OƒtƒŒ[ƒ€ (—š—ğ‚ÌƒŠƒvƒƒWƒFƒNƒVƒ‡ƒ“—p)
-    float4 PassShortRangeAO; // x=Å‘å‹——£ [m] (0=–³Œø), y=ƒŒƒC”, z=‹­“x, w=Œú‚İ [m]
+    float4 PassProbeJitter; // xy=ä»Šãƒ•ãƒ¬ãƒ¼ãƒ ã®ãƒ—ãƒ­ãƒ¼ãƒ–é…ç½®ã‚¸ãƒƒã‚¿ [px], zw=å‰ãƒ•ãƒ¬ãƒ¼ãƒ  (å±¥æ­´ã®ãƒªãƒ—ãƒ­ã‚¸ã‚§ã‚¯ã‚·ãƒ§ãƒ³ç”¨)
+    float4 PassShortRangeAO; // x=æœ€å¤§è·é›¢ [m] (0=ç„¡åŠ¹), y=ãƒ¬ã‚¤æ•°, z=å¼·åº¦, w=åšã¿ [m]
 };
 
 // -------------------------------------------------------------
-//  ‹¤’ÊƒŠƒ\[ƒX (t0..t14 / u0..u3)
+//  å…±é€šãƒªã‚½ãƒ¼ã‚¹ (t0..t14 / u0..u3)
 // -------------------------------------------------------------
 Texture3D<float> LumenDistanceFieldAtlas : register(t0);
 StructuredBuffer<FLumenSceneObject> LumenSceneObjects : register(t1);
@@ -85,18 +85,18 @@ Texture2D<float> LumenDepthAtlas : register(t7);
 Texture2D<float4> LumenDirectLightingSRV : register(t8);
 Texture2D<float4> LumenIndirectLightingSRV : register(t9);
 Texture2D<float4> LumenFinalLightingAtlas : register(t10);
-TextureCube<float4> LumenSkyIrradiance : register(t11);
+TextureCube<float4> LumenSkyIrradiance : register(t11); // æ‹¡æ•£ irradiance ã‚­ãƒ¥ãƒ¼ãƒ– (ç¾çŠ¶ã©ã® Lumen ã‚·ã‚§ãƒ¼ãƒ€ãƒ¼ã‚‚ã‚µãƒ³ãƒ—ãƒ«ã—ãªã„ã€‚ã‚¹ã‚«ã‚¤ãƒ©ã‚¤ãƒ†ã‚£ãƒ³ã‚°ç”¨ã«äºˆç´„)
 
-Texture3D<float> LumenGlobalSDF0 : register(t12); // ƒNƒŠƒbƒvƒ}ƒbƒv 0 (‹ß‹——£ / ‚¸×)
-Texture3D<float> LumenGlobalSDF1 : register(t13); // ƒNƒŠƒbƒvƒ}ƒbƒv 1 (‰“‹——£)
-TextureCube<float4> LumenSkyPrefilter : register(t14); // prefilter ŠÂ‹« (ƒ~ƒbƒv•t‚«)
+Texture3D<float> LumenGlobalSDF0 : register(t12); // ã‚¯ãƒªãƒƒãƒ—ãƒãƒƒãƒ— 0 (è¿‘è·é›¢ / é«˜ç²¾ç´°)
+Texture3D<float> LumenGlobalSDF1 : register(t13); // ã‚¯ãƒªãƒƒãƒ—ãƒãƒƒãƒ— 1 (é è·é›¢)
+TextureCube<float4> LumenSkyPrefilter : register(t14); // prefilter ç’°å¢ƒ (ãƒŸãƒƒãƒ—ä»˜ã)
 
-// ---- ƒXƒNƒŠ[ƒ“ŒnƒpƒX‹¤’Ê (t15..t18) ----
+// ---- ã‚¹ã‚¯ãƒªãƒ¼ãƒ³ç³»ãƒ‘ã‚¹å…±é€š (t15..t18, t25) ----
 Texture2D<float4> LumenGBufferNormal : register(t15); // GBufferA (World Normal)
-Texture2D<float> LumenSceneDepth : register(t16); // ”ñüŒ`ƒfƒoƒCƒX[“x
-Texture2D<float2> LumenLinearDepth : register(t17); // R=ƒrƒ…[‹——£
-Texture2D<float4> LumenPrevSceneColor : register(t18); // ‘OƒtƒŒ[ƒ€ SceneColor (üŒ` HDR)
-Texture2D<float2> LumenPrevLinearDepth : register(t25); // ‘OƒtƒŒ[ƒ€ LinearDepth (R=ƒrƒ…[‹——£B—š—ğŒŸØ—p)
+Texture2D<float> LumenSceneDepth : register(t16); // éç·šå½¢ãƒ‡ãƒã‚¤ã‚¹æ·±åº¦
+Texture2D<float2> LumenLinearDepth : register(t17); // R=ãƒ“ãƒ¥ãƒ¼è·é›¢
+Texture2D<float4> LumenPrevSceneColor : register(t18); // å‰ãƒ•ãƒ¬ãƒ¼ãƒ  SceneColor (ç·šå½¢ HDR)
+Texture2D<float2> LumenPrevLinearDepth : register(t25); // å‰ãƒ•ãƒ¬ãƒ¼ãƒ  LinearDepth (R=ãƒ“ãƒ¥ãƒ¼è·é›¢ã€‚å±¥æ­´æ¤œè¨¼ç”¨)
 
 RWTexture2D<float4> RWDirectLighting : register(u0);
 RWTexture2D<float4> RWIndirectLighting : register(u1);
@@ -105,7 +105,7 @@ RWTexture3D<float> RWGlobalSDF : register(u3);
 
 SamplerState LumenTraceSampler : register(s0);
 
-// ‚±‚Ìƒwƒbƒ_‚Ì—˜—pÒ‚Í Global SDF / ƒnƒCƒuƒŠƒbƒhƒgƒŒ[ƒX‚ğg‚¦‚é
+// ã“ã®ãƒ˜ãƒƒãƒ€ã®åˆ©ç”¨è€…ã¯ Global SDF / ãƒã‚¤ãƒ–ãƒªãƒƒãƒ‰ãƒˆãƒ¬ãƒ¼ã‚¹ã‚’ä½¿ãˆã‚‹
 #define LUMEN_SUPPORTS_GLOBAL_SDF 1
 
 #include "LumenTracingCommon.hlsl"
@@ -115,9 +115,9 @@ SamplerState LumenTraceSampler : register(s0);
 #endif
 
 // -------------------------------------------------------------
-//  ƒgƒŒ[ƒXƒGƒ“ƒgƒŠƒ|ƒCƒ“ƒg (SWRT / HWRT ‚ÌØ‘Ö“_)
-//  SWRT: ƒƒbƒVƒ… SDF (‹ß‹——£) + Global SDF (‰“‹——£) ‚ÌƒnƒCƒuƒŠƒbƒh
-//  HWRT: RayQuery ƒCƒ“ƒ‰ƒCƒ“ƒgƒŒ[ƒX (LumenTracingHardware.hlsl)
+//  ãƒˆãƒ¬ãƒ¼ã‚¹ã‚¨ãƒ³ãƒˆãƒªãƒã‚¤ãƒ³ãƒˆ (SWRT / HWRT ã®åˆ‡æ›¿ç‚¹)
+//  SWRT: ãƒ¡ãƒƒã‚·ãƒ¥ SDF (è¿‘è·é›¢) + Global SDF (é è·é›¢) ã®ãƒã‚¤ãƒ–ãƒªãƒƒãƒ‰
+//  HWRT: RayQuery ã‚¤ãƒ³ãƒ©ã‚¤ãƒ³ãƒˆãƒ¬ãƒ¼ã‚¹ (LumenTracingHardware.hlsl)
 // -------------------------------------------------------------
 FLumenTraceResult TraceLumenRay(float3 RayStart, float3 RayDir, float MaxT,
     float TanConeAngle, uint NumObjects)
@@ -131,7 +131,7 @@ FLumenTraceResult TraceLumenRay(float3 RayStart, float3 RayDir, float MaxT,
 }
 
 // -------------------------------------------------------------
-//  ƒJ[ƒhƒCƒ“ƒfƒbƒNƒX -> ƒAƒgƒ‰ƒXƒ^ƒCƒ‹Œ´“_ [px]
+//  ã‚«ãƒ¼ãƒ‰ã‚¤ãƒ³ãƒ‡ãƒƒã‚¯ã‚¹ -> ã‚¢ãƒˆãƒ©ã‚¹ã‚¿ã‚¤ãƒ«åŸç‚¹ [px]
 // -------------------------------------------------------------
 uint2 GetLumenCardTileOrigin(uint CardIndex)
 {
@@ -140,12 +140,12 @@ uint2 GetLumenCardTileOrigin(uint CardIndex)
 }
 
 // -------------------------------------------------------------
-//  ƒJ[ƒhƒeƒNƒZƒ‹‚ÌƒT[ƒtƒFƒXÄ\’z
+//  ã‚«ãƒ¼ãƒ‰ãƒ†ã‚¯ã‚»ãƒ«ã®ã‚µãƒ¼ãƒ•ã‚§ã‚¹å†æ§‹ç¯‰
 // -------------------------------------------------------------
 struct FLumenCardTexel
 {
-    bool bValid; // ƒWƒIƒƒgƒŠ‚ªÄ‚©‚ê‚½ƒeƒNƒZƒ‹‚©
-    uint2 AtlasTexel; // ƒAƒgƒ‰ƒXã‚ÌƒeƒNƒZƒ‹À•W
+    bool bValid; // ã‚¸ã‚ªãƒ¡ãƒˆãƒªãŒç„¼ã‹ã‚ŒãŸãƒ†ã‚¯ã‚»ãƒ«ã‹
+    uint2 AtlasTexel; // ã‚¢ãƒˆãƒ©ã‚¹ä¸Šã®ãƒ†ã‚¯ã‚»ãƒ«åº§æ¨™
     float3 WorldPosition;
     float3 WorldNormal;
 };
@@ -156,11 +156,11 @@ FLumenCardTexel ReconstructLumenCardTexel(FLumenCardData Card, uint CardIndex, u
 
     result.AtlasTexel = GetLumenCardTileOrigin(CardIndex) + TexelInCard;
 
-    // —LŒø”»’è: ƒLƒƒƒvƒ`ƒƒÏ‚İƒeƒNƒZƒ‹‚Í Albedo.a = 1 (ƒNƒŠƒA’l 0)
+    // æœ‰åŠ¹åˆ¤å®š: ã‚­ãƒ£ãƒ—ãƒãƒ£æ¸ˆã¿ãƒ†ã‚¯ã‚»ãƒ«ã¯ Albedo.a = 1 (ã‚¯ãƒªã‚¢å€¤ 0)
     float validity = LumenAlbedoAtlas.Load(int3(result.AtlasTexel, 0)).a;
     result.bValid = (validity > 0.5f);
 
-    // ƒJ[ƒhƒrƒ…[‹óŠÔˆÊ’u (ƒIƒ‹ƒ\: NDC xy + üŒ`[“x z)
+    // ã‚«ãƒ¼ãƒ‰ãƒ“ãƒ¥ãƒ¼ç©ºé–“ä½ç½® (ã‚ªãƒ«ã‚½: NDC xy + ç·šå½¢æ·±åº¦ z)
     float res = PassAtlasParams.z;
     float2 uv = ((float2) TexelInCard + 0.5f) / res;
     float2 ndc = float2(uv.x * 2.0f - 1.0f, 1.0f - uv.y * 2.0f);
@@ -171,7 +171,7 @@ FLumenCardTexel ReconstructLumenCardTexel(FLumenCardData Card, uint CardIndex, u
 
     result.WorldPosition = mul(float4(cardPos, 1.0f), Card.CardToWorld).xyz;
 
-    // ƒJ[ƒh‹óŠÔ–@ü -> ƒ[ƒ‹ƒh (”ñ‹ÏˆêƒXƒP[ƒ‹‚Í³‹K‰»‚Å‹ß—)
+    // ã‚«ãƒ¼ãƒ‰ç©ºé–“æ³•ç·š -> ãƒ¯ãƒ¼ãƒ«ãƒ‰ (éå‡ä¸€ã‚¹ã‚±ãƒ¼ãƒ«ã¯æ­£è¦åŒ–ã§è¿‘ä¼¼)
     float3 cardNormal = LumenNormalAtlas.Load(int3(result.AtlasTexel, 0)).xyz * 2.0f - 1.0f;
     result.WorldNormal = normalize(mul(float4(cardNormal, 0.0f), Card.CardToWorld).xyz);
 
@@ -179,9 +179,9 @@ FLumenCardTexel ReconstructLumenCardTexel(FLumenCardData Card, uint CardIndex, u
 }
 
 // -------------------------------------------------------------
-//  ƒŒƒCƒqƒbƒg‚Ìƒ‰ƒfƒBƒAƒ“ƒX‰ğŒˆ (‹¤’Ê)
-//  ƒqƒbƒg: SDF Œù”z–@ü‚Å Surface Cache ‚ğÌŒõ
-//  ƒ~ƒX  : prefilter ŠÂ‹«ƒLƒ…[ƒu‚ğƒXƒJƒCƒ‰ƒfƒBƒAƒ“ƒX‚Æ‚µ‚ÄÌŒõ
+//  ãƒ¬ã‚¤ãƒ’ãƒƒãƒˆã®ãƒ©ãƒ‡ã‚£ã‚¢ãƒ³ã‚¹è§£æ±º (å…±é€š)
+//  ãƒ’ãƒƒãƒˆ: SDF å‹¾é…æ³•ç·šã§ Surface Cache ã‚’æ¡å…‰
+//  ãƒŸã‚¹  : prefilter ç’°å¢ƒã‚­ãƒ¥ãƒ¼ãƒ–ã‚’ã‚¹ã‚«ã‚¤ãƒ©ãƒ‡ã‚£ã‚¢ãƒ³ã‚¹ã¨ã—ã¦æ¡å…‰
 // -------------------------------------------------------------
 float3 ResolveLumenRayRadiance(FLumenTraceResult Trace, float3 RayStart, float3 RayDir,
     float SkySampleMip)

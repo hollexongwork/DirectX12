@@ -50,7 +50,7 @@ public:
 
 	// 直接書き換えた場合は MarkRenderStateDirty() を呼ぶこと
 	Material& GetMaterial(unsigned int SlotIndex = 0);
-	FMaterialSlot& GetMaterialSlot(unsigned int SlotIndex = 0);
+	const std::vector<FMaterialSlot>& GetMaterialSlots() const { return m_MaterialSlots; }
 
 	void SetBaseColorTexture(unsigned int SlotIndex, const char* FilePath);
 	void SetNormalTexture(unsigned int SlotIndex, const char* FilePath);

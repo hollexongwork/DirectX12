@@ -58,7 +58,6 @@ public:
 
 	// 深度バッファ SRV (R32_TYPELESS -> R32_FLOAT)
 	unsigned int                DepthSRVIndex = 0;
-	D3D12_GPU_DESCRIPTOR_HANDLE DepthSRVHandle{};
 
 	// ImGui 表示用の線形深度 SRV (G チャンネルをグレースケール表示)
 	D3D12_GPU_DESCRIPTOR_HANDLE LinearDepthDisplaySRVHandle{};

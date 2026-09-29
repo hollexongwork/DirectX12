@@ -12,10 +12,10 @@ FAssetManager::FAssetManager()
 
 FAssetManager::~FAssetManager()
 {
-	// ƒLƒƒƒbƒVƒ… (ƒƒ“ƒo) ‚Ì”jŠü‚Åc‘¶ƒAƒZƒbƒg‚ª‰ğ•ú‚³‚ê‚éB
-	// GPU ƒŠƒ\[ƒX‚Í TEXTURE / FBXModel ‚ÌƒfƒXƒgƒ‰ƒNƒ^‚ª
-	// RenderManager ‚Ì’x‰„íœƒLƒ…[‚Ö‰ñ‚·‚½‚ßA‚±‚Ì“_‚Å
-	// RenderManager ‚ª¶‘¶‚µ‚Ä‚¢‚é‚±‚Æ (GameManager ‚Ìƒƒ“ƒoéŒ¾‡‚Å•ÛØ)B
+	// ã‚­ãƒ£ãƒƒã‚·ãƒ¥ (ãƒ¡ãƒ³ãƒ) ã®ç ´æ£„ã§æ®‹å­˜ã‚¢ã‚»ãƒƒãƒˆãŒè§£æ”¾ã•ã‚Œã‚‹ã€‚
+	// GPU ãƒªã‚½ãƒ¼ã‚¹ã¯ TEXTURE / FBXModel ã®ãƒ‡ã‚¹ãƒˆãƒ©ã‚¯ã‚¿ãŒ
+	// RenderManager ã®é…å»¶å‰Šé™¤ã‚­ãƒ¥ãƒ¼ã¸å›ã™ãŸã‚ã€ã“ã®æ™‚ç‚¹ã§
+	// RenderManager ãŒç”Ÿå­˜ã—ã¦ã„ã‚‹ã“ã¨ (GameManager ã®ãƒ¡ãƒ³ãƒå®£è¨€é †ã§ä¿è¨¼)ã€‚
 	m_Instance = nullptr;
 }
 
@@ -27,8 +27,8 @@ std::shared_ptr<FBXModel> FAssetManager::LoadStaticMesh(const std::string& Path,
 		return it->second;
 	}
 
-	// –¢ƒLƒƒƒbƒVƒ…: ƒ[ƒh‚µ‚Ä“o˜^‚·‚éBƒ[ƒh¸”s‚àƒLƒƒƒbƒVƒ…‚µA
-	// “¯‚¶Œ‡‘¹ƒpƒX‚ÌÄƒ[ƒhs‚ğ–h‚® (IsLoaded() ‚Å”»’è‚Å‚«‚é)
+	// æœªã‚­ãƒ£ãƒƒã‚·ãƒ¥: ãƒ­ãƒ¼ãƒ‰ã—ã¦ç™»éŒ²ã™ã‚‹ã€‚ãƒ­ãƒ¼ãƒ‰å¤±æ•—ã‚‚ã‚­ãƒ£ãƒƒã‚·ãƒ¥ã—ã€
+	// åŒã˜æ¬ æãƒ‘ã‚¹ã®å†ãƒ­ãƒ¼ãƒ‰è©¦è¡Œã‚’é˜²ã (IsLoaded() ã§åˆ¤å®šã§ãã‚‹)
 	std::shared_ptr<FBXModel> mesh = std::make_shared<FBXModel>();
 	mesh->Load(Path.c_str(), FlipUV);
 
@@ -44,8 +44,8 @@ std::shared_ptr<TEXTURE> FAssetManager::LoadTexture(const std::string& Path, boo
 		return it->second;
 	}
 
-	// –¢ƒLƒƒƒbƒVƒ…: RHI Œo—R‚Åƒ[ƒh‚µ‚Ä“o˜^‚·‚é
-	// (unique_ptr -> shared_ptr ‚ÖŠ—LŒ ‚ğˆÚ‚·)
+	// æœªã‚­ãƒ£ãƒƒã‚·ãƒ¥: RHI çµŒç”±ã§ãƒ­ãƒ¼ãƒ‰ã—ã¦ç™»éŒ²ã™ã‚‹
+	// (unique_ptr -> shared_ptr ã¸æ‰€æœ‰æ¨©ã‚’ç§»ã™)
 	std::shared_ptr<TEXTURE> texture =
 		RenderManager::GetInstance()->LoadTexture(Path.c_str(), sRGB);
 

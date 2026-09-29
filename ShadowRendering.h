@@ -24,8 +24,9 @@ struct FSceneView;
 //  データフロー:
 //    FSceneRenderer::SetupLightConstants が集めたプロキシ列
 //      -> InitDynamicShadows      (シャドウビュー構築 + GPU パラメータ)
+//      -> UpdateDistanceFieldObjects (DF オブジェクトバッファ t18 詰め直し)
 //      -> RenderShadowDepthMaps   (深度パス: FScene のプロキシ列を巡回)
-//      -> BindShadowResources     (b5 + t14/t15/t16 バインド)
+//      -> BindShadowResources     (b5 + t14-t18 バインド)
 //
 //  ライトバッファ (t13) とローカルシャドウパラメータ (t16) は
 //  「同じインデックス = 同じライト」で 1:1 対応する。
@@ -91,7 +92,7 @@ static const unsigned int MAX_DF_OBJECTS = 64;
 // 各面を 90 度よりわずかに広い FOV で描き、受光側 UV を同率で縮める。
 // 面境界の PCF タップ (±1 テクセル) や法線オフセット由来のはみ出しが
 // 隣面領域 (ボーダー = 白 = 影なし) を読んでシームに影の隙間が
-// できるのを防ぐ。受光側 (ShadowFilteringCommon.hlsl) の同名定数と 1:1。
+// できるのを防ぐ。受光側 (ShadowProjectionCommon.hlsl) の同名定数と 1:1。
 static const float POINT_SHADOW_GUARD_TEXELS = 6.0f;
 
 // ライトのバイアス値 -> ワールドオフセット換算 [m / バイアス単位]。
@@ -101,7 +102,8 @@ static const float POINT_SHADOW_GUARD_TEXELS = 6.0f;
 //   - ローカル法線オフセット = SlopeBias * 0.05 [m]
 // これにより DF の on/off でスライダーの効き方が一致する。
 // DF 固有の自己交差回避 (SDF が受光面自身を指す問題) は、シェーダ側で
-// SDF ボクセル幅ぶんの開始オフセットが常時・自動で適用される
+// 「受光面自身の表皮 (ボクセル幅基準のしきい値) の内側から開始した場合に
+// 表皮を抜けるまで遮蔽判定を保留する」処理として自動で行われる
 // (DistanceFieldShadowing.hlsl)。ユーザーバイアスは純粋な調整量。
 static const float SHADOW_BIAS_WORLD_SCALE = 0.05f;
 
@@ -187,6 +189,11 @@ private:
 		unsigned int Resolution, unsigned int ArraySize, const wchar_t* Name);
 	void InitShadowParamBuffers();
 	void InitDistanceFieldBuffers();
+
+	// シャドウビュー 1 枚を m_ShadowViews へ追加する
+	// (ViewProjection = View * Projection を転置前で格納。キャスターカリング用)
+	void AddShadowView(const XMMATRIX& View, const XMMATRIX& Projection,
+		unsigned int SliceIndex, bool bDirectional);
 
 	// CSM カスケード構築 (サブフラスタ外接球 + テクセルスナップ)。
 	// カメラ情報は FSceneView (ゲーム側スナップショット) から読む。

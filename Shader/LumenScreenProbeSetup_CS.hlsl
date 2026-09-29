@@ -3,11 +3,11 @@
 
 // =============================================================
 //  LumenScreenProbeSetup_CS
-//  ScreenProbeGather ‚Ìƒvƒ[ƒu”z’u (‹ÏˆêƒOƒŠƒbƒh”Å)B
-//  16px ‚²‚Æ‚ÌƒAƒ“ƒJ[ƒsƒNƒZƒ‹‚©‚ç G-Buffer ‚ğ“Ç‚İAƒvƒ[ƒu‚Ì
-//  ƒWƒIƒƒgƒŠ (–@ü + ƒrƒ…[‹——£) ‚ğŠm’è‚·‚éB
-//    u4 = ProbeGeo (RGBA16F): xyz = ƒ[ƒ‹ƒh–@ü, w = ƒrƒ…[‹——£
-//         (w <= 0 = –³Œøƒvƒ[ƒu: ƒXƒJƒC / Unlit)
+//  ScreenProbeGather ã®ãƒ—ãƒ­ãƒ¼ãƒ–é…ç½® (å‡ä¸€ã‚°ãƒªãƒƒãƒ‰ç‰ˆ)ã€‚
+//  16px ã”ã¨ã®ã‚¢ãƒ³ã‚«ãƒ¼ãƒ”ã‚¯ã‚»ãƒ«ã‹ã‚‰ G-Buffer ã‚’èª­ã¿ã€ãƒ—ãƒ­ãƒ¼ãƒ–ã®
+//  ã‚¸ã‚ªãƒ¡ãƒˆãƒª (æ³•ç·š + ãƒ“ãƒ¥ãƒ¼è·é›¢) ã‚’ç¢ºå®šã™ã‚‹ã€‚
+//    u4 = ProbeGeo (RGBA16F): xyz = ãƒ¯ãƒ¼ãƒ«ãƒ‰æ³•ç·š, w = ãƒ“ãƒ¥ãƒ¼è·é›¢
+//         (w <= 0 = ç„¡åŠ¹ãƒ—ãƒ­ãƒ¼ãƒ–: ã‚¹ã‚«ã‚¤ / Unlit)
 //  Dispatch: (ceil(PW/8), ceil(PH/8), 1)
 // =============================================================
 
@@ -22,16 +22,13 @@ void main(uint3 DTid : SV_DispatchThreadID)
         return;
     }
 
-    const uint downsample = (uint) PassProbeParams0.z;
-    const uint2 screenSize = (uint2) PassProbeParams1.xy;
-
-    // ƒAƒ“ƒJ[ƒsƒNƒZƒ‹ (ƒZƒ‹“à‚ğƒtƒŒ[ƒ€‚²‚Æ‚ÉƒWƒbƒ^)
+    // ã‚¢ãƒ³ã‚«ãƒ¼ãƒ”ã‚¯ã‚»ãƒ« (ã‚»ãƒ«å†…ã‚’ãƒ•ãƒ¬ãƒ¼ãƒ ã”ã¨ã«ã‚¸ãƒƒã‚¿)
     uint2 anchor = LumenGetProbeAnchor(DTid.xy);
 
     float deviceDepth = LumenSceneDepth.Load(int3(anchor, 0));
     float4 normalSample = LumenGBufferNormal.Load(int3(anchor, 0));
 
-    // ƒXƒJƒC ([“xƒNƒŠƒA’l 1.0) / Unlit (Normal.w = 0) ‚Í–³Œøƒvƒ[ƒu
+    // ã‚¹ã‚«ã‚¤ (æ·±åº¦ã‚¯ãƒªã‚¢å€¤ 1.0) / Unlit (Normal.w = 0) ã¯ç„¡åŠ¹ãƒ—ãƒ­ãƒ¼ãƒ–
     if (deviceDepth >= 0.9999f || normalSample.w < 0.5f)
     {
         RWProbeGeo[DTid.xy] = float4(0.0f, 0.0f, 0.0f, 0.0f);

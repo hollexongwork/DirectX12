@@ -7,7 +7,7 @@ using namespace DirectX;
 //  GPU 側 POSTPROCESS と 1:1 ミラーなのでレイアウト変更は両側同時に行うこと。
 // ============================================================
 
-// Flags - MUST match PP_FLAG_* in Common.hlsl.
+// Flags - MUST match PP_FLAG_* in ConstantBuffers.hlsl.
 enum PP_FLAG : unsigned int
 {
     PP_FLAG_BLOOM = 1u << 0,
@@ -28,8 +28,7 @@ enum class TONEMAPPER : unsigned int
     None = 2,
 };
 
-// 16-byte-aligned, 1:1 with HLSL POSTPROCESS. Total = 5 float4 (groups)
-// + 5 float4 grading + 1 float4 misc-a + 1 float4 misc-b = check below.
+// 16-byte-aligned, 1:1 with HLSL POSTPROCESS (size: see static_assert below).
 struct PP_SETTINGS
 {
     // --- group 0 : Exposure / Tonemapper ---
@@ -65,7 +64,7 @@ struct PP_SETTINGS
 
     float MaxBlurSize = 16.0f;    // CoC=1 のときのブラー半径 (ハーフ解像度テクセル単位)
     float NearBlurScale = 1.0f;    // 手前ボケの強さ倍率 
-    float FarBlurScale = 1.0f;    // 奥ボケの強さ倍率,この距離以遠を完全遠景(奥最大ボケ)とみなすクランプ
+    float FarBlurScale = 1.0f;    // 奥ボケの強さ倍率
     float DofPad = 0.0f;
 
     // --- Flag ---

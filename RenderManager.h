@@ -1,6 +1,5 @@
 ﻿#pragma once
 #include <deque>
-#include "PostProcessSettings.h"
 
 // ============================================================
 //  RenderManager
@@ -33,7 +32,7 @@ struct VERTEX_3D
 
 // ============================================================
 //  定数バッファ構造体
-//  3 系統に分離:
+//  系統別に分離:
 //    VIEW_CONSTANT          = FViewUniformShaderParameters 相当 (b0)
 //    FORWARD_LIGHT_CONSTANT = FForwardLightData 相当 (b3)
 //    PP_SETTINGS            = パス毎パラメータ (b4, PostProcessSettings.h)
@@ -81,7 +80,7 @@ static_assert(sizeof(PRIMITIVE_CONSTANT) == 64, "PRIMITIVE_CONSTANT must mirror 
 struct FORWARD_LIGHT_CONSTANT
 {
 	unsigned int	NumLocalLights = 0;			// ローカルライト有効数
-	unsigned int	NumGridCells = 0;			// グリッド総セル数 (X*Y*Z)
+	unsigned int	NumGridCells = 0;			// グリッド総セル数 (X*Y*Z)。現状どのシェーダーも読まない (将来用)
 	unsigned int	CulledGridSizeX = 1;		// 画面タイル数 X (= ceil(W / LightGridPixelSize))
 	unsigned int	CulledGridSizeY = 1;		// 画面タイル数 Y
 
@@ -146,7 +145,7 @@ enum class EBlendStatePreset
 	Translucent,	// SrcAlpha / InvSrcAlpha (BLEND_Translucent)
 	Additive,		// SrcAlpha / One (BLEND_Additive)
 	NoColorWrite,	// カラー書き込み無効 (半透明深度プリパス用)
-	HeightFog,		// One / SrcAlpha, RGB のみ (フォグパス: Dst * 透過率 + インスキャッタ。
+	HeightFog,		// One / SrcAlpha, RGB のみ (フォグパス: Dst * 透過率 + インスキャッタ)
 };
 
 // bTwoSided -> ラスタライザカリング
@@ -198,7 +197,6 @@ private:
 	D3D12_GPU_DESCRIPTOR_HANDLE OffsetGPUHandle(D3D12_GPU_DESCRIPTOR_HANDLE base, unsigned int index, D3D12_DESCRIPTOR_HEAP_TYPE type) const;
 
 	unsigned int                CreateShaderResourceView(ID3D12Resource* Resource);
-	D3D12_GPU_DESCRIPTOR_HANDLE GetShaderResourceViewHandle(unsigned int SRVIndex);
 	unsigned int                CreateRenderTargetView(ID3D12Resource* Resource, unsigned int MipLevel = 0);
 	D3D12_CPU_DESCRIPTOR_HANDLE GetRenderTargetViewHandle(unsigned int RTVIndex);
 
@@ -209,6 +207,10 @@ private:
 		EBlendStatePreset BlendPreset = EBlendStatePreset::Opaque,
 		ECullModePreset CullPreset = ECullModePreset::Back,
 		EDepthStatePreset DepthPreset = EDepthStatePreset::DepthWrite);
+
+	// シェーダ可視ヒープ / ルートシグネチャ / ビューポート / シザーを設定する
+	// (BeginFrame と FlushAndResetCommandList の Reset 後の復帰で共通)
+	void SetDefaultGraphicsState();
 
 
 	// ------------------------------------------------------------
@@ -322,7 +324,7 @@ public:
 		MSRA,             // t2  GBufferB (Metallic/Specular/Roughness/AO) / ARM
 		DEPTH,            // t3  非線形深度 SRV
 		LINEAR_DEPTH,     // t4  線形深度
-		ENVIRONMENT,      // t5  環境マップ (equirect)
+		ENVIRONMENT,      // t5  予約・未使用 (equirect 環境マップは IBL ベイク入力のみ。レジスタ順維持)
 		// ---- IBL precomputed ----
 		IRRADIANCE,       // t6
 		PREFILTER,        // t7
@@ -384,7 +386,7 @@ public:
 	static RenderManager* GetInstance() { return m_Instance; }
 
 	// ------------------------------------------------------------
-	//  Frame (FSceneRenderer から呼ばれる)
+	//  Frame (BeginFrame / Present は FSceneRenderer、WaitGPU は終了時 / FlushAndResetCommandList から呼ばれる)
 	// ------------------------------------------------------------
 	void WaitGPU();
 	// フレーム先頭: ヒープ / ルートシグネチャ / 定数リング / ビューポート

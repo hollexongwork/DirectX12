@@ -52,7 +52,7 @@ public:
 	};
 
 private:
-	// HLSL 側 (LightGridInjection_CS.hlsl / LightGridCompact_CS.hlsl) の
+	// HLSL 側 (LightGridInjectionCommon.hlsl。Pass 1/2 共通) の
 	// cbuffer FLightGridParams (b0) と 1:1 ミラー必須。
 	struct FLightGridParams
 	{

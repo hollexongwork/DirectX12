@@ -3,11 +3,11 @@
 
 // =============================================================
 //  LumenScreenProbeFilter_CS
-//  ScreenProbeFilterGatherTraces ‘Š“–BƒgƒŒ[ƒXƒ‰ƒfƒBƒAƒ“ƒX‚ğ
-//  3x3 ‚Ì‹ß–Tƒvƒ[ƒu‚Ìu“¯‚¶ octa ƒeƒNƒZƒ‹v“¯m‚Å‹óŠÔƒtƒBƒ‹ƒ^
-//  ‚·‚é (ƒvƒ[ƒuÚ•½–Ê / –@ü‚Ì‹ß‚¢‚à‚Ì‚¾‚¯‚ğƒuƒŒƒ“ƒh)B
+//  ScreenProbeFilterGatherTraces ç›¸å½“ã€‚ãƒˆãƒ¬ãƒ¼ã‚¹ãƒ©ãƒ‡ã‚£ã‚¢ãƒ³ã‚¹ã‚’
+//  3x3 ã®è¿‘å‚ãƒ—ãƒ­ãƒ¼ãƒ–ã®ã€ŒåŒã˜ octa ãƒ†ã‚¯ã‚»ãƒ«ã€åŒå£«ã§ç©ºé–“ãƒ•ã‚£ãƒ«ã‚¿
+//  ã™ã‚‹ (ãƒ—ãƒ­ãƒ¼ãƒ–æ¥å¹³é¢ / æ³•ç·šã®è¿‘ã„ã‚‚ã®ã ã‘ã‚’ãƒ–ãƒ¬ãƒ³ãƒ‰)ã€‚
 //    t19 = ProbeGeo / t20 = TraceRadiance / u4 = FilteredRadiance
-//  Dispatch: (PW, PH, 1) - 1 ƒOƒ‹[ƒv = 1 ƒvƒ[ƒu (8x8 ƒXƒŒƒbƒh)
+//  Dispatch: (PW, PH, 1) - 1 ã‚°ãƒ«ãƒ¼ãƒ— = 1 ãƒ—ãƒ­ãƒ¼ãƒ– (8x8 ã‚¹ãƒ¬ãƒƒãƒ‰)
 // =============================================================
 
 Texture2D<float4> ProbeGeoTexture : register(t19);
@@ -32,12 +32,8 @@ void main(uint3 GroupID : SV_GroupID, uint3 GroupThreadID : SV_GroupThreadID)
         return;
     }
 
-    // ’†Sƒvƒ[ƒu‚Ìƒ[ƒ‹ƒhˆÊ’u (ƒAƒ“ƒJ[‚©‚çÄ\’zB•½–Ê‹——£d‚İ—p)
-    const uint downsample = (uint) PassProbeParams0.z;
-    const uint2 screenSize = (uint2) PassProbeParams1.xy;
-    uint2 centerAnchor = LumenGetProbeAnchor(probe);
-    float3 centerWorldPos = LumenReconstructWorldPosition(
-        centerAnchor, LumenSceneDepth.Load(int3(centerAnchor, 0)));
+    // ä¸­å¿ƒãƒ—ãƒ­ãƒ¼ãƒ–ã®ãƒ¯ãƒ¼ãƒ«ãƒ‰ä½ç½® (ã‚¢ãƒ³ã‚«ãƒ¼ã‹ã‚‰å†æ§‹ç¯‰ã€‚å¹³é¢è·é›¢é‡ã¿ç”¨)
+    float3 centerWorldPos = LumenGetProbeWorldPosition(probe);
 
     float4 accum = centerRadiance;
     float totalWeight = 1.0f;
@@ -66,13 +62,11 @@ void main(uint3 GroupID : SV_GroupID, uint3 GroupThreadID : SV_GroupThreadID)
                 continue;
             }
 
-            // •½–Ê‹——£ / –@ü‚Ìˆê’v“x‚Åd‚İ•t‚¯ (ƒGƒbƒW‰z‚µ‚Ì‚É‚¶‚İ–h~)B
-            // ‹‹——£·‚¾‚ÆÎ‚ß‚Ì°‚Å—×Úƒvƒ[ƒu‚ªŠü‹p‚³‚êAƒtƒBƒ‹ƒ^‚ª
-            // Œø‚©‚¸ (= 1 ƒvƒ[ƒu 64 ƒŒƒC‚Ì¶ƒmƒCƒY) –¾•”‚ªk‚¦‚é‚½‚ßA
-            // u—×ƒvƒ[ƒu‚ÌÚ•½–Ê‚©‚ç’†Sƒvƒ[ƒu‚Ü‚Å‚Ì‹——£v‚Å”»’è‚·‚é
-            uint2 neighborAnchor = LumenGetProbeAnchor((uint2) neighbor);
-            float3 neighborWorldPos = LumenReconstructWorldPosition(
-                neighborAnchor, LumenSceneDepth.Load(int3(neighborAnchor, 0)));
+            // å¹³é¢è·é›¢ / æ³•ç·šã®ä¸€è‡´åº¦ã§é‡ã¿ä»˜ã‘ (ã‚¨ãƒƒã‚¸è¶Šã—ã®ã«ã˜ã¿é˜²æ­¢)ã€‚
+            // è¦–è·é›¢å·®ã ã¨æ–œã‚ã®åºŠã§éš£æ¥ãƒ—ãƒ­ãƒ¼ãƒ–ãŒæ£„å´ã•ã‚Œã€ãƒ•ã‚£ãƒ«ã‚¿ãŒ
+            // åŠ¹ã‹ãš (= 1 ãƒ—ãƒ­ãƒ¼ãƒ– 64 ãƒ¬ã‚¤ã®ç”Ÿãƒã‚¤ã‚º) æ˜éƒ¨ãŒéœ‡ãˆã‚‹ãŸã‚ã€
+            // ã€Œéš£ãƒ—ãƒ­ãƒ¼ãƒ–ã®æ¥å¹³é¢ã‹ã‚‰ä¸­å¿ƒãƒ—ãƒ­ãƒ¼ãƒ–ã¾ã§ã®è·é›¢ã€ã§åˆ¤å®šã™ã‚‹
+            float3 neighborWorldPos = LumenGetProbeWorldPosition((uint2) neighbor);
             float3 toCenter = centerWorldPos - neighborWorldPos;
             float planeDist = max(
                 abs(dot(toCenter, neighborGeo.xyz)),

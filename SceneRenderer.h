@@ -1,5 +1,6 @@
 #pragma once
 #include "RenderManager.h"
+#include "PostProcessSettings.h"
 #include "SceneTextures.h"
 #include "ConvexVolume.h"
 
@@ -21,14 +22,16 @@ struct FSceneView;
 //    RenderBasePass        : ビュー/環境定数 + ComputeViewVisibility
 //                            (フラスタム/距離カリング) + 可視プリミティブ -> G-Buffer
 //    RenderShadowDepths    : CSM + ローカルシャドウ深度 -> シャドウマップ
+//    RenderLumenScene      : Lumen カードキャプチャ + Surface Cache ライティング
 //    RenderLighting        : ライトグリッド構築 (タイルドライトカリング)
 //                            + Volumetric Fog (froxel 積分) + LinearDepth
+//                            + Lumen スクリーン GI
 //                            + デファードライティング -> SceneColor
 //                            + Exponential Height Fog パス (SceneColor へ合成)
 //    RenderTranslucency    : Translucent / Additive プリミティブを
 //                            後→前ソートで SceneColor へフォワード合成
 //                            (フォグはサーフェス位置で直接評価)
-//    RenderPostProcessing  : DOF -> AutoExposure -> Bloom -> LUT -> Tonemap
+//    RenderPostProcessing  : SceneColor 履歴 (Lumen) -> DOF -> AutoExposure -> Bloom -> LUT -> Tonemap
 //    EndFrame              : ImGui 描画 + Present
 //
 //  ポストプロセス設定はゲーム側 (UWorld::CalcSceneView) が
@@ -73,11 +76,10 @@ private:
 
 	// ---- Depth of Field (Gaussian, half-res) ----
 	// m_DOFPrep : CoC(A) + premultiplied color(RGB) at half res
-	// m_DOFPing / m_DOFPong : separable Gaussian ping-pong buffers
+	// m_DOFPing : separable Gaussian の水平ブラー出力 (垂直ブラーは m_DOFBlur へ書く)
 	// m_DOFBlur : final half-res blur (bound as t12 in the composite)
 	std::unique_ptr<RENDER_TARGET> m_DOFPrep;
 	std::unique_ptr<RENDER_TARGET> m_DOFPing;
-	std::unique_ptr<RENDER_TARGET> m_DOFPong;
 	std::unique_ptr<RENDER_TARGET> m_DOFBlur;
 	// Temp full-res copy of SceneColor so the composite can read the
 	// sharp scene while writing the composited result back to SceneColor.
@@ -86,7 +88,6 @@ private:
 	int m_DOFHeight = 0;
 
 	// IBL
-	std::unique_ptr<TEXTURE> m_EnvironmentTexture;
 	std::unique_ptr<class IBLBaker> m_IBLBaker;
 
 	// Color grading LUT baker (compute, re-bakes only on change).
@@ -191,6 +192,12 @@ private:
 	// フルスクリーンクアッドを 1 枚描く (DrawScreenPass)
 	void DrawScreenPass();
 
+	// デファード / トランスルーセンシー共通のフォワードライティング入力
+	// (IBL t6-t8 / ローカルライト t13 / ライトグリッド t19-t20 / シャドウ)
+	void BindForwardLightingResources();
+	// LUMEN 定数 (b6) の解決 + アップロード (m_LumenScene 非 null 前提)
+	void UploadLumenConstant();
+
 	// Gaussian Depth of Field. Reads SceneColor + linear depth,
 	// produces the half-res blur in m_DOFBlur then composites the
 	// sharp+blurred result back into SceneColor.
@@ -221,7 +228,7 @@ public:
 	// トランスルーセンシーパス (RenderTranslucency 相当)。
 	// RenderLighting の後 (SceneColor 確定後)、RenderPostProcessing の
 	// 前に呼ぶこと。可視トランスルーセントプリミティブを
-	// TranslucentSortPolicy::SortByDistance (境界原点のカメラ距離) で
+	// TranslucencySortPriority + m_TranslucencyParams.SortPolicy (ETranslucentSortPolicy。既定 SortByDistance) で
 	// 後→前にソートし、SceneColor へフォワードシェーディングで合成する。
 	void RenderTranslucency(FScene* Scene);
 	void RenderPostProcessing();
@@ -230,7 +237,7 @@ public:
 	// ---- アクセサ ----
 	FSceneTextures* GetSceneTextures() { return &m_SceneTextures; }
 
-	// Color grading LUT baker (for ImGui to flag a re-bake on edits).
+	// Color grading LUT baker (ImGui / SettingsManager からの Artist LUT 読込 / 解除 / Weight 操作・INI 保存用)
 	class ColorGradingLUTBaker* GetColorGradingLUTBaker() { return m_ColorGradingLUTBaker.get(); }
 
 	// Auto exposure system (for ImGui parameter control).

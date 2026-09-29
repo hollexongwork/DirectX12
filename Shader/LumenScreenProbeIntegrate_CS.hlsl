@@ -3,40 +3,40 @@
 
 // =============================================================
 //  LumenScreenProbeIntegrate_CS
-//  ScreenProbeIntegrate �����B�s�N�Z�����ƂɎ��� 4 �v���[�u��
-//  SH L1 �𕽖ʋ��� / �@���d�ݕt���o�C���j�A�Ńu�����h���A�s�N�Z��
-//  �@���ŕ]���������ϓ��˃��f�B�A���X���t���𑜓x�֏����o���B
+//  ScreenProbeIntegrate 相当。ピクセルごとに周囲 4 プローブの
+//  SH L1 を平面距離 / 法線重み付きバイリニアでブレンドし、ピクセル
+//  法線で評価した平均入射ラディアンスをフル解像度へ書き出す。
 //
-//  �G�b�W�΍� (�K���v���[�u�z�u�̑��):
-//    1. �[�x���ł͂Ȃ��u�v���[�u�ڕ��ʂ���̋����v�ŏd�ݕt������B
-//       �΂߂��猩������Ȗʂ� 8px ����邾���Ŏ��������傫���ς��
-//       ���߁A�������� (10%) ���Ɠ���ʂȂ̂Ɋ��p����Đ^�����ɂȂ�B
-//       �ڕ��ʋ����Ȃ瓯��ʂ� 0�A�O��̕ʕ��̂��������p�����B
-//    2. 2x2 ���S�ł����� 4x4 �ߖT���瓯��ʂ̃v���[�u��T��
-//       (�V���G�b�g / �ׂ��`��ŃA���J�[���w�i�ɗ������ꍇ�̋~��)�B
-//    3. ����ł�������΃s�N�Z�����g���甼���R�[���� SDF �g���[�X
-//       (�s�N�Z�����t�H�[���o�b�N�B�t���[���ŉ�]�����̃e���|�����ŕ���)�B
+//  エッジ対策 (適応プローブ配置の代替):
+//    1. 深度差ではなく「プローブ接平面からの距離」で重み付けする。
+//       斜めから見た床や曲面は 8px 離れるだけで視距離が大きく変わる
+//       ため、視距離差 (10%) だと同一面なのに棄却されて真っ黒になる。
+//       接平面距離なら同一面は 0、前後の別物体だけが棄却される。
+//    2. 2x2 が全滅したら 4x4 近傍から同一面のプローブを探す
+//       (シルエット / 細い形状でアンカーが背景に落ちた場合の救済)。
+//    3. それでも無ければピクセル自身から半球コーンを SDF トレース
+//       (ピクセル毎フォールバック。フレームで回転し下のテンポラルで平均)。
 //
-//  �t���𑜓x�e���|�����~�� (ScreenProbeGatherTemporal ����):
-//    �O�t���[���� DiffuseIndirect (t26) �� PrevViewProjection ��
-//    ���v���W�F�N�V�������A�O�t���[�� LinearDepth (t25) �Ŗʈ�v��
-//    ���؂��� 4 �^�b�v�ƃu�����h����B�v���[�u���� SH �~�ς�
-//    (�A���J�[���ʂ̖ʂɏ�芷���� / ��ʒ[��������� / �ȗ�����������)
-//    �������̂Ă��v���[�u�̐��m�C�Y��A�v���[�u�؂�ւ��ɂ��
-//    16px �u���b�N�P�ʂ̖��ł��A�s�N�Z���P�ʂŋz������B
+//  フル解像度テンポラル蓄積 (ScreenProbeGatherTemporal 相当):
+//    前フレームの DiffuseIndirect (t26) を PrevViewProjection で
+//    リプロジェクションし、前フレーム LinearDepth (t25) で面一致を
+//    検証した 4 タップとブレンドする。プローブ側の SH 蓄積が
+//    (アンカーが別の面に乗り換えた / 画面端から入った / 曲率が高い等で)
+//    履歴を捨てたプローブの生ノイズや、プローブ切り替えによる
+//    16px ブロック単位の明滅を、ピクセル単位で吸収する。
 //
-//  Short Range AO (LumenScreenProbeGather �� ShortRangeAO ����):
-//    16px �v���[�u�łׂ͒��ڐG�� (�� cm�`���\ cm) �̎Օ����A�s�N�Z��
-//    ���Ƃɔ��������֒Z���X�N���[���X�y�[�X���C (PassShortRangeAO.x [m])
-//    ���΂��ĕ₤�B�Ղ��Ȃ����������̕��� = �x���g�m�[�}���� SH ��
-//    �]���������A���� (AO) �� GI ���f�B�A���X�ƃX�J�C�����Ɋ|����B
-//    ���a���Z���̂Ńv���[�u���̉������Օ� (�X�J�C����) �Ɣ͈͂��d�Ȃ炸
-//    ��d�v��ɂȂ�Ȃ��B�m�C�Y�͉��̃e���|�����~�ς����ς���B
+//  Short Range AO (LumenScreenProbeGather の ShortRangeAO 相当):
+//    16px プローブでは潰れる接触部 (数 cm〜数十 cm) の遮蔽を、ピクセル
+//    ごとに半球方向へ短いスクリーンスペースレイ (PassShortRangeAO.x [m])
+//    を飛ばして補う。遮られなかった方向の平均 = ベントノーマルで SH を
+//    評価し直し、可視率 (AO) を GI ラディアンスとスカイ可視率に掛ける。
+//    半径が短いのでプローブ側の遠距離遮蔽 (スカイ可視率) と範囲が重ならず
+//    二重計上にならない。ノイズは下のテンポラル蓄積が平均する。
 //
 //    t19 = ProbeGeo / t21..t23 = SHR/SHG/SHB / t24 = Aux
-//    t25 = PrevLinearDepth / t26 = �O�t���[�� DiffuseIndirect
-//    u4  = DiffuseIndirect (�t���𑜓x RGBA16F):
-//          rgb = ���ϓ��˃��f�B�A���X, a = �X�J�C���� (-1 = ���J�o�[)
+//    t25 = PrevLinearDepth / t26 = 前フレーム DiffuseIndirect
+//    u4  = DiffuseIndirect (フル解像度 RGBA16F):
+//          rgb = 平均入射ラディアンス, a = スカイ可視率 (プローブ未カバーは本パス内のピクセル毎コーントレースで埋める)
 //  Dispatch: (ceil(W/8), ceil(H/8), 1)
 // =============================================================
 
@@ -49,18 +49,18 @@ Texture2D<float4> PrevDiffuseIndirectTexture : register(t26);
 
 RWTexture2D<float4> RWDiffuseIndirect : register(u4);
 
-// �s�N�Z�����t�H�[���o�b�N�̃R�[����
+// ピクセル毎フォールバックのコーン数
 #define LUMEN_INTEGRATE_FALLBACK_CONES 8u
 
-// Short Range AO �̃��C������X�e�b�v��
+// Short Range AO のレイあたりステップ数
 #define LUMEN_SHORT_RANGE_AO_STEPS 4u
 
 // -------------------------------------------------------------
-//  Short Range AO �� 1 ���C (�X�N���[���X�y�[�X�ALinearDepth �Ɣ�r)
-//  �߂�l: 1 = �Օ��Ȃ�, 0 = �Օ�
-//    StepJitter : [0,1) �X�e�b�v�ʑ��̃W�b�^ (�t���[�� / �s�N�Z���ŕω�)
-//    Thickness  : �ʂ̌��� [m]�B������[����������u�������̗��֔������v
-//                 �Ƃ݂Ȃ��ĎՕ��ɂ��Ȃ� (SSAO �̃n���[�}��)
+//  Short Range AO の 1 レイ (スクリーンスペース、LinearDepth と比較)
+//  戻り値: 1 = 遮蔽なし, 0 = 遮蔽
+//    StepJitter : [0,1) ステップ位相のジッタ (フレーム / ピクセルで変化)
+//    Thickness  : 面の厚み [m]。これより深く潜ったら「薄い物の裏へ抜けた」
+//                 とみなして遮蔽にしない (SSAO のハロー抑制)
 // -------------------------------------------------------------
 float LumenShortRangeAOTrace(float3 RayStart, float3 RayDir, float MaxDist,
     float Thickness, float StepJitter)
@@ -78,13 +78,13 @@ float LumenShortRangeAOTrace(float3 RayStart, float3 RayDir, float MaxDist,
         float4 clipPos = mul(float4(p, 1.0f), PassViewProjection);
         if (clipPos.w <= 0.01f)
         {
-            return 1.0f; // �J�����w��: ����s�\ = �Օ��Ȃ�
+            return 1.0f; // カメラ背後: 判定不能 = 遮蔽なし
         }
 
         float2 ndc = clipPos.xy / clipPos.w;
         if (abs(ndc.x) >= 1.0f || abs(ndc.y) >= 1.0f)
         {
-            return 1.0f; // ��ʊO: ����s�\ = �Օ��Ȃ�
+            return 1.0f; // 画面外: 判定不能 = 遮蔽なし
         }
 
         float2 uv = float2(ndc.x * 0.5f + 0.5f, 0.5f - ndc.y * 0.5f);
@@ -93,10 +93,10 @@ float LumenShortRangeAOTrace(float3 RayStart, float3 RayDir, float MaxDist,
         float sceneZ = LumenLinearDepth.Load(int3(depthPixel, 0)).r;
         if (sceneZ <= 0.0f)
         {
-            continue; // �X�J�C
+            continue; // スカイ
         }
 
-        // ���C�_���ʂ�艜 (= �ʂɎՂ��Ă���) �����݈ȓ��Ȃ�Օ�
+        // レイ点が面より奥 (= 面に遮られている) かつ厚み以内なら遮蔽
         float depthDelta = clipPos.w - sceneZ;
         if (depthDelta > 0.005f && depthDelta < Thickness)
         {
@@ -107,32 +107,22 @@ float LumenShortRangeAOTrace(float3 RayStart, float3 RayDir, float MaxDist,
     return 1.0f;
 }
 
-// �v���[�u�̃��[���h�ʒu (�A���J�[�s�N�Z������č\�z�BSetup / Trace �Ɠ���)
-float3 LumenGetProbeWorldPosition(int2 Probe)
-{
-    const uint downsample = (uint) PassProbeParams0.z;
-    const uint2 screenSize = (uint2) PassProbeParams1.xy;
-    uint2 anchor = LumenGetProbeAnchor((uint2) Probe);
-    float deviceDepth = LumenSceneDepth.Load(int3(anchor, 0));
-    return LumenReconstructWorldPosition(anchor, deviceDepth);
-}
-
-// �s�N�Z���ƃv���[�u�́u����ʂ炵���v (0 = �ʕ���, 1 = �����)
-//   �ڕ��ʋ���: �s�N�Z���ʒu����v���[�u�ڕ��ʂ܂ł̋�������������ŕ]��
-//   �@��      : �����̋߂� (�p�ł͕ʖʂ̃v���[�u�����ʋ��� 0 �ɂȂ邽�ߕK�v)
+// ピクセルとプローブの「同一面らしさ」 (0 = 別物体, 1 = 同一面)
+//   接平面距離: ピクセル位置からプローブ接平面までの距離を視距離比で評価
+//   法線      : 向きの近さ (角では別面のプローブが平面距離 0 になるため必要)
 float LumenProbePlaneWeight(float4 ProbeGeo, int2 Probe, float3 PixelWorldPos,
     float3 PixelNormal, float PixelDist, out float OutNormalWeight)
 {
-    float3 probeWorldPos = LumenGetProbeWorldPosition(Probe);
+    float3 probeWorldPos = LumenGetProbeWorldPosition((uint2) Probe);
     float3 toPixel = PixelWorldPos - probeWorldPos;
 
-    // �����̐ڕ��ʂŕ]���������������̂� (�ǂ��炩����̖ʂ�
-    // �����̓_���܂�ł��܂� L ���R�[�i�[�̘R���}����)
+    // 両方の接平面で評価し厳しい方を採る (どちらか一方の面が
+    // 他方の点を含んでしまう L 字コーナーの漏れを抑える)
     float planeDist = max(
         abs(dot(toPixel, ProbeGeo.xyz)),
         abs(dot(toPixel, PixelNormal)));
 
-    // �������� 5% (�Œ� 2cm) �𒴂�����ʕ���
+    // 視距離の 5% (最低 2cm) を超えたら別物体
     float planeWeight = saturate(1.0f - planeDist / max(0.05f * PixelDist, 0.02f));
 
     OutNormalWeight = saturate(dot(ProbeGeo.xyz, PixelNormal));
@@ -167,9 +157,9 @@ void main(uint3 DTid : SV_DispatchThreadID)
     const float downsample = PassProbeParams0.z;
     const int2 probeCount = (int2) PassProbeParams0.xy;
 
-    // �s�N�Z�����͂� 4 �v���[�u (�A���J�[��̃o�C���j�A)�B
-    // �v���[�u i �̃A���J�[�s�N�Z�����S�� i*ds + jitter + 0.5�A�s�N�Z�����S��
-    // pixel + 0.5 �Ȃ̂ŁA�A���v���[�u���W = (pixel - jitter) / ds
+    // ピクセルを囲む 4 プローブ (アンカー基準のバイリニア)。
+    // プローブ i のアンカーピクセル中心は i*ds + jitter + 0.5、ピクセル中心は
+    // pixel + 0.5 なので、連続プローブ座標 = (pixel - jitter) / ds
     float2 probePos = ((float2) pixel - PassProbeJitter.xy) / downsample;
     int2 baseProbe = (int2) floor(probePos);
     float2 fracPos = probePos - (float2) baseProbe;
@@ -181,7 +171,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float totalWeight = 0.0f;
 
     //======================================================
-    // 1. 2x2 �o�C���j�A (���ʋ��� x �@���ŕʕ��̂����p)
+    // 1. 2x2 バイリニア (平面距離 x 法線で別物体を棄却)
     //======================================================
     [unroll]
     for (int dy = 0; dy <= 1; ++dy)
@@ -198,8 +188,8 @@ void main(uint3 DTid : SV_DispatchThreadID)
                 continue;
             }
 
-            // ������݂��Ȃ�: ���� / �@���̏d�݂ŃG�b�W�z�������p����Ӑ}��
-            // �����ł������Ă��܂����� (�S�v���[�u���p���͉��̒T�����󂯂�)
+            // 下限を設けない: 平面 / 法線の重みでエッジ越しを棄却する意図を
+            // 床が打ち消してしまうため (全プローブ棄却時は下の探索が受ける)
             float2 bilinear2 = float2(
                 (dx == 0) ? (1.0f - fracPos.x) : fracPos.x,
                 (dy == 0) ? (1.0f - fracPos.y) : fracPos.y);
@@ -224,8 +214,8 @@ void main(uint3 DTid : SV_DispatchThreadID)
     }
 
     //======================================================
-    // 2. �~�ϒT��: 4x4 �ߖT���瓯��� (���ʋ����� + �@������������) ��
-    //    �v���[�u�����������ŏW�߂� (�V���G�b�g / �ׂ��`��p)
+    // 2. 救済探索: 4x4 近傍から同一面 (平面距離内 + 法線が同じ向き) の
+    //    プローブを距離減衰で集める (シルエット / 細い形状用)
     //======================================================
     [branch]
     if (totalWeight < 1e-4f)
@@ -259,13 +249,13 @@ void main(uint3 DTid : SV_DispatchThreadID)
                 float planeWeight = LumenProbePlaneWeight(
                     probeGeo, probe, worldPos, pixelNormal, pixelDist, normalWeight);
 
-                // �~�ς͓��������̖ʂɌ��� (���̌����߂ɕǂ̃v���[�u���g��Ȃ�)
+                // 救済は同じ向きの面に限定 (床の穴埋めに壁のプローブを使わない)
                 if (planeWeight <= 0.0f || normalWeight < 0.5f)
                 {
                     continue;
                 }
 
-                // �v���[�u��ԋ����Ō��� (�߂��v���[�u�D��)
+                // プローブ空間距離で減衰 (近いプローブ優先)
                 float2 delta = ((float2) probe - probePos);
                 float distWeight = 1.0f / (1.0f + dot(delta, delta));
 
@@ -282,29 +272,29 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
     float3 meanRadiance;
 
-    // �s�N�Z�� IGN + �t���[���ԍ��̉�] (�t�H�[���o�b�N�R�[�� / Short Range AO ���ʁB
-    // �t���[���ŉ��̂ŉ��̃e���|�����~�ς��T���v���𕽋ς���)
+    // ピクセル IGN + フレーム番号の回転 (フォールバックコーン / Short Range AO 共通。
+    // フレームで回るので下のテンポラル蓄積がサンプルを平均する)
     const float ign = frac(52.9829189f *
         frac(dot(float2(pixel), float2(0.06711056f, 0.00583715f))));
     const float frameRot = frac((float) ((uint) PassAtlasParams.w & 63u) * 0.6180339887f);
     const float randomRotation = frac(ign + frameRot) * (2.0f * LUMEN_PI);
 
     //======================================================
-    // Short Range AO (�x���g�m�[�}�� + �ߋ�������)
+    // Short Range AO (ベントノーマル + 近距離可視率)
     //======================================================
     float shortRangeAO = 1.0f;
     float3 bentNormal = pixelNormal;
 
-    const float aoMaxDist = PassShortRangeAO.x; // 0 = ����
+    const float aoMaxDist = PassShortRangeAO.x; // 0 = 無効
     [branch]
     if (aoMaxDist > 0.0f)
     {
         const uint numAORays = clamp((uint) PassShortRangeAO.y, 1u, 8u);
         const float aoThickness = max(PassShortRangeAO.w, 0.01f);
-        // �J�n�I�t�Z�b�g�͖ʃo�C�A�X��菬���� (�ڐG���̉A�e���c��)
+        // 開始オフセットは面バイアスより小さく (接触部の陰影を残す)
         const float aoBias = min(PassTraceParams.y, 0.01f);
         float3 aoStart = worldPos + pixelNormal * aoBias;
-        // �X�e�b�v�ʑ����t���[�� / �s�N�Z���ł��炷
+        // ステップ位相もフレーム / ピクセルでずらす
         float stepJitter = frac(ign * 7.0f + frameRot);
 
         float visibleSum = 0.0f;
@@ -313,7 +303,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         [loop]
         for (uint r = 0; r < numAORays; ++r)
         {
-            // �R�T�C�����z�Ȃ̂ŉ����̕��ς����̂܂܃R�T�C���d�� AO
+            // コサイン分布なので可視率の平均がそのままコサイン重み AO
             float3 dir = GetLumenHemisphereRay(pixelNormal, r, numAORays, randomRotation);
             float vis = LumenShortRangeAOTrace(aoStart, dir, aoMaxDist, aoThickness, stepJitter);
             visibleSum += vis;
@@ -321,9 +311,9 @@ void main(uint3 DTid : SV_DispatchThreadID)
         }
 
         float rawAO = visibleSum / (float) numAORays;
-        shortRangeAO = lerp(1.0f, rawAO, saturate(PassShortRangeAO.z)); // ���x
+        shortRangeAO = lerp(1.0f, rawAO, saturate(PassShortRangeAO.z)); // 強度
 
-        // �x���g�m�[�}�� (�S�Օ��Ȃ�􉽖@���̂܂�)
+        // ベントノーマル (全遮蔽なら幾何法線のまま)
         if (PassRadiosityParams.w > 0.5f && visibleSum > 0.0f)
         {
             bentNormal = normalize(bentSum + pixelNormal * 0.01f);
@@ -331,16 +321,16 @@ void main(uint3 DTid : SV_DispatchThreadID)
     }
 
     //======================================================
-    // 3. ���J�o�[: �s�N�Z�����g���甼���R�[�����g���[�X
-    //    (���ʂ̓s�N�Z�� IGN + �t���[���ԍ��ŉ�]���A���̃e���|�����~�ς�
-    //     �t���[���Ԃŕ��ς���BSWRT (���b�V�� SDF + Global SDF) �o�H)
+    // 3. 未カバー: ピクセル自身から半球コーンをトレース
+    //    (方位はピクセル IGN + フレーム番号で回転し、下のテンポラル蓄積が
+    //     フレーム間で平均する。SWRT (メッシュ SDF + Global SDF) 経路)
     //======================================================
     [branch]
     if (totalWeight < 1e-4f)
     {
         const uint numCones = LUMEN_INTEGRATE_FALLBACK_CONES;
 
-        // ������ numCones �̃R�[���ŕ��������Ƃ��̔��p tan
+        // 半球を numCones 個のコーンで分割したときの半角 tan
         const float coneCos = saturate(1.0f - 1.0f / (float) numCones);
         const float coneTan = sqrt(saturate(1.0f - coneCos * coneCos)) / max(coneCos, 0.1f);
 
@@ -358,7 +348,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
             FLumenTraceResult trace = TraceLumenRay(
                 rayStart, rayDir, maxTrace, coneTan, PassNumLumenObjects);
 
-            // �v���[�u�o�H�Ɠ����K��: �~�X�̓��f�B�A���X 0 (�X�J�C�� IBL ��)
+            // プローブ経路と同じ規約: ミスはラディアンス 0 (スカイは IBL 側)
             if (trace.bHit)
             {
                 radianceSum += ResolveLumenRayRadiance(trace, rayStart, rayDir, PassRCParams1.w);
@@ -377,24 +367,24 @@ void main(uint3 DTid : SV_DispatchThreadID)
         shB *= invWeight;
         skyVisibility *= invWeight;
 
-        // �x���g�m�[�}���ŕ]�� = �Ղ��Ă��Ȃ������̕��ˋP�x��D�� (������ AO)
+        // ベントノーマルで評価 = 遮られていない方向の放射輝度を優先 (方向性 AO)
         meanRadiance = LumenSH1EvaluateMeanRadiance(shR, shG, shB, bentNormal);
     }
 
-    // Short Range AO �� GI ���f�B�A���X�ƃX�J�C���� (IBL ����) �̗����ɓK�p
+    // Short Range AO を GI ラディアンスとスカイ可視率 (IBL 減衰) の両方に適用
     meanRadiance *= shortRangeAO;
     skyVisibility *= shortRangeAO;
 
     float4 result = float4(meanRadiance, saturate(skyVisibility));
 
-    // �f�o�b�O�\�� (PassRadiosityParams.z = 1): rgb �� AO ���̂��̂��o��
+    // デバッグ表示 (PassRadiosityParams.z = 1): rgb に AO そのものを出す
     if (PassRadiosityParams.z > 0.5f)
     {
         result.rgb = shortRangeAO.xxx;
     }
 
     //======================================================
-    // 4. �t���𑜓x�e���|�����~�� (�O�t���[���փ��v���W�F�N�V����)
+    // 4. フル解像度テンポラル蓄積 (前フレームへリプロジェクション)
     //======================================================
     const float screenAlpha = PassRadiosityParams.y;
 
@@ -412,8 +402,8 @@ void main(uint3 DTid : SV_DispatchThreadID)
                 int2 prevBase = (int2) floor(prevPixelF);
                 float2 prevFrac = prevPixelF - (float2) prevBase;
 
-                // �O�t���[���̃r���[�[�x (clip.w) �Ɨ��� LinearDepth ��
-                // �^�b�v�P�ʂŔ�r���A�ʂ̖� (�f�B�X�I�N���[�W����) ��e��
+                // 前フレームのビュー深度 (clip.w) と履歴 LinearDepth を
+                // タップ単位で比較し、別の面 (ディスオクルージョン) を弾く
                 const float prevViewZ = prevClip.w;
                 const float depthTolerance = max(0.05f * prevViewZ, 0.02f);
 
@@ -440,10 +430,6 @@ void main(uint3 DTid : SV_DispatchThreadID)
                         }
 
                         float4 prevValue = PrevDiffuseIndirectTexture.Load(int3(tap, 0));
-                        if (prevValue.a < 0.0f)
-                        {
-                            continue; // �O�t���[���̖��J�o�[�}�[�J�[
-                        }
 
                         float w = ((tx == 0) ? (1.0f - prevFrac.x) : prevFrac.x)
                                 * ((ty == 0) ? (1.0f - prevFrac.y) : prevFrac.y);

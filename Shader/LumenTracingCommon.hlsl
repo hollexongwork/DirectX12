@@ -3,14 +3,14 @@
 
 // =============================================================
 //  LumenTracingCommon
-//  LumenTracingCommon.ush / LumenSurfaceCacheSampling ‘Š“–B
-//  Lumen ƒV[ƒ“ (ƒƒbƒVƒ… SDF ŒQ) ‚Ö‚ÌƒR[ƒ“ƒgƒŒ[ƒX‚ÆAƒqƒbƒgæ‚Ì
-//  Surface Cache (FinalLighting ƒAƒgƒ‰ƒX) ‚ÌÌŒõ‚ğ’ñ‹Ÿ‚·‚éB
+//  LumenTracingCommon.ush / LumenSurfaceCacheSampling ç›¸å½“ã€‚
+//  Lumen ã‚·ãƒ¼ãƒ³ (ãƒ¡ãƒƒã‚·ãƒ¥ SDF ç¾¤) ã¸ã®ã‚³ãƒ¼ãƒ³ãƒˆãƒ¬ãƒ¼ã‚¹ã¨ã€ãƒ’ãƒƒãƒˆå…ˆã®
+//  Surface Cache (FinalLighting ã‚¢ãƒˆãƒ©ã‚¹) ã®æ¡å…‰ã‚’æä¾›ã™ã‚‹ã€‚
 //
-//  ƒXƒNƒŠ[ƒ“ GI (DeferredPS) ‚Æ Surface Cache ƒ‰ƒCƒeƒBƒ“ƒO CS
-//  (LumenSceneDirectLighting_CS / LumenRadiosity_CS) ‚Ì—¼•û‚©‚ç
-//  ƒCƒ“ƒNƒ‹[ƒh‚³‚ê‚é‚½‚ßAƒŠƒ\[ƒX‚ÍƒŒƒWƒXƒ^”ñˆË‘¶‚Ì‹¤’Ê–¼‚ÅQÆ
-//  ‚·‚éBƒCƒ“ƒNƒ‹[ƒhŒ³‚ÍˆÈ‰º‚Ì–¼‘O‚ğéŒ¾ (‚Ü‚½‚Í #define) ‚·‚é‚±‚Æ:
+//  ã‚¹ã‚¯ãƒªãƒ¼ãƒ³ GI (DeferredPS) ã¨ Surface Cache ãƒ©ã‚¤ãƒ†ã‚£ãƒ³ã‚° CS
+//  (LumenSceneDirectLighting_CS / LumenRadiosity_CS) ã®ä¸¡æ–¹ã‹ã‚‰
+//  ã‚¤ãƒ³ã‚¯ãƒ«ãƒ¼ãƒ‰ã•ã‚Œã‚‹ãŸã‚ã€ãƒªã‚½ãƒ¼ã‚¹ã¯ãƒ¬ã‚¸ã‚¹ã‚¿éä¾å­˜ã®å…±é€šåã§å‚ç…§
+//  ã™ã‚‹ã€‚ã‚¤ãƒ³ã‚¯ãƒ«ãƒ¼ãƒ‰å…ƒã¯ä»¥ä¸‹ã®åå‰ã‚’å®£è¨€ (ã¾ãŸã¯ #define) ã™ã‚‹ã“ã¨:
 //
 //    Texture3D<float>                    LumenDistanceFieldAtlas
 //    StructuredBuffer<FLumenSceneObject> LumenSceneObjects
@@ -19,18 +19,18 @@
 //    Texture2D<float>                    LumenDepthAtlas
 //    SamplerState                        LumenTraceSampler
 //
-//  (\‘¢‘Ì‚Í Structs.hlsl ‚Ì FLumenSceneObject / FLumenCardData)
+//  (æ§‹é€ ä½“ã¯ Structs.hlsl ã® FLumenSceneObject / FLumenCardData)
 // =============================================================
 
-// ƒJ[ƒh 1 –‡‚Ì‰ğ‘œ“x (C++ LUMEN_CARD_RESOLUTION ‚Æ 1:1)
+// ã‚«ãƒ¼ãƒ‰ 1 æšã®è§£åƒåº¦ (C++ LUMEN_CARD_RESOLUTION ã¨ 1:1)
 #define LUMEN_CARD_RESOLUTION_F 64.0f
 
 // -------------------------------------------------------------
-//  SDF ƒTƒ“ƒvƒ‹ (ƒ{ƒŠƒ…[ƒ€‹óŠÔ [-1,1] -> ƒ[ƒ‹ƒh‹——£ [m])
+//  SDF ã‚µãƒ³ãƒ—ãƒ« (ãƒœãƒªãƒ¥ãƒ¼ãƒ ç©ºé–“ [-1,1] -> ãƒ¯ãƒ¼ãƒ«ãƒ‰è·é›¢ [m])
 // -------------------------------------------------------------
 float SampleLumenObjectDistance(FLumenSceneObject Obj, float3 VolumePos)
 {
-    // ”¼ƒeƒNƒZƒ‹“à‘¤‚ÖƒNƒ‰ƒ“ƒv (ƒXƒƒbƒgŠÔ‚ÌƒŠƒjƒA•âŠÔƒuƒŠ[ƒh–h~)
+    // åŠãƒ†ã‚¯ã‚»ãƒ«å†…å´ã¸ã‚¯ãƒ©ãƒ³ãƒ— (ã‚¹ãƒ­ãƒƒãƒˆé–“ã®ãƒªãƒ‹ã‚¢è£œé–“ãƒ–ãƒªãƒ¼ãƒ‰é˜²æ­¢)
     float3 uvw = clamp(VolumePos * 0.5f + 0.5f, 0.0078125f, 0.9921875f);
     float3 uv = uvw * Obj.VolumeUVScaleAndDistance.xyz + Obj.VolumeUVAdd.xyz;
     return LumenDistanceFieldAtlas.SampleLevel(LumenTraceSampler, uv, 0.0f)
@@ -38,23 +38,23 @@ float SampleLumenObjectDistance(FLumenSceneObject Obj, float3 VolumePos)
 }
 
 // -------------------------------------------------------------
-//  ƒR[ƒ“ƒgƒŒ[ƒXŒ‹‰Ê
+//  ã‚³ãƒ¼ãƒ³ãƒˆãƒ¬ãƒ¼ã‚¹çµæœ
 // -------------------------------------------------------------
 struct FLumenTraceResult
 {
     bool bHit;
-    float HitT; // Å‹ßƒqƒbƒg‚Ü‚Å‚Ì‹——£ [m] (ƒ~ƒX‚Í MaxT)
-    uint HitObject; // Å‹ßƒqƒbƒg‚ÌƒIƒuƒWƒFƒNƒgƒCƒ“ƒfƒbƒNƒX
-    float Visibility; // ƒR[ƒ“‚ÌÅ¬ƒNƒŠƒAƒ‰ƒ“ƒX (1=Š®‘S‚É‹ó, ƒqƒbƒg‚Å 0)
+    float HitT; // æœ€è¿‘ãƒ’ãƒƒãƒˆã¾ã§ã®è·é›¢ [m] (ãƒŸã‚¹æ™‚ã¯ MaxT)
+    uint HitObject; // æœ€è¿‘ãƒ’ãƒƒãƒˆã®ã‚ªãƒ–ã‚¸ã‚§ã‚¯ãƒˆã‚¤ãƒ³ãƒ‡ãƒƒã‚¯ã‚¹
+    float Visibility; // ã‚³ãƒ¼ãƒ³ã®æœ€å°ã‚¯ãƒªã‚¢ãƒ©ãƒ³ã‚¹ (1=å®Œå…¨ã«ç©º, ãƒ’ãƒƒãƒˆã§ 0)
 };
 
 // -------------------------------------------------------------
-//  Lumen ƒV[ƒ“‚Ö‚ÌƒR[ƒ“ƒgƒŒ[ƒX (ƒXƒtƒBƒAƒgƒŒ[ƒX)
-//  DistanceFieldShadowing.hlsl ‚Æ“¯‚¶ƒ}[ƒ`‹K–ñ:
-//    - ƒŒƒC - AABB (ƒXƒ‰ƒu–@) ‚ÅƒIƒuƒWƒFƒNƒg‚ğŠü‹p
-//    - óŒõ–Ê©g‚Ì•\”ç (SDF ~ 0 ‚Ì‘Ñ) ‚Ì“à‘¤‚©‚çŠJn‚µ‚½ê‡‚Í
-//      •\”ç‚ğ”²‚¯‚é‚Ü‚ÅÕ•Á”»’è‚ğ•Û—¯‚·‚é (©ŒÈŒğ·–h~)
-//  Šù’m‚ÌÅ‹ßƒqƒbƒg‚æ‚è‰œ‚Íƒ}[ƒ`‚µ‚È‚¢ (tFar ƒNƒ‰ƒ“ƒv)B
+//  Lumen ã‚·ãƒ¼ãƒ³ã¸ã®ã‚³ãƒ¼ãƒ³ãƒˆãƒ¬ãƒ¼ã‚¹ (ã‚¹ãƒ•ã‚£ã‚¢ãƒˆãƒ¬ãƒ¼ã‚¹)
+//  DistanceFieldShadowing.hlsl ã¨åŒã˜ãƒãƒ¼ãƒè¦ç´„:
+//    - ãƒ¬ã‚¤ - AABB (ã‚¹ãƒ©ãƒ–æ³•) ã§ã‚ªãƒ–ã‚¸ã‚§ã‚¯ãƒˆã‚’æ£„å´
+//    - å—å…‰é¢è‡ªèº«ã®è¡¨çš® (SDF ~ 0 ã®å¸¯) ã®å†…å´ã‹ã‚‰é–‹å§‹ã—ãŸå ´åˆã¯
+//      è¡¨çš®ã‚’æŠœã‘ã‚‹ã¾ã§é®è”½åˆ¤å®šã‚’ä¿ç•™ã™ã‚‹ (è‡ªå·±äº¤å·®é˜²æ­¢)
+//  æ—¢çŸ¥ã®æœ€è¿‘ãƒ’ãƒƒãƒˆã‚ˆã‚Šå¥¥ã¯ãƒãƒ¼ãƒã—ãªã„ (tFar ã‚¯ãƒ©ãƒ³ãƒ—)ã€‚
 // -------------------------------------------------------------
 FLumenTraceResult TraceLumenScene(float3 RayStart, float3 RayDir, float MaxT,
     float TanConeAngle, uint NumObjects)
@@ -74,11 +74,11 @@ FLumenTraceResult TraceLumenScene(float3 RayStart, float3 RayDir, float MaxT,
             continue;
         }
 
-        // ---- ƒ{ƒŠƒ…[ƒ€‹óŠÔ [-1,1] ‚Ö•ÏŠ· ----
+        // ---- ãƒœãƒªãƒ¥ãƒ¼ãƒ ç©ºé–“ [-1,1] ã¸å¤‰æ› ----
         float3 oV = mul(float4(RayStart, 1.0f), obj.WorldToVolume).xyz;
         float3 dV = mul(float4(RayDir, 0.0f), obj.WorldToVolume).xyz;
 
-        // ---- ƒŒƒC - AABB (ƒXƒ‰ƒu–@, ƒ[ƒœZƒK[ƒh) ----
+        // ---- ãƒ¬ã‚¤ - AABB (ã‚¹ãƒ©ãƒ–æ³•, ã‚¼ãƒ­é™¤ç®—ã‚¬ãƒ¼ãƒ‰) ----
         float3 dSign = float3(
             (dV.x >= 0.0f) ? 1.0f : -1.0f,
             (dV.y >= 0.0f) ? 1.0f : -1.0f,
@@ -92,19 +92,19 @@ FLumenTraceResult TraceLumenScene(float3 RayStart, float3 RayDir, float MaxT,
 
         float tNear = max(max(tSmall.x, tSmall.y), tSmall.z);
         float tFar = min(min(tBig.x, tBig.y), tBig.z);
-        tFar = min(tFar, min(MaxT, result.HitT)); // Šù’mƒqƒbƒg‚æ‚è‰œ‚Í•s—v
+        tFar = min(tFar, min(MaxT, result.HitT)); // æ—¢çŸ¥ãƒ’ãƒƒãƒˆã‚ˆã‚Šå¥¥ã¯ä¸è¦
 
         if (tFar <= max(tNear, 0.0f))
         {
             continue;
         }
 
-        const float voxelWorld = obj.VolumeUVAdd.w; // SDF 1 ƒ{ƒNƒZƒ‹‚Ìƒ[ƒ‹ƒh• [m]
+        const float voxelWorld = obj.VolumeUVAdd.w; // SDF 1 ãƒœã‚¯ã‚»ãƒ«ã®ãƒ¯ãƒ¼ãƒ«ãƒ‰å¹… [m]
         const float distanceScale = obj.VolumeUVScaleAndDistance.w;
         const float minStep = voxelWorld * 0.5f;
         const float maxStep = distanceScale * 0.5f;
         const float hitEpsilon = voxelWorld * 0.25f;
-        const float surfaceExit = voxelWorld * 0.5f; // ŠJn•\”ç‚Ì’Eo‚µ‚«‚¢’l
+        const float surfaceExit = voxelWorld * 0.5f; // é–‹å§‹è¡¨çš®ã®è„±å‡ºã—ãã„å€¤
         const float skipStep = voxelWorld * 0.25f;
         const float skipEnter = -hitEpsilon * 0.5f;
         const float skipMaxTravel = voxelWorld * 4.0f;
@@ -121,11 +121,11 @@ FLumenTraceResult TraceLumenScene(float3 RayStart, float3 RayDir, float MaxT,
 
             if (stepIndex == 0)
             {
-                // •\”çƒXƒLƒbƒv‚ÍuƒŒƒCn“_‚ª‚±‚ÌƒIƒuƒWƒFƒNƒg‚Ì“à‘¤/‹«ŠE‚É
-                // ‚ ‚év= ©ŒÈŒğ·‚Ì‚Æ‚«‚¾‚¯—LŒø‚É‚·‚éBtNear > 0 ‚Í‘¼‚Ì
-                // ƒIƒuƒWƒFƒNƒg‚Ö‚Ìi“ü“_‚È‚Ì‚ÅA‚»‚±‚Å—LŒø‚É‚·‚é‚Æ”–‚¢•Ç‚â
-                // ƒVƒ‹ƒGƒbƒgÛ‚ÅÅ‰‚Ì”ƒ{ƒNƒZƒ‹‚ğ–³ğŒ‚ÉŠÑ’Ê‚µA
-                // Œõ‚ª•Ç‚ğ”²‚¯‚Ä‚µ‚Ü‚¤B
+                // è¡¨çš®ã‚¹ã‚­ãƒƒãƒ—ã¯ã€Œãƒ¬ã‚¤å§‹ç‚¹ãŒã“ã®ã‚ªãƒ–ã‚¸ã‚§ã‚¯ãƒˆã®å†…å´/å¢ƒç•Œã«
+                // ã‚ã‚‹ã€= è‡ªå·±äº¤å·®ã®ã¨ãã ã‘æœ‰åŠ¹ã«ã™ã‚‹ã€‚tNear > 0 ã¯ä»–ã®
+                // ã‚ªãƒ–ã‚¸ã‚§ã‚¯ãƒˆã¸ã®é€²å…¥ç‚¹ãªã®ã§ã€ãã“ã§æœ‰åŠ¹ã«ã™ã‚‹ã¨è–„ã„å£ã‚„
+                // ã‚·ãƒ«ã‚¨ãƒƒãƒˆéš›ã§æœ€åˆã®æ•°ãƒœã‚¯ã‚»ãƒ«ã‚’ç„¡æ¡ä»¶ã«è²«é€šã—ã€
+                // å…‰ãŒå£ã‚’æŠœã‘ã¦ã—ã¾ã†ã€‚
                 bInsideStartSurface = (tNear <= 0.0f) && (d < surfaceExit);
             }
 
@@ -134,11 +134,11 @@ FLumenTraceResult TraceLumenScene(float3 RayStart, float3 RayDir, float MaxT,
             {
                 if (d >= surfaceExit || (t - tStart) > skipMaxTravel)
                 {
-                    bInsideStartSurface = false; // •\”ç‚ğ”²‚¯‚½ -> ’Êíƒ}[ƒ`‚Ö
+                    bInsideStartSurface = false; // è¡¨çš®ã‚’æŠœã‘ãŸ -> é€šå¸¸ãƒãƒ¼ãƒã¸
                 }
                 else if (d < skipEnter)
                 {
-                    // “à•”‚Öö‚Á‚½ = Àƒqƒbƒg (— –ÊƒXƒ^[ƒg / ”–•¨‚Ì— ‘¤)
+                    // å†…éƒ¨ã¸æ½œã£ãŸ = å®Ÿãƒ’ãƒƒãƒˆ (è£é¢ã‚¹ã‚¿ãƒ¼ãƒˆ / è–„ç‰©ã®è£å´)
                     result.bHit = true;
                     result.HitT = t;
                     result.HitObject = i;
@@ -156,7 +156,7 @@ FLumenTraceResult TraceLumenScene(float3 RayStart, float3 RayDir, float MaxT,
                 }
             }
 
-            // ƒR[ƒ“•‚É‘Î‚·‚éƒNƒŠƒAƒ‰ƒ“ƒX‚Åƒ\ƒtƒg‰Â‹—¦
+            // ã‚³ãƒ¼ãƒ³å¹…ã«å¯¾ã™ã‚‹ã‚¯ãƒªã‚¢ãƒ©ãƒ³ã‚¹ã§ã‚½ãƒ•ãƒˆå¯è¦–ç‡
             result.Visibility = min(result.Visibility,
                 saturate(d / max(TanConeAngle * t, 1e-4f)));
 
@@ -181,8 +181,13 @@ FLumenTraceResult TraceLumenScene(float3 RayStart, float3 RayDir, float MaxT,
 }
 
 // -------------------------------------------------------------
-//  Õ•ÁƒgƒŒ[ƒX (ƒ\ƒtƒgƒVƒƒƒhƒEŒW”‚Ì‚İB1 = Õ•Á‚È‚µ)
-//  Surface Cache ’¼ÚŒõ‚Ì DF ƒVƒƒƒhƒE‚Ég‚¤B
+//  é®è”½ãƒˆãƒ¬ãƒ¼ã‚¹ (å¯è¦–ç‡ã®ã¿ã€‚1 = é®è”½ãªã—ã€ãƒ’ãƒƒãƒˆã§ 0)
+//  TraceLumenScene (ãƒ¡ãƒƒã‚·ãƒ¥ SDF ã®ã¿) ã‚’å®Ÿè¡Œã—ã€çµæœã® Visibility
+//  (ã‚³ãƒ¼ãƒ³å¹…ã«å¯¾ã™ã‚‹æœ€å°ã‚¯ãƒªã‚¢ãƒ©ãƒ³ã‚¹æ¯”) ã ã‘ã‚’è¿”ã™è–„ã„ãƒ©ãƒƒãƒ‘ãƒ¼ã€‚
+//  Global SDF / HWRT ã¯çµŒç”±ã—ãªã„ã€‚é®è”½å°‚ç”¨ã®æ—©æœŸçµ‚äº† (any-hit)
+//  ã¯ç„¡ãã€ã‚³ã‚¹ãƒˆã¯ TraceLumenScene ã®æœ€è¿‘ãƒ’ãƒƒãƒˆæ¢ç´¢ã¨åŒã˜ã€‚
+//  Surface Cache ç›´æ¥å…‰ã®ã‚·ãƒ£ãƒ‰ã‚¦ã¯ã“ã‚Œã§ã¯ãªã TraceLumenRay
+//  (LumenSceneLightingCommon.hlsl) ã‚’ä½¿ã†ã€‚
 // -------------------------------------------------------------
 float TraceLumenOcclusion(float3 RayStart, float3 RayDir, float MaxT,
     float TanConeAngle, uint NumObjects)
@@ -192,15 +197,15 @@ float TraceLumenOcclusion(float3 RayStart, float3 RayDir, float MaxT,
 }
 
 // -------------------------------------------------------------
-//  ƒqƒbƒg–@ü (SDF Œù”z‚Ì’†S·•ª, ƒ{ƒŠƒ…[ƒ€‹óŠÔ -> ƒ[ƒ‹ƒh)
-//  Œù”z‚Í WorldToVolume ‚Ì 3x3 ‚ğ‘OŠ|‚¯‚·‚é‚Æƒ[ƒ‹ƒh•ûŒü‚É‚È‚é
-//  (‹t“]’u•ÏŠ·‚Æ“™‰¿BƒXƒP[ƒ‹‚Í normalize ‚Å‹zû)B
+//  ãƒ’ãƒƒãƒˆæ³•ç·š (SDF å‹¾é…ã®ä¸­å¿ƒå·®åˆ†, ãƒœãƒªãƒ¥ãƒ¼ãƒ ç©ºé–“ -> ãƒ¯ãƒ¼ãƒ«ãƒ‰)
+//  å‹¾é…ã¯ WorldToVolume ã® 3x3 ã‚’å‰æ›ã‘ã™ã‚‹ã¨ãƒ¯ãƒ¼ãƒ«ãƒ‰æ–¹å‘ã«ãªã‚‹
+//  (é€†è»¢ç½®å¤‰æ›ã¨ç­‰ä¾¡ã€‚ã‚¹ã‚±ãƒ¼ãƒ«ã¯ normalize ã§å¸å)ã€‚
 // -------------------------------------------------------------
 float3 ComputeLumenHitNormal(FLumenSceneObject Obj, float3 WorldPos, float3 RayStart)
 {
     float3 pV = mul(float4(WorldPos, 1.0f), Obj.WorldToVolume).xyz;
 
-    const float e = 0.03125f; // 1 ƒ{ƒNƒZƒ‹ (2 / 64)
+    const float e = 0.03125f; // 1 ãƒœã‚¯ã‚»ãƒ« (2 / 64)
     float3 grad;
     grad.x = SampleLumenObjectDistance(Obj, pV + float3(e, 0, 0))
            - SampleLumenObjectDistance(Obj, pV - float3(e, 0, 0));
@@ -211,8 +216,8 @@ float3 ComputeLumenHitNormal(FLumenSceneObject Obj, float3 WorldPos, float3 RayS
 
     float3 worldGrad = mul((float3x3) Obj.WorldToVolume, grad);
     float len = length(worldGrad);
-    // Œù”z‚ªk‘Ş (ƒ{ƒŠƒ…[ƒ€‹«ŠE‚ÌƒNƒ‰ƒ“ƒv“™) ‚µ‚½ê‡‚Í“üË•ûŒü‚Ì‹t‚ğg‚¤B
-    // ŒÅ’è‚ÌãŒü‚«‚ğ•Ô‚·‚ÆƒJ[ƒh‘I‘ğ‚ª“IŠO‚ê‚É‚È‚è•‚¢”Á“_‚É‚È‚éB
+    // å‹¾é…ãŒç¸®é€€ (ãƒœãƒªãƒ¥ãƒ¼ãƒ å¢ƒç•Œã®ã‚¯ãƒ©ãƒ³ãƒ—ç­‰) ã—ãŸå ´åˆã¯å…¥å°„æ–¹å‘ã®é€†ã‚’ä½¿ã†ã€‚
+    // å›ºå®šã®ä¸Šå‘ãã‚’è¿”ã™ã¨ã‚«ãƒ¼ãƒ‰é¸æŠãŒçš„å¤–ã‚Œã«ãªã‚Šé»’ã„æ–‘ç‚¹ã«ãªã‚‹ã€‚
     float3 fallback = WorldPos - RayStart;
     float fallbackLen = length(fallback);
     return (len > 1e-6f) ? worldGrad / len
@@ -220,13 +225,13 @@ float3 ComputeLumenHitNormal(FLumenSceneObject Obj, float3 WorldPos, float3 RayS
 }
 
 // -------------------------------------------------------------
-//  Surface Cache ÌŒõ (SampleLumenCardInterpolated ‘Š“–)
-//  ƒqƒbƒg“_‚Ì–@ü‚ÆƒJ[ƒh–@ü‚Ì“àÏ‚Åd‚İ•t‚¯‚µAƒIƒuƒWƒFƒNƒg‚Ì
-//  ‘SƒJ[ƒh‚©‚ç FinalLighting ‚ğƒuƒŒƒ“ƒh‚·‚éB
-//    - FinalLighting.a = —LŒø—¦ (ƒWƒIƒƒgƒŠ‚ªÄ‚©‚ê‚½ƒeƒNƒZƒ‹‚Ì‚İ 1)
-//    - [“xƒeƒXƒg: ƒJ[ƒh‚©‚çŒ©‚¦‚Ä‚¢‚È‚¢ (Ši”[[“x‚æ‚è‰œ‚Ì) “_‚Í
-//      Šü‹p‚µ‚Äƒ‰ƒCƒgƒŠ[ƒN‚ğ–h‚®
-//  –ß‚è’l = oËƒ‰ƒfƒBƒAƒ“ƒX (’¼ÚŒõ + ŠÔÚŒõ + Emissive ‡¬Ï‚İ)
+//  Surface Cache æ¡å…‰ (SampleLumenCardInterpolated ç›¸å½“)
+//  ãƒ’ãƒƒãƒˆç‚¹ã®æ³•ç·šã¨ã‚«ãƒ¼ãƒ‰æ³•ç·šã®å†…ç©ã§é‡ã¿ä»˜ã‘ã—ã€ã‚ªãƒ–ã‚¸ã‚§ã‚¯ãƒˆã®
+//  å…¨ã‚«ãƒ¼ãƒ‰ã‹ã‚‰ FinalLighting ã‚’ãƒ–ãƒ¬ãƒ³ãƒ‰ã™ã‚‹ã€‚
+//    - FinalLighting.a = æœ‰åŠ¹ç‡ (ã‚¸ã‚ªãƒ¡ãƒˆãƒªãŒç„¼ã‹ã‚ŒãŸãƒ†ã‚¯ã‚»ãƒ«ã®ã¿ 1)
+//    - æ·±åº¦ãƒ†ã‚¹ãƒˆ: ã‚«ãƒ¼ãƒ‰ã‹ã‚‰è¦‹ãˆã¦ã„ãªã„ (æ ¼ç´æ·±åº¦ã‚ˆã‚Šå¥¥ã®) ç‚¹ã¯
+//      æ£„å´ã—ã¦ãƒ©ã‚¤ãƒˆãƒªãƒ¼ã‚¯ã‚’é˜²ã
+//  æˆ»ã‚Šå€¤ = å‡ºå°„ãƒ©ãƒ‡ã‚£ã‚¢ãƒ³ã‚¹ (ç›´æ¥å…‰ + é–“æ¥å…‰ + Emissive åˆæˆæ¸ˆã¿)
 // -------------------------------------------------------------
 float3 SampleLumenSurfaceCache(FLumenSceneObject Obj, float3 WorldHitPos, float3 WorldHitNormal)
 {
@@ -242,14 +247,14 @@ float3 SampleLumenSurfaceCache(FLumenSceneObject Obj, float3 WorldHitPos, float3
             continue;
         }
 
-        // ƒJ[ƒh–@ü‚Æ–Ê–@ü‚Ìˆê’v“x (— Œü‚«ƒJ[ƒh‚ÍŠü‹p)
+        // ã‚«ãƒ¼ãƒ‰æ³•ç·šã¨é¢æ³•ç·šã®ä¸€è‡´åº¦ (è£å‘ãã‚«ãƒ¼ãƒ‰ã¯æ£„å´)
         float weight = dot(WorldHitNormal, card.CardDirection.xyz);
         if (weight <= 0.05f)
         {
             continue;
         }
 
-        // ƒJ[ƒh‹óŠÔ‚Ö ([“xƒŒƒ“ƒW‚Í [0, 2 * ext.z])
+        // ã‚«ãƒ¼ãƒ‰ç©ºé–“ã¸ (æ·±åº¦ãƒ¬ãƒ³ã‚¸ã¯ [0, 2 * ext.z])
         float3 cardPos = mul(float4(WorldHitPos, 1.0f), card.WorldToCard).xyz;
         float3 ext = card.CardExtentAndValid.xyz;
 
@@ -259,10 +264,10 @@ float3 SampleLumenSurfaceCache(FLumenSceneObject Obj, float3 WorldHitPos, float3
             continue;
         }
 
-        // ƒJ[ƒh UV (ƒrƒ…[ã•ûŒü +Y ‚ÍƒeƒNƒXƒ`ƒƒ v ‚Æ‹t)
+        // ã‚«ãƒ¼ãƒ‰ UV (ãƒ“ãƒ¥ãƒ¼ä¸Šæ–¹å‘ +Y ã¯ãƒ†ã‚¯ã‚¹ãƒãƒ£ v ã¨é€†)
         float2 uv = float2(cardPos.x / ext.x, -cardPos.y / ext.y) * 0.5f + 0.5f;
 
-        // ƒ^ƒCƒ‹“à‘¤‚Ö”¼ƒeƒNƒZƒ‹ƒNƒ‰ƒ“ƒv (—×ƒ^ƒCƒ‹‚Ö‚ÌƒuƒŠ[ƒh–h~)
+        // ã‚¿ã‚¤ãƒ«å†…å´ã¸åŠãƒ†ã‚¯ã‚»ãƒ«ã‚¯ãƒ©ãƒ³ãƒ— (éš£ã‚¿ã‚¤ãƒ«ã¸ã®ãƒ–ãƒªãƒ¼ãƒ‰é˜²æ­¢)
         const float halfTexel = 0.5f / LUMEN_CARD_RESOLUTION_F;
         uv = clamp(uv, halfTexel, 1.0f - halfTexel);
 
@@ -270,7 +275,7 @@ float3 SampleLumenSurfaceCache(FLumenSceneObject Obj, float3 WorldHitPos, float3
 
         float4 final = LumenFinalLightingAtlas.SampleLevel(LumenTraceSampler, atlasUV, 0.0f);
 
-        // [“xƒeƒXƒg: Ši”[[“x‚æ‚èˆê’èˆÈã‰œ‚È‚çƒJ[ƒh‚©‚çŒ©‚¦‚Ä‚¢‚È‚¢
+        // æ·±åº¦ãƒ†ã‚¹ãƒˆ: æ ¼ç´æ·±åº¦ã‚ˆã‚Šä¸€å®šä»¥ä¸Šå¥¥ãªã‚‰ã‚«ãƒ¼ãƒ‰ã‹ã‚‰è¦‹ãˆã¦ã„ãªã„
         float storedZ = LumenDepthAtlas.SampleLevel(LumenTraceSampler, atlasUV, 0.0f)
             * (2.0f * ext.z);
         float depthDelta = cardPos.z - storedZ;
@@ -286,24 +291,24 @@ float3 SampleLumenSurfaceCache(FLumenSceneObject Obj, float3 WorldHitPos, float3
 }
 
 // =============================================================
-//  Global Distance Field (ƒNƒŠƒbƒvƒ}ƒbƒv) ƒgƒŒ[ƒX
-//  LumenSceneLightingCommon.hlsl (ƒRƒ“ƒsƒ…[ƒg‘¤) ‚¾‚¯‚ª—LŒø‰»‚·‚é
-//  (LUMEN_SUPPORTS_GLOBAL_SDF)BƒOƒ‰ƒtƒBƒbƒNƒX‘¤‚ÌƒsƒNƒZƒ‹–ˆ
-//  ƒtƒH[ƒ‹ƒoƒbƒNŒo˜H‚ÍƒƒbƒVƒ… SDF ƒ‹[ƒv‚Ì‚İ‚ğg‚¤B
+//  Global Distance Field (ã‚¯ãƒªãƒƒãƒ—ãƒãƒƒãƒ—) ãƒˆãƒ¬ãƒ¼ã‚¹
+//  LumenSceneLightingCommon.hlsl (ã‚³ãƒ³ãƒ”ãƒ¥ãƒ¼ãƒˆå´) ã ã‘ãŒæœ‰åŠ¹åŒ–ã™ã‚‹
+//  (LUMEN_SUPPORTS_GLOBAL_SDF)ã€‚ã‚°ãƒ©ãƒ•ã‚£ãƒƒã‚¯ã‚¹å´ã®ãƒ”ã‚¯ã‚»ãƒ«æ¯
+//  ãƒ•ã‚©ãƒ¼ãƒ«ãƒãƒƒã‚¯çµŒè·¯ã¯ãƒ¡ãƒƒã‚·ãƒ¥ SDF ãƒ«ãƒ¼ãƒ—ã®ã¿ã‚’ä½¿ã†ã€‚
 // =============================================================
 #if LUMEN_SUPPORTS_GLOBAL_SDF
 
-// ƒNƒŠƒbƒvƒ}ƒbƒvƒTƒ“ƒvƒ‹ (ClipmapParams: xyz=’†S, w=”¼Œa)
+// ã‚¯ãƒªãƒƒãƒ—ãƒãƒƒãƒ—ã‚µãƒ³ãƒ—ãƒ« (ClipmapParams: xyz=ä¸­å¿ƒ, w=åŠå¾„)
 float SampleLumenGlobalSDFClipmap(Texture3D<float> Clipmap, float4 ClipmapParams, float3 WorldPos)
 {
     float3 uvw = (WorldPos - ClipmapParams.xyz) / (2.0f * ClipmapParams.w) + 0.5f;
-    // ”¼ƒeƒNƒZƒ‹“à‘¤‚ÖƒNƒ‰ƒ“ƒv (‹«ŠE‚Ì•âŠÔƒuƒŠ[ƒh–h~)
+    // åŠãƒ†ã‚¯ã‚»ãƒ«å†…å´ã¸ã‚¯ãƒ©ãƒ³ãƒ— (å¢ƒç•Œã®è£œé–“ãƒ–ãƒªãƒ¼ãƒ‰é˜²æ­¢)
     float halfTexel = 0.5f / LUMEN_GLOBAL_SDF_RESOLUTION;
     uvw = clamp(uvw, halfTexel, 1.0f - halfTexel);
     return Clipmap.SampleLevel(LumenTraceSampler, uvw, 0.0f);
 }
 
-// ƒ[ƒ‹ƒh“_‚ªƒNƒŠƒbƒvƒ}ƒbƒv“à‚© (ƒ}[ƒWƒ“•t‚«)
+// ãƒ¯ãƒ¼ãƒ«ãƒ‰ç‚¹ãŒã‚¯ãƒªãƒƒãƒ—ãƒãƒƒãƒ—å†…ã‹ (ãƒãƒ¼ã‚¸ãƒ³ä»˜ã)
 bool IsInsideLumenClipmap(float4 ClipmapParams, float3 WorldPos, float Margin)
 {
     float3 d = abs(WorldPos - ClipmapParams.xyz);
@@ -312,8 +317,8 @@ bool IsInsideLumenClipmap(float4 ClipmapParams, float3 WorldPos, float Margin)
 }
 
 // -------------------------------------------------------------
-//  Global SDF ƒXƒtƒBƒAƒgƒŒ[ƒX (ƒNƒŠƒbƒvƒ}ƒbƒv 0 -> 1 ‚Ì©“®‘I‘ğ)
-//    OutVisibility ‚ÍƒR[ƒ“‚ÌÅ¬ƒNƒŠƒAƒ‰ƒ“ƒX‚ğ—İÏXV‚·‚é
+//  Global SDF ã‚¹ãƒ•ã‚£ã‚¢ãƒˆãƒ¬ãƒ¼ã‚¹ (ã‚¯ãƒªãƒƒãƒ—ãƒãƒƒãƒ— 0 -> 1 ã®è‡ªå‹•é¸æŠ)
+//    OutVisibility ã¯ã‚³ãƒ¼ãƒ³ã®æœ€å°ã‚¯ãƒªã‚¢ãƒ©ãƒ³ã‚¹ã‚’ç´¯ç©æ›´æ–°ã™ã‚‹
 // -------------------------------------------------------------
 bool TraceLumenGlobalSDF(float3 RayStart, float3 RayDir, float TMin, float TMax,
     float TanConeAngle, float4 Clipmap0, float4 Clipmap1,
@@ -323,7 +328,7 @@ bool TraceLumenGlobalSDF(float3 RayStart, float3 RayDir, float TMin, float TMax,
 
     if (Clipmap0.w <= 0.0f)
     {
-        return false; // Global SDF –³Œø
+        return false; // Global SDF ç„¡åŠ¹
     }
 
     const float voxel0 = (2.0f * Clipmap0.w) / LUMEN_GLOBAL_SDF_RESOLUTION;
@@ -336,13 +341,13 @@ bool TraceLumenGlobalSDF(float3 RayStart, float3 RayDir, float TMin, float TMax,
     {
         float3 p = RayStart + RayDir * t;
 
-        // ƒNƒŠƒbƒvƒ}ƒbƒv‘I‘ğ (“à‘¤ 90% ‚Ü‚Å‚Í‚¸×‚Ì 0 ‚ğg‚¤)
+        // ã‚¯ãƒªãƒƒãƒ—ãƒãƒƒãƒ—é¸æŠ (å†…å´ 90% ã¾ã§ã¯é«˜ç²¾ç´°ã® 0 ã‚’ä½¿ã†)
         bool bUseClip0 = IsInsideLumenClipmap(Clipmap0, p, 0.9f);
         bool bInsideClip1 = IsInsideLumenClipmap(Clipmap1, p, 1.0f);
 
         if (!bUseClip0 && !bInsideClip1)
         {
-            break; // ‘SƒNƒŠƒbƒvƒ}ƒbƒvŠO = ‚±‚êˆÈã‚ÌÕ•Áî•ñ‚È‚µ (ƒ~ƒX)
+            break; // å…¨ã‚¯ãƒªãƒƒãƒ—ãƒãƒƒãƒ—å¤– = ã“ã‚Œä»¥ä¸Šã®é®è”½æƒ…å ±ãªã— (ãƒŸã‚¹)
         }
 
         float d = bUseClip0
@@ -371,10 +376,27 @@ bool TraceLumenGlobalSDF(float3 RayStart, float3 RayDir, float TMin, float TMax,
 }
 
 // -------------------------------------------------------------
-//  Global SDF ƒqƒbƒg‚ÌƒIƒuƒWƒFƒNƒg‰ğŒˆ
-//  (ƒqƒbƒg“_‚ÉÅ‚à‹ß‚¢ SDF ‚ğ‚ÂƒIƒuƒWƒFƒNƒg‚ğ•Ô‚·B
-//   Global DF -> Surface Cache ÌŒõ‚ÌƒIƒuƒWƒFƒNƒgƒOƒŠƒbƒh‚Ì
-//   üŒ`’Tõ”Å)
+//  ã‚ªãƒ–ã‚¸ã‚§ã‚¯ãƒˆ SDF ã®è¿‘ä¼¼è·é›¢ [m]
+//  Global DF ãƒ“ãƒ«ãƒ‰ (LumenGlobalDistanceField_CS) ã¨
+//  ResolveLumenObjectAtPoint ã§åŒã˜è¿‘ä¼¼ã‚’å…±æœ‰ã™ã‚‹ã€‚
+// -------------------------------------------------------------
+float GetLumenObjectDistanceApprox(FLumenSceneObject Obj, float3 WorldPos)
+{
+    float3 pV = mul(float4(WorldPos, 1.0f), Obj.WorldToVolume).xyz;
+
+    // ãƒœãƒªãƒ¥ãƒ¼ãƒ å¤–ã¯ AABB è·é›¢ + å¢ƒç•Œã‚µãƒ³ãƒ—ãƒ«ã§è¿‘ä¼¼
+    float3 clamped = clamp(pV, -1.0f, 1.0f);
+    float3 delta = pV - clamped;
+    // ãƒœãƒªãƒ¥ãƒ¼ãƒ ç©ºé–“è·é›¢ -> ãƒ¯ãƒ¼ãƒ«ãƒ‰ã¯åŠå¾„ã‚¹ã‚±ãƒ¼ãƒ«è¿‘ä¼¼
+    float outside = length(delta) * Obj.VolumeUVScaleAndDistance.w;
+    return outside + SampleLumenObjectDistance(Obj, clamped);
+}
+
+// -------------------------------------------------------------
+//  Global SDF ãƒ’ãƒƒãƒˆã®ã‚ªãƒ–ã‚¸ã‚§ã‚¯ãƒˆè§£æ±º
+//  (ãƒ’ãƒƒãƒˆç‚¹ã«æœ€ã‚‚è¿‘ã„ SDF ã‚’æŒã¤ã‚ªãƒ–ã‚¸ã‚§ã‚¯ãƒˆã‚’è¿”ã™ã€‚
+//   Global DF -> Surface Cache æ¡å…‰ã®ã‚ªãƒ–ã‚¸ã‚§ã‚¯ãƒˆã‚°ãƒªãƒƒãƒ‰ã®
+//   ç·šå½¢æ¢ç´¢ç‰ˆ)
 // -------------------------------------------------------------
 uint ResolveLumenObjectAtPoint(float3 WorldPos, uint NumObjects, out bool bFound)
 {
@@ -391,14 +413,7 @@ uint ResolveLumenObjectAtPoint(float3 WorldPos, uint NumObjects, out bool bFound
             continue;
         }
 
-        float3 pV = mul(float4(WorldPos, 1.0f), obj.WorldToVolume).xyz;
-
-        // ƒ{ƒŠƒ…[ƒ€ŠO‚Í AABB ‹——£ + ‹«ŠEƒTƒ“ƒvƒ‹‚Å‹ß—
-        float3 clamped = clamp(pV, -1.0f, 1.0f);
-        float3 delta = pV - clamped;
-        // ƒ{ƒŠƒ…[ƒ€‹óŠÔ‹——£ -> ƒ[ƒ‹ƒh‚Í”¼ŒaƒXƒP[ƒ‹‹ß— (‘I‘ğ‚É‚Ì‚İg—p)
-        float outside = length(delta) * obj.VolumeUVScaleAndDistance.w;
-        float d = outside + SampleLumenObjectDistance(obj, clamped);
+        float d = GetLumenObjectDistanceApprox(obj, WorldPos);
 
         if (d < bestDistance)
         {
@@ -412,9 +427,9 @@ uint ResolveLumenObjectAtPoint(float3 WorldPos, uint NumObjects, out bool bFound
 }
 
 // -------------------------------------------------------------
-//  ƒnƒCƒuƒŠƒbƒhƒgƒŒ[ƒX (Detail Trace + Global Trace):
-//    ‹ß‹——£ (DetailDistance ‚Ü‚Å) = ƒƒbƒVƒ… SDF ƒ‹[ƒv (‚¸×)
-//    ‰“‹——£                       = Global SDF ƒNƒŠƒbƒvƒ}ƒbƒv
+//  ãƒã‚¤ãƒ–ãƒªãƒƒãƒ‰ãƒˆãƒ¬ãƒ¼ã‚¹ (Detail Trace + Global Trace):
+//    è¿‘è·é›¢ (DetailDistance ã¾ã§) = ãƒ¡ãƒƒã‚·ãƒ¥ SDF ãƒ«ãƒ¼ãƒ— (é«˜ç²¾ç´°)
+//    é è·é›¢                       = Global SDF ã‚¯ãƒªãƒƒãƒ—ãƒãƒƒãƒ—
 // -------------------------------------------------------------
 FLumenTraceResult TraceLumenSceneHybrid(float3 RayStart, float3 RayDir, float MaxT,
     float TanConeAngle, uint NumObjects, float DetailDistance,
@@ -422,7 +437,7 @@ FLumenTraceResult TraceLumenSceneHybrid(float3 RayStart, float3 RayDir, float Ma
 {
     const float nearT = min(MaxT, DetailDistance);
 
-    // ---- ‹ß‹——£: ƒƒbƒVƒ… SDF (‚¸×) ----
+    // ---- è¿‘è·é›¢: ãƒ¡ãƒƒã‚·ãƒ¥ SDF (é«˜ç²¾ç´°) ----
     FLumenTraceResult result = TraceLumenScene(RayStart, RayDir, nearT, TanConeAngle, NumObjects);
 
     [branch]
@@ -432,7 +447,7 @@ FLumenTraceResult TraceLumenSceneHybrid(float3 RayStart, float3 RayDir, float Ma
         return result;
     }
 
-    // ---- ‰“‹——£: Global SDF ----
+    // ---- é è·é›¢: Global SDF ----
     float farHitT;
     bool bFarHit = TraceLumenGlobalSDF(RayStart, RayDir,
         nearT * 0.9f, MaxT, TanConeAngle, Clipmap0, Clipmap1,
@@ -460,15 +475,15 @@ FLumenTraceResult TraceLumenSceneHybrid(float3 RayStart, float3 RayDir, float Ma
 #endif // LUMEN_SUPPORTS_GLOBAL_SDF
 
 // -------------------------------------------------------------
-//  ”¼‹…ƒRƒTƒCƒ“•ª•z‚ÌƒŒƒC•ûŒü (Fibonacci ƒXƒpƒCƒ‰ƒ‹)
-//    Index / NumRays : ƒŒƒC”Ô† / ‘”
-//    RandomRotation  : •ûˆÊŠp‚Ì‰ñ“] [rad] (ƒsƒNƒZƒ‹ / ƒeƒNƒZƒ‹‚²‚Æ‚Ì
-//                      ƒWƒbƒ^BIGN ‚âƒnƒbƒVƒ…‚ğ“n‚·)
-//  –ß‚è’l‚Íƒ[ƒ‹ƒh‹óŠÔ (Normal ü‚è‚ÌÚ‹óŠÔ‚©‚ç•ÏŠ·Ï‚İ)
+//  åŠçƒã‚³ã‚µã‚¤ãƒ³åˆ†å¸ƒã®ãƒ¬ã‚¤æ–¹å‘ (Fibonacci ã‚¹ãƒ‘ã‚¤ãƒ©ãƒ«)
+//    Index / NumRays : ãƒ¬ã‚¤ç•ªå· / ç·æ•°
+//    RandomRotation  : æ–¹ä½è§’ã®å›è»¢ [rad] (ãƒ”ã‚¯ã‚»ãƒ« / ãƒ†ã‚¯ã‚»ãƒ«ã”ã¨ã®
+//                      ã‚¸ãƒƒã‚¿ã€‚IGN ã‚„ãƒãƒƒã‚·ãƒ¥ã‚’æ¸¡ã™)
+//  æˆ»ã‚Šå€¤ã¯ãƒ¯ãƒ¼ãƒ«ãƒ‰ç©ºé–“ (Normal å‘¨ã‚Šã®æ¥ç©ºé–“ã‹ã‚‰å¤‰æ›æ¸ˆã¿)
 // -------------------------------------------------------------
 float3 GetLumenHemisphereRay(float3 Normal, uint Index, uint NumRays, float RandomRotation)
 {
-    // ƒRƒTƒCƒ“d“_ƒTƒ“ƒvƒ‹: cosTheta = sqrt(1 - u), u = (i + 0.5) / N
+    // ã‚³ã‚µã‚¤ãƒ³é‡ç‚¹ã‚µãƒ³ãƒ—ãƒ«: cosTheta = sqrt(1 - u), u = (i + 0.5) / N
     float u = ((float) Index + 0.5f) / (float) NumRays;
     float cosTheta = sqrt(saturate(1.0f - u));
     float sinTheta = sqrt(saturate(1.0f - cosTheta * cosTheta));
@@ -478,7 +493,7 @@ float3 GetLumenHemisphereRay(float3 Normal, uint Index, uint NumRays, float Rand
 
     float3 local = float3(cos(phi) * sinTheta, sin(phi) * sinTheta, cosTheta);
 
-    // Ú‹óŠÔŠî’ê (k‘ŞƒK[ƒh•t‚«)
+    // æ¥ç©ºé–“åŸºåº• (ç¸®é€€ã‚¬ãƒ¼ãƒ‰ä»˜ã)
     float3 up = (abs(Normal.y) < 0.999f) ? float3(0.0f, 1.0f, 0.0f) : float3(1.0f, 0.0f, 0.0f);
     float3 tangent = normalize(cross(up, Normal));
     float3 bitangent = cross(Normal, tangent);

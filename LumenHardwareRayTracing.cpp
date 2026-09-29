@@ -38,8 +38,8 @@ void FLumenHardwareRayTracing::Init(unsigned int MaxInstances)
 		return;
 	}
 
-	// ‰Á‘¬\‘¢‚Ìƒrƒ‹ƒh‚É‚Í Device5 ‚Æ GraphicsCommandList4 ‚Ì—¼•û‚ª—v‚é
-	// (FBXModel::BuildRayTracingGeometry ‚Æ“¯‚¶”»’è‚É‚»‚ë‚¦‚é)
+	// åŠ é€Ÿæ§‹é€ ã®ãƒ“ãƒ«ãƒ‰ã«ã¯ Device5 ã¨ GraphicsCommandList4 ã®ä¸¡æ–¹ãŒè¦ã‚‹
+	// (FBXModel::BuildRayTracingGeometry ã¨åŒã˜åˆ¤å®šã«ãã‚ãˆã‚‹)
 	ID3D12Device5* device5 = m_RHI->GetDevice5();
 	if (device5 == nullptr || m_RHI->GetGraphicsCommandList4() == nullptr)
 	{
@@ -48,7 +48,7 @@ void FLumenHardwareRayTracing::Init(unsigned int MaxInstances)
 
 	m_MaxInstances = MaxInstances;
 
-	// ---- ƒCƒ“ƒXƒ^ƒ“ƒXƒoƒbƒtƒ@ (ƒ_ƒuƒ‹ƒoƒbƒtƒ@ + ‰i‘± Map) ----
+	// ---- ã‚¤ãƒ³ã‚¹ã‚¿ãƒ³ã‚¹ãƒãƒƒãƒ•ã‚¡ (ãƒ€ãƒ–ãƒ«ãƒãƒƒãƒ•ã‚¡ + æ°¸ç¶š Map) ----
 	for (int i = 0; i < 2; i++)
 	{
 		const UINT64 size = sizeof(D3D12_RAYTRACING_INSTANCE_DESC) * MaxInstances;
@@ -67,7 +67,7 @@ void FLumenHardwareRayTracing::Init(unsigned int MaxInstances)
 		memset(m_InstancePointer[i], 0, (size_t)size);
 	}
 
-	// ---- TLAS / ƒXƒNƒ‰ƒbƒ` (Å‘åƒCƒ“ƒXƒ^ƒ“ƒX”‚ÅƒvƒŒƒrƒ‹ƒh) ----
+	// ---- TLAS / ã‚¹ã‚¯ãƒ©ãƒƒãƒ (æœ€å¤§ã‚¤ãƒ³ã‚¹ã‚¿ãƒ³ã‚¹æ•°ã§ãƒ—ãƒ¬ãƒ“ãƒ«ãƒ‰) ----
 	D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS inputs{};
 	inputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
 	inputs.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_BUILD;
@@ -108,7 +108,7 @@ void FLumenHardwareRayTracing::Init(unsigned int MaxInstances)
 
 
 // ============================================================
-//  –ˆƒtƒŒ[ƒ€‚Ì TLAS Ä\’z
+//  æ¯ãƒ•ãƒ¬ãƒ¼ãƒ ã® TLAS å†æ§‹ç¯‰
 // ============================================================
 D3D12_RAYTRACING_INSTANCE_DESC* FLumenHardwareRayTracing::BeginInstances()
 {
@@ -145,8 +145,8 @@ void FLumenHardwareRayTracing::BuildTLAS(unsigned int NumInstances)
 	build.ScratchAccelerationStructureData = m_TLASScratch->GetGPUVirtualAddress();
 	build.DestAccelerationStructureData = m_TLAS->GetGPUVirtualAddress();
 
-	// ‘OƒtƒŒ[ƒ€‚ÌƒgƒŒ[ƒX‚Æ‚Ì‡˜‚Í“¯ˆêƒLƒ…[‚Ì’¼—ñÀs‚Å•ÛØ‚³‚ê‚éB
-	// ƒŠƒXƒg“à‚ÌŒã‘±ƒfƒBƒXƒpƒbƒ`‚É‘Î‚µ‚Ä‚Í UAV ƒoƒŠƒA‚ÅŠ®—¹‚ğ•ÛØ‚·‚éB
+	// å‰ãƒ•ãƒ¬ãƒ¼ãƒ ã®ãƒˆãƒ¬ãƒ¼ã‚¹ã¨ã®é †åºã¯åŒä¸€ã‚­ãƒ¥ãƒ¼ã®ç›´åˆ—å®Ÿè¡Œã§ä¿è¨¼ã•ã‚Œã‚‹ã€‚
+	// ãƒªã‚¹ãƒˆå†…ã®å¾Œç¶šãƒ‡ã‚£ã‚¹ãƒ‘ãƒƒãƒã«å¯¾ã—ã¦ã¯ UAV ãƒãƒªã‚¢ã§å®Œäº†ã‚’ä¿è¨¼ã™ã‚‹ã€‚
 	cl4->BuildRaytracingAccelerationStructure(&build, 0, nullptr);
 	cl4->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::UAV(m_TLAS.Get()));
 }

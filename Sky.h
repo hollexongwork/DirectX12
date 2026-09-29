@@ -15,6 +15,5 @@ private:
 public:
 	ASky();
 
-	void BeginPlay() override;
 	void Tick(float DeltaTime) override;
 };

@@ -13,7 +13,7 @@
 //      シグネチャと引数順を完全一致させている (サンプル
 //      substrate_Slab_BSDF_Material_Sample.hlsl 準拠)。
 //    - Glint / SpecularProfile / ClearCoatSecondNormal は API と
-//      して受理するが評価は無効 (意図的乖離。MANIFEST 参照)。
+//      して受理するが評価は無効 (意図的乖離)。
 //    - MFP / Thickness は cm でオーサリングし、本エンジン
 //      はメートル単位ワールドのためメートルへ変換して保持する。
 // =============================================================

@@ -2,22 +2,22 @@
 
 // =============================================================
 //  LumenCardCapturePS
-//  LumenCardPixelShader (Surface Cache ƒJ[ƒhƒLƒƒƒvƒ`ƒƒ) ‘Š“–B
-//  ƒƒbƒVƒ…‚ğƒJ[ƒh‚ÌƒIƒ‹ƒ\“Š‰e (ƒ[ƒJƒ‹‹óŠÔ, b1 = ’PˆÊs—ñ‚Å
-//  b0.View / Projection ‚ÉƒJ[ƒhƒrƒ…[‚ª“ü‚é) ‚Å•`‚«Aƒ}ƒeƒŠƒAƒ‹
-//  ‘®«‚ğ Surface Cache ƒAƒgƒ‰ƒX‚Ìƒ^ƒCƒ‹‚ÖÄ‚­:
-//    RT0 = AlbedoAtlas   (RGBA8)      : ŠgUƒAƒ‹ƒxƒh (a=1 —LŒøƒ}[ƒJ[)
-//    RT1 = NormalAtlas   (RGBA8)      : ƒJ[ƒh‹óŠÔ–@ü *0.5+0.5 (a=1)
-//    RT2 = EmissiveAtlas (R11G11B10F) : ƒGƒ~ƒbƒVƒuƒ‰ƒfƒBƒAƒ“ƒX
-//    DSV = DepthAtlas    (D32)        : ƒJ[ƒh[“x (0..1, ƒIƒ‹ƒ\üŒ`)
+//  LumenCardPixelShader (Surface Cache ã‚«ãƒ¼ãƒ‰ã‚­ãƒ£ãƒ—ãƒãƒ£) ç›¸å½“ã€‚
+//  ãƒ¡ãƒƒã‚·ãƒ¥ã‚’ã‚«ãƒ¼ãƒ‰ã®ã‚ªãƒ«ã‚½æŠ•å½± (ãƒ­ãƒ¼ã‚«ãƒ«ç©ºé–“, b1 = å˜ä½è¡Œåˆ—ã§
+//  b0.View / Projection ã«ã‚«ãƒ¼ãƒ‰ãƒ“ãƒ¥ãƒ¼ãŒå…¥ã‚‹) ã§æãã€ãƒãƒ†ãƒªã‚¢ãƒ«
+//  å±æ€§ã‚’ Surface Cache ã‚¢ãƒˆãƒ©ã‚¹ã®ã‚¿ã‚¤ãƒ«ã¸ç„¼ã:
+//    RT0 = AlbedoAtlas   (RGBA8)      : æ‹¡æ•£ã‚¢ãƒ«ãƒ™ãƒ‰ (a=1 æœ‰åŠ¹ãƒãƒ¼ã‚«ãƒ¼)
+//    RT1 = NormalAtlas   (RGBA8)      : ã‚«ãƒ¼ãƒ‰ç©ºé–“æ³•ç·š *0.5+0.5 (a=1)
+//    RT2 = EmissiveAtlas (R11G11B10F) : ã‚¨ãƒŸãƒƒã‚·ãƒ–ãƒ©ãƒ‡ã‚£ã‚¢ãƒ³ã‚¹
+//    DSV = DepthAtlas    (D32)        : ã‚«ãƒ¼ãƒ‰æ·±åº¦ (0..1, ã‚ªãƒ«ã‚½ç·šå½¢)
 //
-//  Emissive ‚Í‚±‚±‚ÅƒAƒgƒ‰ƒX‚É“ü‚èALumenSceneCombine_CS ‚ª
-//  FinalLighting ‚Ö‡¬‚·‚é‚±‚Æ‚Åu”­Œõ–Ê‚ªŒõŒ¹‚Æ‚µ‚ÄU‚é•‘‚¤v
-//  (Radiosity / ƒXƒNƒŠ[ƒ“ GI ‚ÌƒgƒŒ[ƒX‚ªÌŒõ‚·‚é)B
+//  Emissive ã¯ã“ã“ã§ã‚¢ãƒˆãƒ©ã‚¹ã«å…¥ã‚Šã€LumenSceneCombine_CS ãŒ
+//  FinalLighting ã¸åˆæˆã™ã‚‹ã“ã¨ã§ã€Œç™ºå…‰é¢ãŒå…‰æºã¨ã—ã¦æŒ¯ã‚‹èˆã†ã€
+//  (Radiosity / ã‚¹ã‚¯ãƒªãƒ¼ãƒ³ GI ã®ãƒˆãƒ¬ãƒ¼ã‚¹ãŒæ¡å…‰ã™ã‚‹)ã€‚
 //
-//  ƒLƒƒƒvƒ`ƒƒ‚Íí‚ÉƒJƒŠƒ“ƒO–³Œø PSO (— –Ê‚Í–@ü”½“])B
-//  Translucent / Additive ƒTƒuƒZƒbƒg‚ÍƒLƒƒƒvƒ`ƒƒ‚ÉQ‰Á‚µ‚È‚¢
-//  (ƒvƒƒLƒV‘¤ DrawCardCapture ‚ÅƒXƒLƒbƒv)B
+//  ã‚­ãƒ£ãƒ—ãƒãƒ£ã¯å¸¸ã«ã‚«ãƒªãƒ³ã‚°ç„¡åŠ¹ PSO (è£é¢ã¯æ³•ç·šåè»¢)ã€‚
+//  Translucent / Additive ã‚µãƒ–ã‚»ãƒƒãƒˆã¯ã‚­ãƒ£ãƒ—ãƒãƒ£ã«å‚åŠ ã—ãªã„
+//  (ãƒ—ãƒ­ã‚­ã‚·å´ DrawCardCapture ã§ã‚¹ã‚­ãƒƒãƒ—)ã€‚
 // =============================================================
 
 struct PS_OUTPUT_CARD_CAPTURE
@@ -34,30 +34,30 @@ PS_OUTPUT_CARD_CAPTURE main(PS_INPUT input, bool bIsFrontFace : SV_IsFrontFace)
     // ---- BaseColor ----
     float4 baseColor = TextureBaseColor.Sample(Sampler, input.TexCoord) * input.Color;
 
-    // ---- BLEND_Masked: OpacityMask ƒNƒŠƒbƒv (ƒx[ƒXƒpƒX‚Æ“¯ˆê‹K–ñ) ----
+    // ---- BLEND_Masked: OpacityMask ã‚¯ãƒªãƒƒãƒ— (ãƒ™ãƒ¼ã‚¹ãƒ‘ã‚¹ã¨åŒä¸€è¦ç´„) ----
     if (Material.BlendMode == BLEND_MASKED)
     {
         clip(baseColor.a - Material.OpacityMaskClipValue);
     }
 
-    // ---- –@ü (b1 = ’PˆÊs—ñ‚È‚Ì‚Å input.Normal ‚Íƒ[ƒJƒ‹–@ü) ----
-    // ƒLƒƒƒvƒ`ƒƒ‚ÍƒJƒŠƒ“ƒO–³Œø: — –ÊƒsƒNƒZƒ‹‚ÍŠô‰½–@ü‚ğ”½“]‚·‚é
+    // ---- æ³•ç·š (b1 = å˜ä½è¡Œåˆ—ãªã®ã§ input.Normal ã¯ãƒ­ãƒ¼ã‚«ãƒ«æ³•ç·š) ----
+    // ã‚­ãƒ£ãƒ—ãƒãƒ£ã¯ã‚«ãƒªãƒ³ã‚°ç„¡åŠ¹: è£é¢ãƒ”ã‚¯ã‚»ãƒ«ã¯å¹¾ä½•æ³•ç·šã‚’åè»¢ã™ã‚‹
     float3 localNormal = normalize(input.Normal.xyz);
     if (!bIsFrontFace)
     {
         localNormal = -localNormal;
     }
 
-    // ƒJ[ƒh‹óŠÔ‚Ö (b0.View = ƒJ[ƒhƒrƒ…[s—ñB‰ñ“]‚Ì‚İ—LŒø)
+    // ã‚«ãƒ¼ãƒ‰ç©ºé–“ã¸ (b0.View = ã‚«ãƒ¼ãƒ‰ãƒ“ãƒ¥ãƒ¼è¡Œåˆ—ã€‚å›è»¢ã®ã¿æœ‰åŠ¹)
     float3 cardNormal = normalize(mul(float4(localNormal, 0.0f), View).xyz);
 
-    // ---- ƒAƒ‹ƒxƒh ----
-    // Unlit ‚Íƒ‰ƒCƒeƒBƒ“ƒOŠñ—^‚È‚µ (ƒAƒ‹ƒxƒh 0)B
-    // Substrate ‚Í DiffuseAlbedo ƒsƒ“ x BaseColor (GeometryPS ‚Æ“¯ˆê‹K–ñ)B
-    // ƒŒƒKƒV[‚Í‹à‘®‚ğœŠO‚µ‚½ŠgUƒAƒ‹ƒxƒh (DeferredPS ‚Ì
-    // lumenDiffuseAlbedo = baseColor * (1 - metallic) ‚Æˆê’v‚³‚¹‚éB
-    // ‹à‘®‚ğŠgU”½Ë‘Ì‚Æ‚µ‚ÄÄ‚­‚ÆA’¼Ú•`‰æ‚É‚Í‘¶İ‚µ‚È‚¢F•t‚«ƒoƒEƒ“ƒX
-    // ‚ª”­¶‚µ Radiosity ‚ÌƒtƒB[ƒhƒoƒbƒN‚ÅƒGƒlƒ‹ƒM[‚ª‘‚¦‚é)B
+    // ---- ã‚¢ãƒ«ãƒ™ãƒ‰ ----
+    // Unlit ã¯ãƒ©ã‚¤ãƒ†ã‚£ãƒ³ã‚°å¯„ä¸ãªã— (ã‚¢ãƒ«ãƒ™ãƒ‰ 0)ã€‚
+    // Substrate ã¯ DiffuseAlbedo ãƒ”ãƒ³ x BaseColor (GeometryPS ã¨åŒä¸€è¦ç´„)ã€‚
+    // ãƒ¬ã‚¬ã‚·ãƒ¼ã¯é‡‘å±ã‚’é™¤å¤–ã—ãŸæ‹¡æ•£ã‚¢ãƒ«ãƒ™ãƒ‰ (DeferredPS ã®
+    // lumenDiffuseAlbedo = baseColor * (1 - metallic) ã¨ä¸€è‡´ã•ã›ã‚‹ã€‚
+    // é‡‘å±ã‚’æ‹¡æ•£åå°„ä½“ã¨ã—ã¦ç„¼ãã¨ã€ç›´æ¥æç”»ã«ã¯å­˜åœ¨ã—ãªã„è‰²ä»˜ããƒã‚¦ãƒ³ã‚¹
+    // ãŒç™ºç”Ÿã— Radiosity ã®ãƒ•ã‚£ãƒ¼ãƒ‰ãƒãƒƒã‚¯ã§ã‚¨ãƒãƒ«ã‚®ãƒ¼ãŒå¢—ãˆã‚‹)ã€‚
     float3 albedo = baseColor.rgb;
     if (Material.bUseSubstrate)
     {
@@ -65,7 +65,7 @@ PS_OUTPUT_CARD_CAPTURE main(PS_INPUT input, bool bIsFrontFace : SV_IsFrontFace)
     }
     else
     {
-        // ARM ƒtƒH[ƒ‹ƒoƒbƒN‹K–ñ‚Í GeometryPS ‚Æ“¯ˆê
+        // ARM ãƒ•ã‚©ãƒ¼ãƒ«ãƒãƒƒã‚¯è¦ç´„ã¯ GeometryPS ã¨åŒä¸€
         float4 ARM = TextureMSRA.Sample(Sampler, input.TexCoord);
         float metallic = (ARM.b == 0.0f) ? Material.Metallic : ARM.b;
         albedo = baseColor.rgb * (1.0f - metallic);
@@ -75,13 +75,13 @@ PS_OUTPUT_CARD_CAPTURE main(PS_INPUT input, bool bIsFrontFace : SV_IsFrontFace)
         albedo = float3(0.0f, 0.0f, 0.0f);
     }
 
-    // ---- ƒGƒ~ƒbƒVƒu (”­Œõ–Ê -> Surface Cache ŒõŒ¹‰»‚Ì“üŒû) ----
-    // ’¼Ú•`‰æ‚ÉƒGƒ~ƒbƒVƒu‚ªo‚éŒo˜H‚Æ‚¾‚¯ˆê’v‚³‚¹‚é:
-    //   Unlit     : GeometryPS ‚Ì Unlit ‡¬ (EmissionColor + BaseColor •Ï’²)
-    //   Substrate : SlabBSDF.Emissive ‚Æ‚µ‚Ä DeferredPS ‚ª‰ÁZ‚·‚é
-    //   ƒŒƒKƒV[ Lit : G-Buffer ‚ÉƒGƒ~ƒbƒVƒuƒ`ƒƒƒ“ƒlƒ‹‚ª–³‚­‰æ–Ê‚Éo‚È‚¢B
-    //                  ‚±‚±‚ÅÄ‚­‚Æu©•ª‚Í^‚Á•‚È‚Ì‚ÉüˆÍ‚¾‚¯Æ‚ç‚·v
-    //                  •s‰Â‹ŒõŒ¹‚É‚È‚é‚½‚ß‘ÎÛŠO‚Æ‚·‚éB
+    // ---- ã‚¨ãƒŸãƒƒã‚·ãƒ– (ç™ºå…‰é¢ -> Surface Cache å…‰æºåŒ–ã®å…¥å£) ----
+    // ç›´æ¥æç”»ã«ã‚¨ãƒŸãƒƒã‚·ãƒ–ãŒå‡ºã‚‹çµŒè·¯ã¨ã ã‘ä¸€è‡´ã•ã›ã‚‹:
+    //   Unlit     : GeometryPS ã® Unlit åˆæˆ (EmissionColor + BaseColor å¤‰èª¿)
+    //   Substrate : SlabBSDF.Emissive ã¨ã—ã¦ DeferredPS ãŒåŠ ç®—ã™ã‚‹
+    //   ãƒ¬ã‚¬ã‚·ãƒ¼ Lit : G-Buffer ã«ã‚¨ãƒŸãƒƒã‚·ãƒ–ãƒãƒ£ãƒ³ãƒãƒ«ãŒç„¡ãç”»é¢ã«å‡ºãªã„ã€‚
+    //                  ã“ã“ã§ç„¼ãã¨ã€Œè‡ªåˆ†ã¯çœŸã£é»’ãªã®ã«å‘¨å›²ã ã‘ç…§ã‚‰ã™ã€
+    //                  ä¸å¯è¦–å…‰æºã«ãªã‚‹ãŸã‚å¯¾è±¡å¤–ã¨ã™ã‚‹ã€‚
     float3 emissive = float3(0.0f, 0.0f, 0.0f);
     if (Material.Unlit)
     {
@@ -92,7 +92,7 @@ PS_OUTPUT_CARD_CAPTURE main(PS_INPUT input, bool bIsFrontFace : SV_IsFrontFace)
         emissive = Material.EmissionColor.rgb;
     }
 
-    output.Albedo = float4(albedo, 1.0f); // a=1: —LŒøƒeƒNƒZƒ‹ƒ}[ƒJ[
+    output.Albedo = float4(albedo, 1.0f); // a=1: æœ‰åŠ¹ãƒ†ã‚¯ã‚»ãƒ«ãƒãƒ¼ã‚«ãƒ¼
     output.Normal = float4(cardNormal * 0.5f + 0.5f, 1.0f);
     output.Emissive = float4(emissive, 1.0f);
 

@@ -192,11 +192,8 @@ void FVolumetricFog::Init()
 	//  1 テーブル = 1 デスクリプタで分割する (FLightGridInjection と同じ)。
 	// ------------------------------------------------------------
 	{
-		const unsigned int NUM_SRV = 11;
-		const unsigned int NUM_UAV = 4;
-
-		D3D12_DESCRIPTOR_RANGE rangeSRV[NUM_SRV]{};
-		for (unsigned int i = 0; i < NUM_SRV; ++i)
+		D3D12_DESCRIPTOR_RANGE rangeSRV[NUM_SRV_SLOTS]{};
+		for (unsigned int i = 0; i < NUM_SRV_SLOTS; ++i)
 		{
 			rangeSRV[i].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
 			rangeSRV[i].NumDescriptors = 1;
@@ -204,8 +201,8 @@ void FVolumetricFog::Init()
 			rangeSRV[i].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 		}
 
-		D3D12_DESCRIPTOR_RANGE rangeUAV[NUM_UAV]{};
-		for (unsigned int i = 0; i < NUM_UAV; ++i)
+		D3D12_DESCRIPTOR_RANGE rangeUAV[NUM_UAV_SLOTS]{};
+		for (unsigned int i = 0; i < NUM_UAV_SLOTS; ++i)
 		{
 			rangeUAV[i].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
 			rangeUAV[i].NumDescriptors = 1;
@@ -213,25 +210,25 @@ void FVolumetricFog::Init()
 			rangeUAV[i].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 		}
 
-		D3D12_ROOT_PARAMETER params[1 + NUM_SRV + NUM_UAV]{};
+		D3D12_ROOT_PARAMETER params[1 + NUM_SRV_SLOTS + NUM_UAV_SLOTS]{};
 		params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
 		params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 		params[0].Descriptor.ShaderRegister = 0;
 		params[0].Descriptor.RegisterSpace = 0;
 
-		for (unsigned int i = 0; i < NUM_SRV; ++i)
+		for (unsigned int i = 0; i < NUM_SRV_SLOTS; ++i)
 		{
 			params[1 + i].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
 			params[1 + i].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 			params[1 + i].DescriptorTable.NumDescriptorRanges = 1;
 			params[1 + i].DescriptorTable.pDescriptorRanges = &rangeSRV[i];
 		}
-		for (unsigned int i = 0; i < NUM_UAV; ++i)
+		for (unsigned int i = 0; i < NUM_UAV_SLOTS; ++i)
 		{
-			params[1 + NUM_SRV + i].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-			params[1 + NUM_SRV + i].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-			params[1 + NUM_SRV + i].DescriptorTable.NumDescriptorRanges = 1;
-			params[1 + NUM_SRV + i].DescriptorTable.pDescriptorRanges = &rangeUAV[i];
+			params[1 + NUM_SRV_SLOTS + i].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+			params[1 + NUM_SRV_SLOTS + i].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+			params[1 + NUM_SRV_SLOTS + i].DescriptorTable.NumDescriptorRanges = 1;
+			params[1 + NUM_SRV_SLOTS + i].DescriptorTable.pDescriptorRanges = &rangeUAV[i];
 		}
 
 		// s0: 線形クランプ (ボリューム履歴 / スカイキューブ)
@@ -430,12 +427,11 @@ void FVolumetricFog::Dispatch(const FVolumetricFogInputs& Inputs)
 	else
 	{
 		p.CascadeSplits = { 1.0e9f, 1.0e9f, 1.0e9f, 1.0e9f };
-		p.DirectionalShadowParams = { 0.0f, 0.0f, 0.0f, 0.0f };
 	}
 
 	// グリッド
 	const float nearPlane = view.NearFar.x;
-	const float maxDistance = (fog->VolumetricFogDistance > nearPlane + 1.0f) ? fog->VolumetricFogDistance : (nearPlane + 1.0f);
+	const float maxDistance = ComputeMaxDistance(nearPlane, fog->VolumetricFogDistance);
 	const XMFLOAT3 gridZ = ComputeGridZParams(nearPlane, maxDistance);
 
 	p.GridSize = { (float)m_GridSizeX, (float)m_GridSizeY, (float)m_GridSizeZ, (float)VOLUMETRIC_FOG_GRID_PIXEL_SIZE };
@@ -505,7 +501,7 @@ void FVolumetricFog::Dispatch(const FVolumetricFogInputs& Inputs)
 		};
 	auto bindUAV = [&](unsigned int slot, unsigned int uavIndex)
 		{
-			cl->SetComputeRootDescriptorTable(1 + 11 + slot, m_Owner->GetGPUDescriptorHandle(uavIndex));
+			cl->SetComputeRootDescriptorTable(1 + NUM_SRV_SLOTS + slot, m_Owner->GetGPUDescriptorHandle(uavIndex));
 		};
 
 	// 未使用スロットにも有効なデスクリプタを置く (ライトバッファで代用)

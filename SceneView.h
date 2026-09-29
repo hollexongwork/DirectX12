@@ -6,45 +6,45 @@ using namespace DirectX;
 
 // ============================================================
 //  FSceneView
-//  FSceneView ‚É‘Š“–‚·‚éu1 ƒtƒŒ[ƒ€•ª‚Ìƒrƒ…[î•ñv‚Ì
-//  ’lƒXƒiƒbƒvƒVƒ‡ƒbƒgBƒQ[ƒ€‘¤ (UWorld::CalcSceneView) ‚ª
-//  ƒtƒŒ[ƒ€æ“ª‚Å 1 ‰ñ‚¾‚¯\’z‚µAƒŒƒ“ƒ_ƒ‰ (FSceneRenderer /
-//  FShadowSceneRenderer) ‚Í‚±‚Ì\‘¢‘Ì‚¾‚¯‚ð“Ç‚ÞB
-//  ƒŒƒ“ƒ_ƒ‰‚ª UCameraComponent / APostProcessVolume ‚É’¼Ú
-//  G‚ê‚é‚±‚Æ‚Í‚à‚¤–³‚¢ (ƒQ[ƒ€‘¤‚ÆƒŒƒ“ƒ_[‘¤‚Ìƒf[ƒ^ƒtƒ[‚ð
-//  ˆê•ûŒü‚É‚·‚éB«—ˆ‚ÌƒŒƒ“ƒ_[ƒXƒŒƒbƒh‰»‚Ì“y‘ä)B
+//  FSceneView ã«ç›¸å½“ã™ã‚‹ã€Œ1 ãƒ•ãƒ¬ãƒ¼ãƒ åˆ†ã®ãƒ“ãƒ¥ãƒ¼æƒ…å ±ã€ã®
+//  å€¤ã‚¹ãƒŠãƒƒãƒ—ã‚·ãƒ§ãƒƒãƒˆã€‚ã‚²ãƒ¼ãƒ å´ (UWorld::CalcSceneView) ãŒ
+//  ãƒ•ãƒ¬ãƒ¼ãƒ å…ˆé ­ã§ 1 å›žã ã‘æ§‹ç¯‰ã—ã€ãƒ¬ãƒ³ãƒ€ãƒ© (FSceneRenderer /
+//  FShadowSceneRenderer) ã¯ã“ã®æ§‹é€ ä½“ã ã‘ã‚’èª­ã‚€ã€‚
+//  ãƒ¬ãƒ³ãƒ€ãƒ©ãŒ UCameraComponent / APostProcessVolume ã«ç›´æŽ¥
+//  è§¦ã‚Œã‚‹ã“ã¨ã¯ã‚‚ã†ç„¡ã„ (ã‚²ãƒ¼ãƒ å´ã¨ãƒ¬ãƒ³ãƒ€ãƒ¼å´ã®ãƒ‡ãƒ¼ã‚¿ãƒ•ãƒ­ãƒ¼ã‚’
+//  ä¸€æ–¹å‘ã«ã™ã‚‹ã€‚å°†æ¥ã®ãƒ¬ãƒ³ãƒ€ãƒ¼ã‚¹ãƒ¬ãƒƒãƒ‰åŒ–ã®åœŸå°)ã€‚
 // ============================================================
 
 struct FSceneView
 {
-	// ƒAƒNƒeƒBƒuƒJƒƒ‰‚ª‘¶Ý‚·‚é‚©Bfalse ‚ÌƒtƒŒ[ƒ€‚Í
-	// ƒrƒ…[’è” / CSM ‚ðXV‚µ‚È‚¢ (]—ˆ‚ÌƒJƒƒ‰•sÝŽž‹““®‚Æ“¯‚¶)B
+	// ã‚¢ã‚¯ãƒ†ã‚£ãƒ–ã‚«ãƒ¡ãƒ©ãŒå­˜åœ¨ã™ã‚‹ã‹ã€‚false ã®ãƒ•ãƒ¬ãƒ¼ãƒ ã¯
+	// ãƒ“ãƒ¥ãƒ¼å®šæ•° / CSM ã‚’æ›´æ–°ã—ãªã„ (å¾“æ¥ã®ã‚«ãƒ¡ãƒ©ä¸åœ¨æ™‚æŒ™å‹•ã¨åŒã˜)ã€‚
 	bool bValid = false;
 
-	// ---- ƒrƒ…[ / ŽË‰es—ñ (“]’u‘O) ----
-	// ƒŒƒ“ƒ_ƒ‰‘¤‚Å VIEW ’è” (b0) ‚Ö“]’u‚µ‚Ä‹l‚ß‚ç‚ê‚éB
+	// ---- ãƒ“ãƒ¥ãƒ¼ / å°„å½±è¡Œåˆ— (è»¢ç½®å‰) ----
+	// ãƒ¬ãƒ³ãƒ€ãƒ©å´ã§ VIEW å®šæ•° (b0) ã¸è»¢ç½®ã—ã¦è©°ã‚ã‚‰ã‚Œã‚‹ã€‚
 	XMFLOAT4X4 ViewMatrix;
 	XMFLOAT4X4 ProjectionMatrix;
 
-	// ---- ƒJƒƒ‰ƒpƒ‰ƒ[ƒ^ ----
-	// CSM ‚ÌƒJƒXƒP[ƒhƒtƒBƒbƒeƒBƒ“ƒO (FShadowSceneRenderer::
-	// SetupDirectionalShadows) ‚Æ VIEW ’è” (WorldCameraOrigin /
-	// NearFar) ‚ªŽQÆ‚·‚éB
-	XMFLOAT3 ViewOrigin = { 0.0f, 0.0f, 0.0f };	// ƒJƒƒ‰ƒ[ƒ‹ƒhˆÊ’u [m]
-	XMFLOAT3 ViewForward = { 0.0f, 0.0f, 1.0f };	// ³‹K‰»Ï‚Ý‘O•ûƒxƒNƒgƒ‹
-	float    FOV = 45.0f;							// ‚’¼‰æŠp [“x]
+	// ---- ã‚«ãƒ¡ãƒ©ãƒ‘ãƒ©ãƒ¡ãƒ¼ã‚¿ ----
+	// CSM ã®ã‚«ã‚¹ã‚±ãƒ¼ãƒ‰ãƒ•ã‚£ãƒƒãƒ†ã‚£ãƒ³ã‚° (FShadowSceneRenderer::
+	// SetupDirectionalShadows) ã¨ VIEW å®šæ•° (WorldCameraOrigin /
+	// NearFar) ãŒå‚ç…§ã™ã‚‹ã€‚
+	XMFLOAT3 ViewOrigin = { 0.0f, 0.0f, 0.0f };	// ã‚«ãƒ¡ãƒ©ãƒ¯ãƒ¼ãƒ«ãƒ‰ä½ç½® [m]
+	XMFLOAT3 ViewForward = { 0.0f, 0.0f, 1.0f };	// æ­£è¦åŒ–æ¸ˆã¿å‰æ–¹ãƒ™ã‚¯ãƒˆãƒ«
+	float    FOV = 45.0f;							// åž‚ç›´ç”»è§’ [åº¦]
 	float    NearClip = 0.1f;
 	float    FarClip = 500.0f;
 	float    AspectRatio = 16.0f / 9.0f;
 
-	// ---- ‰ðŒˆÏ‚Ýƒ|ƒXƒgƒvƒƒZƒXÝ’è (FFinalPostProcessSettings ‘Š“–) ----
-	// APostProcessVolume ‚©‚çƒQ[ƒ€‘¤ (UWorld::CalcSceneView) ‚Å
-	// ‰ðŒˆÏ‚ÝBƒ{ƒŠƒ…[ƒ€•sÝ / –³ŒøŽž‚ÍŠù’è’l‚ª“ü‚éB
+	// ---- è§£æ±ºæ¸ˆã¿ãƒã‚¹ãƒˆãƒ—ãƒ­ã‚»ã‚¹è¨­å®š (FFinalPostProcessSettings ç›¸å½“) ----
+	// APostProcessVolume ã‹ã‚‰ã‚²ãƒ¼ãƒ å´ (UWorld::CalcSceneView) ã§
+	// è§£æ±ºæ¸ˆã¿ã€‚ãƒœãƒªãƒ¥ãƒ¼ãƒ ä¸åœ¨ / ç„¡åŠ¹æ™‚ã¯æ—¢å®šå€¤ãŒå…¥ã‚‹ã€‚
 	PP_SETTINGS FinalPostProcessSettings{};
 
 	FSceneView()
 	{
-		// s—ñ‚Í’PˆÊs—ñ‚Å‰Šú‰» (bValid=false ‚Å‚àˆÀ‘S‚É“Ç‚ß‚é)
+		// è¡Œåˆ—ã¯å˜ä½è¡Œåˆ—ã§åˆæœŸåŒ– (bValid=false ã§ã‚‚å®‰å…¨ã«èª­ã‚ã‚‹)
 		XMStoreFloat4x4(&ViewMatrix, XMMatrixIdentity());
 		XMStoreFloat4x4(&ProjectionMatrix, XMMatrixIdentity());
 	}

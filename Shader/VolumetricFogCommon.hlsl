@@ -33,7 +33,8 @@
 //
 //  このファイルは b0 / t0.. を独自所有するため、レジスタを宣言する
 //  共有ヘッダ (Common.hlsl 系) は include しない。構造体は
-//  Structs.hlsl、シャドウ投影は ShadowProjectionCommon.hlsl
+//  Structs.hlsl、シャドウ投影は ShadowProjectionCommon.hlsl、
+//  定数 (PI) は Constant.hlsl、輝度 (Luminance) は ColorSpace.hlsl
 //  (いずれもレジスタ非依存) から取り込む。ライトグリッドの
 //  セル計算は LightGridCommon.hlsl と同式 (b3 の値を b0 経由で受ける)。
 //
@@ -50,11 +51,11 @@
 
 #include "Structs.hlsl"
 #include "ShadowProjectionCommon.hlsl"
+#include "Constant.hlsl"
+#include "ColorSpace.hlsl"
 
 #define VOLUMETRIC_FOG_THREADGROUP_SIZE 4   // 4x4x4 (UE VolumetricFogGridInjectionGroupSize)
 #define VOLUMETRIC_FOG_INTEGRATION_GROUP_SIZE 8   // 8x8x1 (FinalIntegration)
-
-static const float VF_PI = 3.14159265358979323846f;
 
 // C++ 側 (VolumetricFog.h) の FVolumetricFogParams と 1:1 ミラー必須 (720 bytes)
 cbuffer FVolumetricFogParams : register(b0)
@@ -192,7 +193,7 @@ float HenyeyGreensteinPhase(float g, float CosTheta)
 {
     float g2 = g * g;
     float denom = max(1.0f + g2 - 2.0f * g * CosTheta, 1e-4f);
-    return (1.0f - g2) / (4.0f * VF_PI * pow(denom, 1.5f));
+    return (1.0f - g2) / (4.0f * PI * pow(denom, 1.5f));
 }
 
 // -------------------------------------------------------------
@@ -278,7 +279,7 @@ float3 ComputeLocalLightVolumetricScattering(
     [flatten]
     if (FogInscatteringColor.w > 0.5f)
     {
-        float luminance = dot(Light.Color, float3(0.2126f, 0.7152f, 0.0722f));
+        float luminance = Luminance(Light.Color);
         lightColor = FogInscatteringColor.rgb * luminance;
     }
 

@@ -3,24 +3,24 @@
 
 // =============================================================
 //  LumenTracingHardware
-//  LumenHardwareRayTracing ‘Š“–BDXR 1.1 ‚ÌƒCƒ“ƒ‰ƒCƒ“
-//  ƒŒƒCƒgƒŒ[ƒVƒ“ƒO (RayQuery, SM 6.5) ‚Å Lumen ƒV[ƒ“‚ğƒgƒŒ[ƒX
-//  ‚·‚éBTLAS ‚ÌƒCƒ“ƒXƒ^ƒ“ƒX ID = Lumen ƒIƒuƒWƒFƒNƒgƒXƒƒbƒg
-//  ‚È‚Ì‚ÅAƒqƒbƒg‚Ì Surface Cache ÌŒõ‚Í SWRT ‚Æ“¯‚¶Œo˜H‚ğg‚¤
-//  (ƒqƒbƒg–@ü‚Í‚»‚ÌƒIƒuƒWƒFƒNƒg‚ÌƒƒbƒVƒ… SDF Œù”z‚Å‹‚ß‚é =
-//  ’¸“_ƒoƒbƒtƒ@‚ÌƒoƒCƒ“ƒh•s—v‚ÈƒnƒCƒuƒŠƒbƒh\¬)B
+//  LumenHardwareRayTracing ç›¸å½“ã€‚DXR 1.1 ã®ã‚¤ãƒ³ãƒ©ã‚¤ãƒ³
+//  ãƒ¬ã‚¤ãƒˆãƒ¬ãƒ¼ã‚·ãƒ³ã‚° (RayQuery, SM 6.5) ã§ Lumen ã‚·ãƒ¼ãƒ³ã‚’ãƒˆãƒ¬ãƒ¼ã‚¹
+//  ã™ã‚‹ã€‚TLAS ã®ã‚¤ãƒ³ã‚¹ã‚¿ãƒ³ã‚¹ ID = Lumen ã‚ªãƒ–ã‚¸ã‚§ã‚¯ãƒˆã‚¹ãƒ­ãƒƒãƒˆ
+//  ãªã®ã§ã€ãƒ’ãƒƒãƒˆã® Surface Cache æ¡å…‰ã¯ SWRT ã¨åŒã˜çµŒè·¯ã‚’ä½¿ã†
+//  (ãƒ’ãƒƒãƒˆæ³•ç·šã¯ãã®ã‚ªãƒ–ã‚¸ã‚§ã‚¯ãƒˆã®ãƒ¡ãƒƒã‚·ãƒ¥ SDF å‹¾é…ã§æ±‚ã‚ã‚‹ =
+//  é ‚ç‚¹ãƒãƒƒãƒ•ã‚¡ã®ãƒã‚¤ãƒ³ãƒ‰ä¸è¦ãªãƒã‚¤ãƒ–ãƒªãƒƒãƒ‰æ§‹æˆ)ã€‚
 //
-//  LUMEN_HWRT=1 ‚Ì RT ƒoƒŠƒAƒ“ƒg (*RT_CS.hlsl) ‚¾‚¯‚ªƒCƒ“ƒNƒ‹[ƒh
-//  ‚·‚éBƒ‹[ƒgƒVƒOƒlƒ`ƒƒ‚Ì [37] (ƒ‹[ƒg SRV t28) ‚É TLAS ‚ğ
-//  ƒoƒCƒ“ƒh‚·‚é‚±‚Æ (LumenScene.cpp / LumenHardwareRayTracing.h)B
+//  LUMEN_HWRT=1 ã® RT ãƒãƒªã‚¢ãƒ³ãƒˆ (*RT_CS.hlsl) ã ã‘ãŒã‚¤ãƒ³ã‚¯ãƒ«ãƒ¼ãƒ‰
+//  ã™ã‚‹ã€‚ãƒ«ãƒ¼ãƒˆã‚·ã‚°ãƒãƒãƒ£ã® [37] (ãƒ«ãƒ¼ãƒˆ SRV t28) ã« TLAS ã‚’
+//  ãƒã‚¤ãƒ³ãƒ‰ã™ã‚‹ã“ã¨ (LumenScene.cpp / LumenHardwareRayTracing.h)ã€‚
 // =============================================================
 
 RaytracingAccelerationStructure LumenSceneTLAS : register(t28);
 
 // -------------------------------------------------------------
-//  Å‹ßƒqƒbƒgƒgƒŒ[ƒX (FLumenTraceResult ‚Í LumenTracingCommon)
-//  HWRT ‚ÍƒoƒCƒiƒŠ‰Â‹—¦ (ƒ\ƒtƒgƒR[ƒ“‚È‚µBHWRT ƒVƒƒƒhƒE‚Æ
-//  “¯‚¶‹““®)BƒqƒbƒgƒIƒuƒWƒFƒNƒg = InstanceID (Lumen ƒXƒƒbƒg)B
+//  æœ€è¿‘ãƒ’ãƒƒãƒˆãƒˆãƒ¬ãƒ¼ã‚¹ (FLumenTraceResult ã¯ LumenTracingCommon)
+//  HWRT ã¯ãƒã‚¤ãƒŠãƒªå¯è¦–ç‡ (ã‚½ãƒ•ãƒˆã‚³ãƒ¼ãƒ³ãªã—ã€‚HWRT ã‚·ãƒ£ãƒ‰ã‚¦ã¨
+//  åŒã˜æŒ™å‹•)ã€‚ãƒ’ãƒƒãƒˆã‚ªãƒ–ã‚¸ã‚§ã‚¯ãƒˆ = InstanceID (Lumen ã‚¹ãƒ­ãƒƒãƒˆ)ã€‚
 // -------------------------------------------------------------
 FLumenTraceResult TraceLumenSceneHardware(float3 RayStart, float3 RayDir, float MaxT,
     uint NumObjects)
@@ -40,7 +40,7 @@ FLumenTraceResult TraceLumenSceneHardware(float3 RayStart, float3 RayDir, float 
     RayQuery < RAY_FLAG_FORCE_OPAQUE > query;
     query.TraceRayInline(LumenSceneTLAS, RAY_FLAG_NONE, 0xFFu, ray);
 
-    // FORCE_OPAQUE ‚È‚Ì‚ÅŒÅ’è‹@”\ƒgƒ‰ƒo[ƒTƒ‹‚Ì‚İ (Œó•âˆ—•s—v)
+    // FORCE_OPAQUE ãªã®ã§å›ºå®šæ©Ÿèƒ½ãƒˆãƒ©ãƒãƒ¼ã‚µãƒ«ã®ã¿ (å€™è£œå‡¦ç†ä¸è¦)
     while (query.Proceed())
     {
     }

@@ -126,7 +126,7 @@ private:
 	// ライト登録簿
 	// Directional / Point / Spot / Rect すべてここに登録され、
 	// FSceneRenderer::SetupLightConstants が毎フレーム
-	// ENV 定数 (directional) + ライトバッファ (local) に解決する。
+	// VIEW 定数 (directional) + ライトバッファ (local) に解決する。
 	std::vector<FLightSceneInfo>      m_Lights;
 
 	// ---- ダーティリスト (プッシュ型更新) ----

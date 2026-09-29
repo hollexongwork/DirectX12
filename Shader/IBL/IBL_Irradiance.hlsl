@@ -4,37 +4,12 @@
 //  半球コサイン重み積分（ランタイムではなく起動時に一度きり）
 // ============================================================
 
-#include "../Constant.hlsl"
+#include "IBL_Common.hlsl"
 
 TextureCube<float4>       EnvCube     : register(t0);
 RWTexture2DArray<float4>  IrradianceOut : register(u0);
 
 SamplerState LinearClamp : register(s0);
-
-cbuffer BakeParams : register(b0)
-{
-    uint  FaceSize;     // irradianceキューブの一辺 (例: 32)
-    uint  MipLevel;
-    float Roughness;
-    float _pad;
-};
-
-
-float3 CubeFaceUVToDir(uint face, float2 uv)
-{
-    float3 dir;
-    switch (face)
-    {
-        case 0: dir = float3( 1.0f, -uv.y, -uv.x); break;
-        case 1: dir = float3(-1.0f, -uv.y,  uv.x); break;
-        case 2: dir = float3( uv.x,  1.0f,  uv.y); break;
-        case 3: dir = float3( uv.x, -1.0f, -uv.y); break;
-        case 4: dir = float3( uv.x, -uv.y,  1.0f); break;
-        case 5: dir = float3(-uv.x, -uv.y, -1.0f); break;
-        default: dir = float3(0, 0, 1); break;
-    }
-    return normalize(dir);
-}
 
 [numthreads(8, 8, 1)]
 void main(uint3 id : SV_DispatchThreadID)

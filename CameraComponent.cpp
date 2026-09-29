@@ -1,5 +1,4 @@
 #include "Main.h"
-#include "RenderManager.h"
 #include "CameraComponent.h"
 #include "SceneView.h"
 #include "World.h"

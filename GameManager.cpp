@@ -1,6 +1,5 @@
 ﻿#include "Main.h"
 #include "GameManager.h"
-#include "ImGUI/imgui.h"
 
 #include "Camera.h"
 #include "Sky.h"
@@ -21,8 +20,6 @@ GameManager::GameManager(HWND hWnd)
 	, m_SceneRenderer(&m_RenderManager)
 	, m_InputManager(hWnd)
 {
-	m_Instance = this;
-
 	// ---- レベルロード相当: 初期アクターのスポーン ----
 	// (スポーン順 = FScene への登録順 = ベースパスの描画順)
 	m_World.SpawnActor<APostProcessVolume>();	// グローバルポスプロ (bUnbound)
@@ -30,7 +27,7 @@ GameManager::GameManager(HWND hWnd)
 	// ---- ライト (ALight アクター + ULightComponent) ----
 	{
 		// ディレクショナル: 旧 FScene 既定値 (方向 (3,5,-3) / 強度 3) と同じ見た目。
-		// 既定は 10 lux , Lights パネルで調整できる
+		// 既定は 10 lux , Details の Light セクションで調整できる
 		ADirectionalLight* sun = m_World.SpawnActor<ADirectionalLight>();
 		sun->SetActorRotation(ULightComponentBase::DirectionToRotator({ -3.0f, -5.0f, 3.0f }));	// 発光方向 = 旧 LightDirection の逆
 		sun->GetLightComponent()->SetIntensity(3.0f);	// lux
@@ -237,7 +234,7 @@ void GameManager::Draw()
 	m_SceneRenderer.RenderLumenScene(m_World.GetScene());             // Lumen: カードキャプチャ + Surface Cache ライティング (Emissive 光源化)
 	m_SceneRenderer.RenderLighting();                                 // LinearDepth + デファード -> SceneColor
 	m_SceneRenderer.RenderTranslucency(m_World.GetScene());           // Translucent/Additive -> SceneColor (後→前フォワード合成)
-	m_SceneRenderer.RenderPostProcessing();                           // DOF -> AutoExposure -> Bloom -> LUT -> Tonemap
+	m_SceneRenderer.RenderPostProcessing();                           // SceneColor 履歴 (Lumen) -> DOF -> AutoExposure -> Bloom -> LUT -> Tonemap
 	m_ImGuiManager.Draw();                                            // UI 構築 (描画は EndFrame 内)
 	m_SceneRenderer.EndFrame();                                       // ImGui 描画 + Present
 }

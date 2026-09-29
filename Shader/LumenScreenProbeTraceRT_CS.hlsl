@@ -1,9 +1,9 @@
 // =============================================================
 //  LumenScreenProbeTraceRT_CS
-//  LumenScreenProbeTrace_CS ‚Ì DXR (RayQuery, SM 6.5) ƒoƒŠƒAƒ“ƒgB
-//  LUMEN_HWRT=1 ‚Å TraceLumenRay ‚ª RayQuery ƒCƒ“ƒ‰ƒCƒ“ƒgƒŒ[ƒX
-//  (LumenTracingHardware.hlsl) ‚ÉØ‚è‘Ö‚í‚éBTLAS ‚Íƒ‹[ƒg SRV
-//  t28 (LumenHardwareRayTracing.h) ‚ÉƒoƒCƒ“ƒh‚³‚ê‚éB
+//  LumenScreenProbeTrace_CS ã® DXR (RayQuery, SM 6.5) ãƒãƒªã‚¢ãƒ³ãƒˆã€‚
+//  LUMEN_HWRT=1 ã§ TraceLumenRay ãŒ RayQuery ã‚¤ãƒ³ãƒ©ã‚¤ãƒ³ãƒˆãƒ¬ãƒ¼ã‚¹
+//  (LumenTracingHardware.hlsl) ã«åˆ‡ã‚Šæ›¿ã‚ã‚‹ã€‚TLAS ã¯ãƒ«ãƒ¼ãƒˆ SRV
+//  t28 (LumenHardwareRayTracing.h) ã«ãƒã‚¤ãƒ³ãƒ‰ã•ã‚Œã‚‹ã€‚
 // =============================================================
 #define LUMEN_HWRT 1
 #include "LumenScreenProbeTrace_CS.hlsl"

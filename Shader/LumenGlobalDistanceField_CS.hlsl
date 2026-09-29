@@ -2,13 +2,13 @@
 
 // =============================================================
 //  LumenGlobalDistanceField_CS
-//  GlobalDistanceField.usf ‘Š“–BƒV[ƒ“‚Ì‘SƒƒbƒVƒ… SDF ‚ğ
-//  ƒJƒƒ‰’Ç]‚ÌƒNƒŠƒbƒvƒ}ƒbƒv (128^3, R16F, ƒ[ƒ‹ƒh‹——£ [m]) ‚Ö
-//  ‡¬‚·‚éBƒ{ƒŠƒ…[ƒ€ŠO‚Ìƒ{ƒNƒZƒ‹‚Í
+//  GlobalDistanceField.usf ç›¸å½“ã€‚ã‚·ãƒ¼ãƒ³ã®å…¨ãƒ¡ãƒƒã‚·ãƒ¥ SDF ã‚’
+//  ã‚«ãƒ¡ãƒ©è¿½å¾“ã®ã‚¯ãƒªãƒƒãƒ—ãƒãƒƒãƒ— (128^3, R16F, ãƒ¯ãƒ¼ãƒ«ãƒ‰è·é›¢ [m]) ã¸
+//  åˆæˆã™ã‚‹ã€‚ãƒœãƒªãƒ¥ãƒ¼ãƒ å¤–ã®ãƒœã‚¯ã‚»ãƒ«ã¯
 //    d ~ |p - clamp(p)| + SDF(clamp(p))
-//  ‚Å‹ß—‚·‚éB
+//  ã§è¿‘ä¼¼ã™ã‚‹ã€‚
 //
-//  CardStartIndex = ƒrƒ‹ƒh‘ÎÛ‚ÌƒNƒŠƒbƒvƒ}ƒbƒv”Ô† (0/1)B
+//  CardStartIndex = ãƒ“ãƒ«ãƒ‰å¯¾è±¡ã®ã‚¯ãƒªãƒƒãƒ—ãƒãƒƒãƒ—ç•ªå· (0/1)ã€‚
 //  Dispatch: (128/8, 128/8, 128/8)
 // =============================================================
 
@@ -17,13 +17,12 @@ void main(uint3 DTid : SV_DispatchThreadID)
 {
     const float4 clipmap = (CardStartIndex == 0u) ? PassGlobalSDF0 : PassGlobalSDF1;
     const float halfExtent = clipmap.w;
-    const float voxelSize = (2.0f * halfExtent) / LUMEN_GLOBAL_SDF_RESOLUTION;
 
-    // ƒ{ƒNƒZƒ‹’†S‚Ìƒ[ƒ‹ƒhÀ•W
+    // ãƒœã‚¯ã‚»ãƒ«ä¸­å¿ƒã®ãƒ¯ãƒ¼ãƒ«ãƒ‰åº§æ¨™
     float3 uvw = ((float3) DTid + 0.5f) / LUMEN_GLOBAL_SDF_RESOLUTION;
     float3 worldPos = clipmap.xyz + (uvw - 0.5f) * (2.0f * halfExtent);
 
-    // Õ•Á‚È‚µ‚ÌŠù’è’l (ƒNƒŠƒbƒvƒ}ƒbƒv”¼Œa = \•ª‰“‚¢)
+    // é®è”½ãªã—ã®æ—¢å®šå€¤ (ã‚¯ãƒªãƒƒãƒ—ãƒãƒƒãƒ—ç›´å¾„ = ååˆ†é ã„)
     float minDistance = 2.0f * halfExtent;
 
     [loop]
@@ -35,13 +34,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
             continue;
         }
 
-        float3 pV = mul(float4(worldPos, 1.0f), obj.WorldToVolume).xyz;
-        float3 clamped = clamp(pV, -1.0f, 1.0f);
-        float3 delta = pV - clamped;
-
-        // ƒ{ƒŠƒ…[ƒ€‹óŠÔ‚ÌŠO‘¤‹——£ -> ƒ[ƒ‹ƒh‹——£ (”¼ŒaƒXƒP[ƒ‹‹ß—)
-        float outside = length(delta) * obj.VolumeUVScaleAndDistance.w;
-        float d = outside + SampleLumenObjectDistance(obj, clamped);
+        float d = GetLumenObjectDistanceApprox(obj, worldPos);
 
         minDistance = min(minDistance, d);
     }

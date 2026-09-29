@@ -1,21 +1,6 @@
 #include "Common.hlsl"
 #include "Substrate.hlsl"
-
-// 頂点タンジェントベースのTBN行列生成
-// N: 正規化済みワールド法線, tangentWS: 補間後ワールド接線
-float3x3 BuildTBN(float3 N, float3 tangentWS)
-{
-    // Gram-Schmidt 直交化（補間で法線と接線が非直交になるのを補正）
-    float3 T = normalize(tangentWS - N * dot(N, tangentWS));
-    // 縮退接線への保険
-    if (any(isnan(T)) || dot(T, T) < 1e-8)
-    {
-        float3 up = abs(N.y) < 0.999 ? float3(0, 1, 0) : float3(1, 0, 0);
-        T = normalize(cross(up, N));
-    }
-    float3 B = cross(N, T);
-    return float3x3(T, B, N);
-}
+#include "BasePassCommon.hlsl"
 
 // GBufferパス (Opaque / Masked)
 // Translucent / Additive はトランスルーセンシーパス (TranslucentPS) が描く。
@@ -93,60 +78,8 @@ PS_OUTPUT_GEOMETRY main(PS_INPUT input, bool bIsFrontFace : SV_IsFrontFace)
     [branch]
     if (Material.bUseSubstrate)
     {
-        // ------------------------------------------------------------
-        //  Substrate Slab BSDF 
-        //  呼出規約はサンプル逐語:
-        //    MFP -> SSSMFP ピン / Thickness -> SSSMFPScale ピン
-        //    (SSS 評価厚 [cm]) / Slab の Thickness 引数 = 0.01cm 固定
-        //  【意図的乖離】MFP 導出距離のみ固定参照厚 1cm
-        //  (SUBSTRATE_TRANSMITTANCE_REFERENCE_CM)。サンプルどおり
-        //  Thickness で導出すると評価厚と相殺し Thickness が無効化
-        //  されるため。τ = Thickness x (-log T) / 1cm で Thickness が
-        //  濃度スケールとして機能する (Constant.hlsl 参照)。
-        // ------------------------------------------------------------
-        // Slab 厚の下限 (パック/評価のクランプ床と一致)
-        const float SlabThicknessCm = max(Material.SubstrateThickness, SUBSTRATE_MIN_THICKNESS_CM);
-
-        // MFP は固定参照厚 1cm で導出する (意図的乖離。サンプルどおり
-        // Thickness で導出すると SSS 評価厚 = SSSMFPScale ピンの同値と
-        // 相殺して Thickness が無効化されるため。Constant.hlsl 参照)。
-        // τ = Thickness x (-log T) / 1cm -> Thickness = 1cm で
-        // Transmittance Color が厳密に実現され、厚いほど濃くなる。
-        float3 SSSMFP = TransmittanceToMeanFreePath(
-            Material.SubstrateTransmittanceColor.rgb,
-            SUBSTRATE_TRANSMITTANCE_REFERENCE_CM * CENTIMETER_TO_METER);
-
-        FSubstrateBSDF SlabBSDF = GetSubstrateSlabBSDF(
-            GetSubstratePixelFootprint(),
-            /*Normal*/                           worldNormal,
-            /*DiffuseAlbedo*/                    Material.SubstrateDiffuseAlbedo.rgb * baseColor.rgb,
-            /*F0*/                               Material.SubstrateF0.rgb,
-            /*F90*/                              Material.SubstrateF90.rgb,
-            /*Roughness*/                        roughness,
-            /*Anisotropy*/                       Material.SubstrateAnisotropy,
-            /*SSSProfileId*/                     0.0f,
-            /*bSupportDefaultSSSProfile*/        false,
-            /*SSSMFP*/                           SSSMFP,
-            /*SSSMFPScale*/                      SlabThicknessCm,
-            /*SSSPhaseAniso*/                    Material.SubstrateSSSPhaseAnisotropy,
-            /*SSSType*/                          (float)Material.SubstrateSSSType,
-            /*EmissiveColor*/                    Material.EmissionColor.rgb,
-            /*SecondRoughness*/                  Material.SubstrateSecondRoughness,
-            /*SecondRoughnessWeight*/            Material.SubstrateSecondRoughnessWeight,
-            /*SecondRoughnessAsSimpleClearCoat*/ 0.0f,
-            /*ClearCoatUseSecondNormal*/         0.0f,
-            /*ClearCoatBottomNormal*/            worldNormal,
-            /*FuzzAmount*/                       Material.SubstrateFuzzColor.w,
-            /*FuzzColor*/                        Material.SubstrateFuzzColor.rgb,
-            /*FuzzRoughness*/                    Material.SubstrateFuzzRoughness,
-            /*GlintValue*/                       1.0f,
-            /*GlintUV*/                          float2(0.0f, 0.0f),
-            /*SpecularProfileId*/                0.0f,
-            /*Thickness*/                        SUBSTRATE_LAYER_DEFAULT_THICKNESS_CM,
-            /*IsThin*/                           Material.SubstrateIsThin,
-            /*IsAtBottom*/                       true,
-            /*LocalBasisIndex*/                  SHAREDLOCALBASIS_INDEX_0,
-            /*SharedLocalBasesTypes*/            0u);
+        // Substrate Slab BSDF (呼出規約 / 意図的乖離は BasePassCommon.hlsl 参照)
+        FSubstrateBSDF SlabBSDF = GetMaterialSubstrateSlabBSDF(worldNormal, baseColor.rgb, roughness);
 
         // GBufferC = DiffuseAlbedo (ライティングパスが Slab の
         // アルベドとして読む)。GBufferB は Metallic=0 / Specular=0.5

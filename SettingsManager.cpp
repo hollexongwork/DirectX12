@@ -334,7 +334,7 @@ void SettingsManager::ResetPostProcess()
 		m_PostProcess->Settings().Exposure = powf(2.0f, m_DefaultEV);
 	}
 
-	// Artist LUT も PostProcess ウィンドウ配下なので一緒に戻す。
+	// Artist LUT も Details の Post Process Volume セクション配下なので一緒に戻す。
 	// グレーディング値の変化は ColorGradingLUTBaker::UpdateIfDirty の
 	// ParamsChanged が検出するので、明示的な MarkDirty は不要。
 	if (m_LUTBaker)
@@ -376,11 +376,8 @@ void SettingsManager::ResetActor(AActor* Actor)
 		if (i >= (int)m_DefaultActors.size())
 			return;	// Default キャプチャ後にスポーンされたアクター
 
-		const ActorSnapshot& snap = m_DefaultActors[i];
-		if (snap.ClassName != UWorld::GetClassDisplayName(Actor))
-			return;	// 構成が変わっている場合は何もしない
-
-		ApplyActor(Actor, snap);
+		// 構成が変わっている (クラス名不一致) 場合は ApplyActor 側で何もしない
+		ApplyActor(Actor, m_DefaultActors[i]);
 		return;
 	}
 }

@@ -17,13 +17,11 @@ class AExponentialHeightFog : public AActor
 private:
 	UExponentialHeightFogComponent* m_FogComponent = nullptr;
 
-	bool m_bEnabled = true;
-
 public:
 	AExponentialHeightFog();
 
 	UExponentialHeightFogComponent* GetComponent() const { return m_FogComponent; }
 
 	void SetEnabled(bool bEnabled);
-	bool IsEnabled() const { return m_bEnabled; }
+	bool IsEnabled() const { return m_FogComponent && m_FogComponent->IsVisible(); }
 };

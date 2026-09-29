@@ -181,10 +181,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         PostQuitMessage(0);
         break;
 
-    case WM_ACTIVATEAPP:
-        Mouse_ProcessMessage(message, wParam, lParam);
-        break;
-
     case WM_KEYDOWN:
         switch (wParam)
         {
@@ -202,6 +198,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     case WM_KEYUP:
     case WM_SYSKEYUP:
         break;
+    case WM_ACTIVATEAPP:
     case WM_INPUT:
     case WM_MOUSEMOVE:
     case WM_LBUTTONDOWN:
