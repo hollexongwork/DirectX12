@@ -73,6 +73,7 @@ protected:
 	bool m_Visible = true;
 	bool m_bCastShadow = true;	// シャドウ深度パスに参加するか (生成時スナップショット)
 	bool m_bAffectDistanceField = true;	// Distance Field に寄与するか (生成時スナップショット)
+	bool m_bRenderVelocity = true;	// ベロシティパスに参加するか (生成時スナップショット)
 
 	// 描画距離カリング (生成時スナップショット。0 = 無制限)
 	float m_MinDrawDistance = 0.0f;
@@ -97,6 +98,7 @@ public:
 
 	bool CastsShadow() const { return m_bCastShadow; }
 	bool AffectsDistanceField() const { return m_bAffectDistanceField; }
+	bool RendersVelocity() const { return m_bRenderVelocity; }
 
 	// フラスタム / 距離カリング用アクセサ
 	const FBoxSphereBounds& GetBounds() const { return m_Bounds; }
@@ -156,8 +158,33 @@ public:
 	// 既定は何も描かない (SDF を持つ FStaticMeshSceneProxy が実装する)。
 	virtual void DrawCardCapture(RenderManager* RHI) const {}
 
+	// ベロシティパス (FSceneRenderer::RenderVelocities, VelocityRendering.cpp) から
+	// 呼ばれる描画。前フレームから動いたプリミティブだけが呼ばれる。
+	// b1 に LocalToWorld + PreviousLocalToWorld を積み、Opaque / Masked サブセットを
+	// Velocity* PSO で描くこと (Translucent / Additive は描かない = UE 既定)。
+	// 既定は何も描かない (2D オーバーレイなど)。
+	virtual void DrawVelocity(RenderManager* RHI, const XMFLOAT4X4& PreviousLocalToWorld) const {}
+
+	// 変換が変わらなくても毎フレーム速度を描くか (UE FPrimitiveSceneProxy::AlwaysHasVelocity)。
+	// 将来のスキニング / WPO 用のフック。現状はすべて false
+	virtual bool AlwaysHasVelocity() const { return false; }
+
+	// Responsive AA マスクパス (FSceneRenderer::RenderResponsiveAAMask) から呼ばれる描画。
+	// RenderTranslucency の最後 (半透明深度プリパスの深度を DSV にバインドしたまま) に、
+	// 後→前ソート順で呼ばれる。b1 を積み、マテリアルが bEnableResponsiveAA の
+	// Translucent / Additive サブセット (bForceAll なら全 Translucent / Additive サブセット) だけを
+	// ResponsiveAA[TwoSided] PSO (GeometryVS / ResponsiveAAPS, R8_UNORM, LESS_EQUAL 書き込み無し) で描くこと
+	// (UE: 半透明描画でステンシル bit 3 を立てる代わり [PORT])。既定は何も描かない
+	virtual void DrawResponsiveAA(RenderManager* RHI, bool bForceAll) const {}
+
+	// DrawResponsiveAA が何か描くか (Responsive の Translucent / Additive サブセットを持つか)。
+	// 1 つも無いフレームはマスクのクリアもせず、TAA は Responsive 無効 (ダミー) で走る
+	virtual bool HasResponsiveAATranslucency(bool bForceAll) const { return false; }
+
 protected:
 	// PRIMITIVE 定数 (b1, FPrimitiveUniformShaderParameters 相当) へ
 	// プロキシのワールド行列を転置してアップロードする共通処理。
-	void UploadPrimitiveConstant(RenderManager* RHI) const;
+	// PreviousLocalToWorld (転置前) を渡すとベロシティ用の前フレーム行列として書く。
+	// nullptr (既定) なら前フレーム行列にも今の LocalToWorld を書く。
+	void UploadPrimitiveConstant(RenderManager* RHI, const XMFLOAT4X4* PreviousLocalToWorld = nullptr) const;
 };

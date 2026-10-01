@@ -4,6 +4,7 @@
 #include <memory>
 #include "PrimitiveSceneProxy.h"	// unique_ptr の破棄に完全型が必要
 #include "LightSceneProxy.h"
+#include "SceneVelocityData.h"
 
 using namespace DirectX;
 
@@ -151,6 +152,12 @@ private:
 	UCameraComponent* m_ActiveCamera = nullptr;
 	APostProcessVolume* m_PostProcessVolume = nullptr;
 
+	// ---- ベロシティ (FScene::VelocityData, SceneVelocityData.h) ----
+	// コンポーネントごとの今 / 前フレームの LocalToWorld。UpdateAllPrimitiveSceneInfos が
+	// 毎フレーム StartFrame -> UpdateTransform (プッシュされたものだけ) -> EndFrameUpdates を行い、
+	// FSceneRenderer::RenderVelocities が読む
+	FSceneVelocityData m_VelocityData;
+
 public:
 	// 登録時に CreateSceneProxy() でレンダー側ミラーを生成・所有する。
 	// 初回フレームのトランスフォームプッシュも予約する。
@@ -165,6 +172,13 @@ public:
 	void UpdateAllPrimitiveSceneInfos();
 
 	const std::vector<FPrimitiveSceneInfo>& GetPrimitives() const { return m_Primitives; }
+
+	// ---- ベロシティ ----
+	// 次のトランスフォームプッシュをテレポート扱いにする (前フレーム変換 = 今の変換 = 速度 0)。
+	// UE の bTeleport / OverridePreviousTransform 相当。SettingsManager::ApplyComponent
+	// (INI 適用 / Reset / Details の Reset Actor) が呼ぶ
+	void MarkPrimitiveTeleported(UPrimitiveComponent* Primitive) { m_VelocityData.MarkTeleported(Primitive); }
+	const FSceneVelocityData& GetVelocityData() const { return m_VelocityData; }
 
 	// ---- ダーティリストへのエンキュー ----
 	// コンポーネント側の MarkRenderStateDirty / MarkRenderTransformDirty

@@ -2,6 +2,7 @@
 #include "RenderManager.h"
 
 #include "D3DX12.h"
+#include "PostProcessUpscale.h"
 #include "DDSTextureLoader12.h"
 
 #include "ImGUI/imgui.h"
@@ -16,6 +17,21 @@
 #define ENABLE_GPU_BASED_VALIDATION	0	// デバッグレイヤーの GPU ベース検証
 #define ENABLE_DRED					0	// デバイス削除拡張データ (DRED)
 #define ENABLE_REPORT_LIVE_OBJECTS	0	// 終了時の生存オブジェクト一覧
+
+// ============================================================
+//  デバッグ支援の環境変数スイッチ (Debug ビルドのみ。リビルド不要)
+//    DX12_DEBUG_GBV=1      : GPU ベース検証を有効化 (ENABLE_GPU_BASED_VALIDATION と OR)
+//    DX12_DEBUG_NO_BREAK=1 : ERROR / CORRUPTION でのブレークを無効化
+//                            (デバッガ無しの計測実行でメッセージを最後まで収集する)
+// ============================================================
+#if defined(_DEBUG)
+static bool IsDebugEnvironmentSwitchEnabled(const char* Name)
+{
+	char value[16] = {};
+	const DWORD length = GetEnvironmentVariableA(Name, value, (DWORD)sizeof(value));
+	return length > 0 && length < sizeof(value) && value[0] == '1';
+}
+#endif
 
 
 RenderManager* RenderManager::m_Instance = nullptr;
@@ -80,17 +96,38 @@ void RenderManager::Init()
 
 void RenderManager::InitViewport()
 {
+	// 既定ビューポートはバックバッファ全体から開始する
+	SetDefaultViewportSize((unsigned int)m_BackBufferWidth, (unsigned int)m_BackBufferHeight);
+}
+
+
+// 既定ビューポート / シザーを書き換える (記録済みコマンドには影響しない。
+// 次の SetDefaultGraphicsState (BeginFrame / FlushAndResetCommandList) か
+// RestoreDefaultViewport から適用される)
+void RenderManager::SetDefaultViewportSize(unsigned int Width, unsigned int Height)
+{
+	m_DefaultViewportWidth = Width;
+	m_DefaultViewportHeight = Height;
+
 	m_Viewport.TopLeftX = 0.0f;
 	m_Viewport.TopLeftY = 0.0f;
-	m_Viewport.Width = (FLOAT)m_BackBufferWidth;
-	m_Viewport.Height = (FLOAT)m_BackBufferHeight;
+	m_Viewport.Width = (FLOAT)Width;
+	m_Viewport.Height = (FLOAT)Height;
 	m_Viewport.MinDepth = 0.0f;
 	m_Viewport.MaxDepth = 1.0f;
 
 	m_ScissorRect.top = 0;
 	m_ScissorRect.left = 0;
-	m_ScissorRect.right = m_BackBufferWidth;
-	m_ScissorRect.bottom = m_BackBufferHeight;
+	m_ScissorRect.right = (LONG)Width;
+	m_ScissorRect.bottom = (LONG)Height;
+}
+
+
+// 既定ビューポート / シザーを現在のコマンドリストへ即時記録する
+void RenderManager::RestoreDefaultViewport()
+{
+	m_GraphicsCommandList->RSSetViewports(1, &m_Viewport);
+	m_GraphicsCommandList->RSSetScissorRects(1, &m_ScissorRect);
 }
 
 
@@ -105,9 +142,14 @@ void RenderManager::InitDevice()
 		if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController))))
 		{
 			debugController->EnableDebugLayer();
-#if ENABLE_GPU_BASED_VALIDATION
-			debugController->SetEnableGPUBasedValidation(true);
-#endif
+
+			// GPU ベース検証 (リソース状態 / デスクリプタを GPU 実行時に検証)。
+			// デバイス生成前に設定する必要がある
+			if (ENABLE_GPU_BASED_VALIDATION || IsDebugEnvironmentSwitchEnabled("DX12_DEBUG_GBV"))
+			{
+				debugController->SetEnableGPUBasedValidation(TRUE);
+				OutputDebugStringA("[RenderManager] GPU-based validation: enabled\n");
+			}
 		}
 	}
 
@@ -182,6 +224,9 @@ void RenderManager::InitDevice()
 	// 不正な API 呼び出しは放置すると後段で D3D12Core 内の
 	// アクセス違反 (0xC0000005) という分かりにくい形で落ちるため、
 	// 原因の呼び出し箇所そのもので停止するようにする。
+	// DX12_DEBUG_NO_BREAK=1 のときはブレークせず、メッセージの出力のみ
+	// (デバッガ無しの計測実行ではブレーク = 未処理例外で終了してしまうため)。
+	if (!IsDebugEnvironmentSwitchEnabled("DX12_DEBUG_NO_BREAK"))
 	{
 		ComPtr<ID3D12InfoQueue> infoQueue;
 		if (SUCCEEDED(m_Device.As(&infoQueue)))
@@ -189,6 +234,10 @@ void RenderManager::InitDevice()
 			infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, TRUE);
 			infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, TRUE);
 		}
+	}
+	else
+	{
+		OutputDebugStringA("[RenderManager] DX12_DEBUG_NO_BREAK: break on ERROR/CORRUPTION disabled\n");
 	}
 #endif
 }
@@ -306,47 +355,75 @@ void RenderManager::InitDepthBuffer()
 
 		hr = m_Device->CreateDescriptorHeap(&descriptorHeapDesc, IID_PPV_ARGS(&m_DepthBufferDescriptorHeap));
 		assert(SUCCEEDED(hr));
-	}
-
-	// デプスバッファ生成
-	// R32_TYPELESS で生成し、DSV は D32_FLOAT、SRV は R32_FLOAT として読む。
-	{
-		D3D12_RESOURCE_DESC resourceDesc{};
-		resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-		resourceDesc.Width = m_BackBufferWidth;
-		resourceDesc.Height = m_BackBufferHeight;
-		resourceDesc.DepthOrArraySize = 1;
-		resourceDesc.MipLevels = 1;
-		resourceDesc.Format = DXGI_FORMAT_R32_TYPELESS;
-		resourceDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-		resourceDesc.SampleDesc.Count = 1;
-		resourceDesc.SampleDesc.Quality = 0;
-		resourceDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
-
-		D3D12_CLEAR_VALUE clearValue{};
-		clearValue.Format = DXGI_FORMAT_D32_FLOAT;
-		clearValue.DepthStencil.Depth = 1.0f;
-		clearValue.DepthStencil.Stencil = 0;
-
-		hr = m_Device->CreateCommittedResource(
-			&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
-			D3D12_HEAP_FLAG_NONE,
-			&resourceDesc,
-			D3D12_RESOURCE_STATE_DEPTH_WRITE,
-			&clearValue,
-			IID_PPV_ARGS(&m_DepthBuffer));
-		assert(SUCCEEDED(hr));
-		m_DepthBuffer->SetName(L"DepthBuffer");
-
-		D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc{};
-		dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
-		dsvDesc.Format = DXGI_FORMAT_D32_FLOAT;
-		dsvDesc.Texture2D.MipSlice = 0;
-		dsvDesc.Flags = D3D12_DSV_FLAG_NONE;
 
 		m_DepthBufferHandle = m_DepthBufferDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
-		m_Device->CreateDepthStencilView(m_DepthBuffer.Get(), &dsvDesc, m_DepthBufferHandle);
 	}
+
+	// デプスバッファ生成 (バックバッファ解像度で開始)
+	CreateDepthBuffer((unsigned int)m_BackBufferWidth, (unsigned int)m_BackBufferHeight);
+}
+
+
+// デプスバッファ生成
+// R32_TYPELESS で生成し、DSV は D32_FLOAT、SRV は R32_FLOAT として読む。
+// DSV は 1 枠固定のヒープ (m_DepthBufferHandle) へ作り直す。DSV デスクリプタは
+// OMSetRenderTargets の記録時点で消費されるため、未実行のコマンドが無ければ
+// 同じ枠を上書きしてよい (呼び出し側が FlushAndReset + WaitGPU 済みであること)。
+void RenderManager::CreateDepthBuffer(unsigned int Width, unsigned int Height)
+{
+	assert(m_DepthBuffer == nullptr && "CreateDepthBuffer: release the previous depth buffer first");
+
+	D3D12_RESOURCE_DESC resourceDesc{};
+	resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+	resourceDesc.Width = Width;
+	resourceDesc.Height = Height;
+	resourceDesc.DepthOrArraySize = 1;
+	resourceDesc.MipLevels = 1;
+	resourceDesc.Format = DXGI_FORMAT_R32_TYPELESS;
+	resourceDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+	resourceDesc.SampleDesc.Count = 1;
+	resourceDesc.SampleDesc.Quality = 0;
+	resourceDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+
+	D3D12_CLEAR_VALUE clearValue{};
+	clearValue.Format = DXGI_FORMAT_D32_FLOAT;
+	clearValue.DepthStencil.Depth = 1.0f;
+	clearValue.DepthStencil.Stencil = 0;
+
+	HRESULT hr = m_Device->CreateCommittedResource(
+		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+		D3D12_HEAP_FLAG_NONE,
+		&resourceDesc,
+		D3D12_RESOURCE_STATE_DEPTH_WRITE,
+		&clearValue,
+		IID_PPV_ARGS(&m_DepthBuffer));
+	assert(SUCCEEDED(hr));
+	m_DepthBuffer->SetName(L"DepthBuffer");
+
+	D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc{};
+	dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+	dsvDesc.Format = DXGI_FORMAT_D32_FLOAT;
+	dsvDesc.Texture2D.MipSlice = 0;
+	dsvDesc.Flags = D3D12_DSV_FLAG_NONE;
+
+	m_Device->CreateDepthStencilView(m_DepthBuffer.Get(), &dsvDesc, m_DepthBufferHandle);
+
+	m_DepthBufferWidth = Width;
+	m_DepthBufferHeight = Height;
+}
+
+
+// デプスバッファのリソースを遅延削除キューへ移す (DSV 枠は保持)。
+// 深度 SRV は FSceneTextures 側の所有なので、そちらで別途解放すること。
+void RenderManager::ReleaseDepthBuffer()
+{
+	if (m_DepthBuffer)
+	{
+		DeferredRelease(std::move(m_DepthBuffer));
+	}
+	m_DepthBuffer.Reset();
+	m_DepthBufferWidth = 0;
+	m_DepthBufferHeight = 0;
 }
 
 
@@ -513,7 +590,7 @@ void RenderManager::InitRootSignature()
 	const unsigned int CBV_COUNT = (unsigned int)CONSTANT_TYPE::FOG + 1; // VIEW/PRIMITIVE/MATERIAL/FORWARD_LIGHT/POST_PROCESS/SHADOW/LUMEN/FOG
 
 	// ルートパラメータは全てデスクリプタテーブル (1 DWORD ずつ) なので
-	// 上限 64 DWORD に対して b0..b7 + t0..t34 = 43 DWORD
+	// 上限 64 DWORD に対して b0..b7 + t0..t36 = 45 DWORD
 	static_assert((unsigned int)TEXTURE_TYPE::COUNT <= 64,
 		"root signature exceeds 64 DWORDs (CONSTANT_TYPE + TEXTURE_TYPE)");
 
@@ -609,11 +686,20 @@ void RenderManager::InitPipelines()
 	m_PipelineState["BasePass"] =
 		CreatePipeline("Shader/cso/GeometryVS.cso", "Shader/cso/GeometryPS.cso", gbuffer, _countof(gbuffer));
 
+	// ---- フルスクリーンパス (DSV をバインドしない) ----
+	// 以下の 10 PSO (LinearDepth / DeferredLighting / HeightFog / Tonemap /
+	// Bloom x3 / DOF x3) は OMSetRenderTargets に DSV を渡さずに描くため、
+	// 深度無効 (EDepthStatePreset::None = DepthEnable FALSE + DSVFormat UNKNOWN)
+	// で生成する。DSV 無しで DSVFormat = D32 の PSO を使うとデバッグレイヤーの
+	// EXECUTION ERROR #615 になる (DSV 未バインド時は深度テストが働かないため
+	// 描画結果は従来と同一)。
 	m_PipelineState["LinearDepth"] =
-		CreatePipeline("Shader/cso/DeferredVS.cso", "Shader/cso/LinearDepthPS.cso", depth, _countof(depth));
+		CreatePipeline("Shader/cso/DeferredVS.cso", "Shader/cso/LinearDepthPS.cso", depth, _countof(depth),
+			0, 0.0f, EBlendStatePreset::Opaque, ECullModePreset::Back, EDepthStatePreset::None);
 
 	m_PipelineState["DeferredLighting"] =
-		CreatePipeline("Shader/cso/DeferredVS.cso", "Shader/cso/DeferredPS.cso", hdr, _countof(hdr));
+		CreatePipeline("Shader/cso/DeferredVS.cso", "Shader/cso/DeferredPS.cso", hdr, _countof(hdr),
+			0, 0.0f, EBlendStatePreset::Opaque, ECullModePreset::Back, EDepthStatePreset::None);
 
 	// ---- Exponential Height Fog パス (FogRendering.h) ----
 	// デファードライティング後の HDR SceneColor に対し、深度から
@@ -622,29 +708,36 @@ void RenderManager::InitPipelines()
 	//   SceneColor' = Src.rgb + SceneColor * Src.a (RGB のみ書き込み)
 	m_PipelineState["HeightFog"] =
 		CreatePipeline("Shader/cso/DeferredVS.cso", "Shader/cso/HeightFogPS.cso", hdr, _countof(hdr),
-			0, 0.0f, EBlendStatePreset::HeightFog);
+			0, 0.0f, EBlendStatePreset::HeightFog, ECullModePreset::Back, EDepthStatePreset::None);
 
 	// Tonemap pass: HDR SceneColor (+bloom) -> Post chain -> SDR back buffer
 	m_PipelineState["PostProcessTonemap"] =
-		CreatePipeline("Shader/cso/DeferredVS.cso", "Shader/cso/TonemapPS.cso", ldr, _countof(ldr));
+		CreatePipeline("Shader/cso/DeferredVS.cso", "Shader/cso/TonemapPS.cso", ldr, _countof(ldr),
+			0, 0.0f, EBlendStatePreset::Opaque, ECullModePreset::Back, EDepthStatePreset::None);
 
 	// ---- Bloom passes (all render to HDR R16G16B16A16 mips) ----
 	m_PipelineState["PostProcessBloomThreshold"] =
-		CreatePipeline("Shader/cso/DeferredVS.cso", "Shader/cso/BloomThresholdPS.cso", hdr, _countof(hdr));
+		CreatePipeline("Shader/cso/DeferredVS.cso", "Shader/cso/BloomThresholdPS.cso", hdr, _countof(hdr),
+			0, 0.0f, EBlendStatePreset::Opaque, ECullModePreset::Back, EDepthStatePreset::None);
 	m_PipelineState["PostProcessBloomDownsample"] =
-		CreatePipeline("Shader/cso/DeferredVS.cso", "Shader/cso/BloomDownsamplePS.cso", hdr, _countof(hdr));
+		CreatePipeline("Shader/cso/DeferredVS.cso", "Shader/cso/BloomDownsamplePS.cso", hdr, _countof(hdr),
+			0, 0.0f, EBlendStatePreset::Opaque, ECullModePreset::Back, EDepthStatePreset::None);
 	m_PipelineState["PostProcessBloomUpsample"] =
-		CreatePipeline("Shader/cso/DeferredVS.cso", "Shader/cso/BloomUpsamplePS.cso", hdr, _countof(hdr));
+		CreatePipeline("Shader/cso/DeferredVS.cso", "Shader/cso/BloomUpsamplePS.cso", hdr, _countof(hdr),
+			0, 0.0f, EBlendStatePreset::Opaque, ECullModePreset::Back, EDepthStatePreset::None);
 
 	// ---- Depth of Field passes ----
 	// CoC/prep -> half-res HDR (RGBA16F). Blur passes ping-pong at half
 	// res. Composite writes back to full-res HDR SceneColor.
 	m_PipelineState["PostProcessDOFCoC"] =
-		CreatePipeline("Shader/cso/DeferredVS.cso", "Shader/cso/DOFCoCPS.cso", hdr, _countof(hdr));
+		CreatePipeline("Shader/cso/DeferredVS.cso", "Shader/cso/DOFCoCPS.cso", hdr, _countof(hdr),
+			0, 0.0f, EBlendStatePreset::Opaque, ECullModePreset::Back, EDepthStatePreset::None);
 	m_PipelineState["PostProcessDOFBlur"] =
-		CreatePipeline("Shader/cso/DeferredVS.cso", "Shader/cso/DOFBlurPS.cso", hdr, _countof(hdr));
+		CreatePipeline("Shader/cso/DeferredVS.cso", "Shader/cso/DOFBlurPS.cso", hdr, _countof(hdr),
+			0, 0.0f, EBlendStatePreset::Opaque, ECullModePreset::Back, EDepthStatePreset::None);
 	m_PipelineState["PostProcessDOFComposite"] =
-		CreatePipeline("Shader/cso/DeferredVS.cso", "Shader/cso/DOFCompositePS.cso", hdr, _countof(hdr));
+		CreatePipeline("Shader/cso/DeferredVS.cso", "Shader/cso/DOFCompositePS.cso", hdr, _countof(hdr),
+			0, 0.0f, EBlendStatePreset::Opaque, ECullModePreset::Back, EDepthStatePreset::None);
 
 	// ---- Shadow depth pass (深度のみ, RTV なし) ----
 	// ラスタライザの定数 + スロープスケールバイアスでシャドウアクネを
@@ -731,6 +824,89 @@ void RenderManager::InitPipelines()
 		CreatePipeline("Shader/cso/GeometryVS.cso", "Shader/cso/LumenCardCapturePS.cso",
 			lumenCard, _countof(lumenCard), 0, 0.0f,
 			EBlendStatePreset::Opaque, ECullModePreset::None);
+
+	// ---- 一次空間アップスケール (UE AddUpscalePass, r.Upscale.Quality 0..5) ----
+	// トーンマップ済み LDR (ポスト解像度 P) -> バックバッファ (出力解像度 O)。
+	// DSV を渡さないフルスクリーンパスなので深度無効。名前の添字 = r.Upscale.Quality。
+	// オプション PSO: .cso が欠落していても起動を止めず、登録もしない
+	// (FSceneRenderer::SelectPrimaryUpscalePipeline が HasPipelineState で確かめ、
+	//  Bilinear (1) -> トーンマップ統合 (bilinear) の順にフォールバックする)
+	{
+		static const char* const kUpscalePixelShaders[] =
+		{
+			"Shader/cso/PostProcessUpscale_Nearest_PS.cso",		// 0 Nearest
+			"Shader/cso/PostProcessUpscale_Bilinear_PS.cso",	// 1 Bilinear
+			"Shader/cso/PostProcessUpscale_Directional_PS.cso",	// 2 Directional blur + unsharp mask
+			"Shader/cso/PostProcessUpscale_CatmullRom_PS.cso",	// 3 5 タップ Catmull-Rom (既定)
+			"Shader/cso/PostProcessUpscale_Lanczos_PS.cso",		// 4 Lanczos-3 (13 タップ)
+			"Shader/cso/PostProcessUpscale_Gaussian_PS.cso",	// 5 Gaussian unsharp
+		};
+		static_assert(_countof(kUpscalePixelShaders) == (int)EUpscaleMethod::Count, "one .cso per EUpscaleMethod");
+		for (int i = 0; i < (int)_countof(kUpscalePixelShaders); ++i)
+		{
+			ComPtr<ID3D12PipelineState> pso =
+				CreatePipeline("Shader/cso/DeferredVS.cso", kUpscalePixelShaders[i], ldr, _countof(ldr),
+					0, 0.0f, EBlendStatePreset::Opaque, ECullModePreset::Back, EDepthStatePreset::None,
+					true);	// bOptional
+			if (pso)
+			{
+				m_PipelineState[GetPrimaryUpscalePipelineName(i)] = pso;	// "PostProcessUpscale<i>" (PostProcessUpscale.cpp の表)
+			}
+		}
+	}
+
+	// ---- ベロシティパス (FSceneRenderer::RenderVelocities, VelocityRendering.cpp) ----
+	// 動いたプリミティブ (Opaque / Masked サブセット) だけを R16G16_UNORM の Velocity へ描く。
+	// ベースパス深度を DSV にバインドして LESS_EQUAL テストのみ (書き込み無し)。VS はベースパスと
+	// 同じ GetBasePassClipPosition (precise) なので深度はビット一致する。
+	// 一致しない環境向けのフォールバックは DepthBias = kVelocityDepthBias (-4, リスク R1)。
+	// Masked は BaseColor テクスチャがある時だけ clip 版 (シャドウ深度と同じ規則)
+	{
+		const DXGI_FORMAT velocity[] = { DXGI_FORMAT_R16G16_UNORM };
+		const int kVelocityDepthBias = 0;	// リスク R1 のフォールバックでは -4 (D32 数 ULP 手前へ)
+		m_PipelineState["Velocity"] =
+			CreatePipeline("Shader/cso/VelocityVS.cso", "Shader/cso/VelocityPS.cso", velocity, _countof(velocity),
+				kVelocityDepthBias, 0.0f, EBlendStatePreset::Opaque, ECullModePreset::Back, EDepthStatePreset::DepthRead);
+		m_PipelineState["VelocityTwoSided"] =
+			CreatePipeline("Shader/cso/VelocityVS.cso", "Shader/cso/VelocityPS.cso", velocity, _countof(velocity),
+				kVelocityDepthBias, 0.0f, EBlendStatePreset::Opaque, ECullModePreset::None, EDepthStatePreset::DepthRead);
+		m_PipelineState["VelocityMasked"] =
+			CreatePipeline("Shader/cso/VelocityVS.cso", "Shader/cso/VelocityMaskedPS.cso", velocity, _countof(velocity),
+				kVelocityDepthBias, 0.0f, EBlendStatePreset::Opaque, ECullModePreset::Back, EDepthStatePreset::DepthRead);
+		m_PipelineState["VelocityMaskedTwoSided"] =
+			CreatePipeline("Shader/cso/VelocityVS.cso", "Shader/cso/VelocityMaskedPS.cso", velocity, _countof(velocity),
+				kVelocityDepthBias, 0.0f, EBlendStatePreset::Opaque, ECullModePreset::None, EDepthStatePreset::DepthRead);
+	}
+
+	// ---- Responsive AA マスク (FSceneRenderer::RenderResponsiveAAMask) ----
+	// bEnableResponsiveAA の Translucent / Additive サブセットを R8_UNORM のマスクへ 1 で描く
+	// (UE のステンシル bit 3 の代わり [PORT])。RenderTranslucency の最後に半透明深度プリパスの
+	// 深度を DSV にバインドしたまま描く: VS は半透明と同じ GeometryVS (GetBasePassClipPosition, precise)
+	// なので LESS_EQUAL (書き込み無し) がビット一致で通り、最前面の Translucent 層だけが残る
+	{
+		const DXGI_FORMAT responsive[] = { DXGI_FORMAT_R8_UNORM };
+		m_PipelineState["ResponsiveAA"] =
+			CreatePipeline("Shader/cso/GeometryVS.cso", "Shader/cso/ResponsiveAAPS.cso", responsive, _countof(responsive),
+				0, 0.0f, EBlendStatePreset::Opaque, ECullModePreset::Back, EDepthStatePreset::DepthRead);
+		m_PipelineState["ResponsiveAATwoSided"] =
+			CreatePipeline("Shader/cso/GeometryVS.cso", "Shader/cso/ResponsiveAAPS.cso", responsive, _countof(responsive),
+				0, 0.0f, EBlendStatePreset::Opaque, ECullModePreset::None, EDepthStatePreset::DepthRead);
+	}
+
+	// ---- Temporal AA デバッグ表示 (FSceneRenderer::AddVisualizeTemporalAAPass) ----
+	// DeferredVS / VisualizeTemporalAAPS でバックバッファ (出力解像度 O) へ上書きする。
+	// DSV を渡さないフルスクリーンパスなので深度無効。オプション PSO (.cso 欠落時は登録しない。
+	// 呼び出し側が HasPipelineState で確かめ、無ければログ 1 回で可視化をスキップする)
+	{
+		ComPtr<ID3D12PipelineState> pso =
+			CreatePipeline("Shader/cso/DeferredVS.cso", "Shader/cso/VisualizeTemporalAAPS.cso", ldr, _countof(ldr),
+				0, 0.0f, EBlendStatePreset::Opaque, ECullModePreset::Back, EDepthStatePreset::None,
+				true);	// bOptional
+		if (pso)
+		{
+			m_PipelineState["VisualizeTemporalAA"] = pso;
+		}
+	}
 
 	// ---- 全 PSO の生成結果を検証 ----
 	// 生成に失敗した PSO が 1 つでもあれば名前を列挙する。null PSO は
@@ -942,7 +1118,7 @@ std::unique_ptr<TEXTURE> RenderManager::LoadTexture(const char* FileName, bool s
 }
 
 
-std::unique_ptr<RENDER_TARGET> RenderManager::CreateRenderTarget(unsigned int Width, unsigned int Height, DXGI_FORMAT Format, unsigned int MipLevels)
+std::unique_ptr<RENDER_TARGET> RenderManager::CreateRenderTarget(unsigned int Width, unsigned int Height, DXGI_FORMAT Format, unsigned int MipLevels, bool bAllowUnorderedAccess)
 {
 	D3D12_HEAP_PROPERTIES properties{};
 	properties.Type = D3D12_HEAP_TYPE_DEFAULT;
@@ -961,6 +1137,11 @@ std::unique_ptr<RENDER_TARGET> RenderManager::CreateRenderTarget(unsigned int Wi
 	desc.SampleDesc.Count = 1;
 	desc.SampleDesc.Quality = 0;
 	desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+	if (bAllowUnorderedAccess)
+	{
+		// コンピュートの書き込み先 (TAA 出力 / 履歴など)
+		desc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+	}
 	desc.Format = Format;
 
 	D3D12_CLEAR_VALUE clearValue{};
@@ -984,6 +1165,26 @@ std::unique_ptr<RENDER_TARGET> RenderManager::CreateRenderTarget(unsigned int Wi
 	renderTarget->SRVHandle = GetGPUDescriptorHandle(renderTarget->SRVIndex);
 	renderTarget->RTVIndex = CreateRenderTargetView(renderTarget->Resource.Get());
 	renderTarget->RTVHandle = GetRenderTargetViewHandle(renderTarget->RTVIndex);
+
+	// UAV (ミップ 0)。SRV と同じシェーダ可視ヒープの別枠に作る
+	if (bAllowUnorderedAccess)
+	{
+		renderTarget->UAVIndex = AllocateSRVSlot();
+
+		D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc{};
+		uavDesc.Format = Format;
+		uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+		uavDesc.Texture2D.MipSlice = 0;
+		uavDesc.Texture2D.PlaneSlice = 0;
+
+		m_Device->CreateUnorderedAccessView(renderTarget->Resource.Get(), nullptr, &uavDesc,
+			GetCPUDescriptorHandle(renderTarget->UAVIndex));
+		renderTarget->UAVHandle = GetGPUDescriptorHandle(renderTarget->UAVIndex);
+	}
+
+	renderTarget->Width = Width;
+	renderTarget->Height = Height;
+	renderTarget->Format = Format;
 
 	return renderTarget;
 }
@@ -1041,6 +1242,19 @@ void RenderManager::BindRootTableBySRVIndex(unsigned int RootParameter, unsigned
 
 void RenderManager::SetConstant(CONSTANT_TYPE Type, const void* Constant, unsigned int Size)
 {
+	// 1 スロット (CONSTANT_BUFFER_SIZE = 512B) を超える定数は隣接スロット
+	// (= 他の描画の定数) を上書きしてしまう。Release でも検出できるよう
+	// ログを出して呼び出しごとスキップする (定数構造体の肥大化の検知)。
+	assert(Size <= CONSTANT_BUFFER_SIZE && "SetConstant: constant larger than one ring slot");
+	if (Size > CONSTANT_BUFFER_SIZE)
+	{
+		char msg[160];
+		sprintf_s(msg, "[RenderManager] SetConstant: size %u exceeds CONSTANT_BUFFER_SIZE (%u), type %d skipped\n",
+			Size, CONSTANT_BUFFER_SIZE, (int)Type);
+		OutputDebugStringA(msg);
+		return;
+	}
+
 	const unsigned int slot = m_ConstantBufferIndex[m_RTIndex];
 	assert(slot < CONSTANT_BUFFER_MAX);
 
@@ -1097,6 +1311,14 @@ void RenderManager::SetIndexBuffer(const INDEX_BUFFER* IndexBuffer)
 }
 
 
+// 登録済みかつ非 null の PSO か (オプション PSO を SetPipelineState する前の確認用。§3.8)
+bool RenderManager::HasPipelineState(const char* PipelineName) const
+{
+	auto it = m_PipelineState.find(PipelineName);
+	return (it != m_PipelineState.end()) && (it->second.Get() != nullptr);
+}
+
+
 void RenderManager::SetPipelineState(const char* PipelineName)
 {
 	auto it = m_PipelineState.find(PipelineName);
@@ -1125,7 +1347,10 @@ void RenderManager::SetPipelineState(const char* PipelineName)
 //   TStaticDepthStencilState 相当) から PSO を構築する。
 // ============================================================
 // ---- シェーダバイトコード読み込み (.cso をそのまま読み込む) ----
-static void LoadShaderBytecode(const char* Path, std::vector<char>& OutData, D3D12_SHADER_BYTECODE& OutBytecode)
+// 戻り値: 読み込めたら true。bAssertOnMissing = false (オプション PSO 用) の時は
+// 欠落 / 空でもログ・assert を出さずに false を返す (呼び出し側がまとめて 1 行ログを出す)
+static bool LoadShaderBytecode(const char* Path, std::vector<char>& OutData, D3D12_SHADER_BYTECODE& OutBytecode,
+	bool bAssertOnMissing = true)
 {
 	// 欠落 / 空の .cso (シェーダのコンパイル失敗や未再コンパイル)
 	// を null バイトコードのまま PSO 生成に渡すと、
@@ -1137,11 +1362,14 @@ static void LoadShaderBytecode(const char* Path, std::vector<char>& OutData, D3D
 	std::ifstream file(Path, std::ios_base::in | std::ios_base::binary);
 	if (!file)
 	{
-		char msg[512];
-		sprintf_s(msg, "[RenderManager] shader .cso not found: %s\n", Path);
-		OutputDebugStringA(msg);
-		assert(false && "shader .cso not found");
-		return;
+		if (bAssertOnMissing)
+		{
+			char msg[512];
+			sprintf_s(msg, "[RenderManager] shader .cso not found: %s\n", Path);
+			OutputDebugStringA(msg);
+			assert(false && "shader .cso not found");
+		}
+		return false;
 	}
 
 	file.seekg(0, std::ios_base::end);
@@ -1150,11 +1378,14 @@ static void LoadShaderBytecode(const char* Path, std::vector<char>& OutData, D3D
 
 	if (filesize <= 0)
 	{
-		char msg[512];
-		sprintf_s(msg, "[RenderManager] shader .cso is empty (compile failed?): %s\n", Path);
-		OutputDebugStringA(msg);
-		assert(false && "shader .cso is empty");
-		return;
+		if (bAssertOnMissing)
+		{
+			char msg[512];
+			sprintf_s(msg, "[RenderManager] shader .cso is empty (compile failed?): %s\n", Path);
+			OutputDebugStringA(msg);
+			assert(false && "shader .cso is empty");
+		}
+		return false;
 	}
 
 	OutData.resize(filesize);
@@ -1163,6 +1394,7 @@ static void LoadShaderBytecode(const char* Path, std::vector<char>& OutData, D3D
 
 	OutBytecode.pShaderBytecode = OutData.data();
 	OutBytecode.BytecodeLength = filesize;
+	return true;
 }
 
 
@@ -1316,13 +1548,21 @@ static D3D12_BLEND_DESC BuildBlendStateDesc(EBlendStatePreset BlendPreset, const
 static D3D12_DEPTH_STENCIL_DESC BuildDepthStencilStateDesc(EDepthStatePreset DepthPreset)
 {
 	D3D12_DEPTH_STENCIL_DESC Desc{};
-	Desc.DepthEnable = TRUE;
+	// None (DSV をバインドしないフルスクリーンパス) は深度テスト自体を無効化
+	Desc.DepthEnable = (DepthPreset == EDepthStatePreset::None) ? FALSE : TRUE;
 	// DepthReadEqual (半透明深度プリパスの着色パス) はプリパスが書いた
 	// 最前面深度と一致するフラグメントのみ通す
-	Desc.DepthFunc =
-		(DepthPreset == EDepthStatePreset::DepthReadEqual)
-		? D3D12_COMPARISON_FUNC_EQUAL
-		: D3D12_COMPARISON_FUNC_LESS_EQUAL;
+	if (DepthPreset == EDepthStatePreset::None)
+	{
+		Desc.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+	}
+	else
+	{
+		Desc.DepthFunc =
+			(DepthPreset == EDepthStatePreset::DepthReadEqual)
+			? D3D12_COMPARISON_FUNC_EQUAL
+			: D3D12_COMPARISON_FUNC_LESS_EQUAL;
+	}
 	// トランスルーセンシー (DepthRead / DepthReadEqual) は深度テストのみ
 	// (書き込み無効)
 	Desc.DepthWriteMask =
@@ -1347,15 +1587,28 @@ static D3D12_DEPTH_STENCIL_DESC BuildDepthStencilStateDesc(EDepthStatePreset Dep
 }
 
 
-ComPtr<ID3D12PipelineState> RenderManager::CreatePipeline(const char* VertexShaderFile, const char* PixelShaderFile, const DXGI_FORMAT* RTVFormats, unsigned int NumRenderTargets, int DepthBias, float SlopeScaledDepthBias, EBlendStatePreset BlendPreset, ECullModePreset CullPreset, EDepthStatePreset DepthPreset)
+ComPtr<ID3D12PipelineState> RenderManager::CreatePipeline(const char* VertexShaderFile, const char* PixelShaderFile, const DXGI_FORMAT* RTVFormats, unsigned int NumRenderTargets, int DepthBias, float SlopeScaledDepthBias, EBlendStatePreset BlendPreset, ECullModePreset CullPreset, EDepthStatePreset DepthPreset, bool bOptional)
 {
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC pipelineStateDesc{};
 
 	// ---- シェーダバイトコード ----
 	std::vector<char> vertexShader;
 	std::vector<char> pixelShader;
-	LoadShaderBytecode(VertexShaderFile, vertexShader, pipelineStateDesc.VS);
-	LoadShaderBytecode(PixelShaderFile, pixelShader, pipelineStateDesc.PS);
+	const bool bHasVS = LoadShaderBytecode(VertexShaderFile, vertexShader, pipelineStateDesc.VS, !bOptional);
+	const bool bHasPS = LoadShaderBytecode(PixelShaderFile, pixelShader, pipelineStateDesc.PS, !bOptional);
+
+	// オプション PSO: .cso が欠落 / 空なら PSO を作らず nullptr を返す (assert しない)。
+	// PS 無しでも CreateGraphicsPipelineState は成功して「何も描かない非 null の PSO」が
+	// できてしまい null 判定で検出できないため、ここで生成自体を止める。
+	// 呼び出し側は HasPipelineState で存在を確かめてから SetPipelineState する (§3.8)
+	if (bOptional && (!bHasVS || !bHasPS))
+	{
+		char msg[512];
+		sprintf_s(msg, "[RenderManager] optional pipeline skipped (.cso missing or empty): VS=%s%s PS=%s%s\n",
+			VertexShaderFile, bHasVS ? "" : " (missing)", PixelShaderFile, bHasPS ? "" : " (missing)");
+		OutputDebugStringA(msg);
+		return nullptr;
+	}
 
 	// インプットレイアウト
 	D3D12_INPUT_ELEMENT_DESC InputElementDesc[] =
@@ -1384,7 +1637,10 @@ ComPtr<ID3D12PipelineState> RenderManager::CreatePipeline(const char* VertexShad
 	pipelineStateDesc.RasterizerState = BuildRasterizerStateDesc(CullPreset, DepthBias, SlopeScaledDepthBias);
 	pipelineStateDesc.BlendState = BuildBlendStateDesc(BlendPreset, RTVFormats, NumRenderTargets);
 	pipelineStateDesc.DepthStencilState = BuildDepthStencilStateDesc(DepthPreset);
-	pipelineStateDesc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+	// 深度無効プリセットは DSV 無しで描くため DSV フォーマットも UNKNOWN にする
+	// (DSV 未バインド + DSVFormat = D32 はデバッグレイヤー #615)
+	pipelineStateDesc.DSVFormat =
+		(DepthPreset == EDepthStatePreset::None) ? DXGI_FORMAT_UNKNOWN : DXGI_FORMAT_D32_FLOAT;
 
 	ComPtr<ID3D12PipelineState> pipelineState;
 	HRESULT hr = m_Device->CreateGraphicsPipelineState(&pipelineStateDesc, IID_PPV_ARGS(&pipelineState));
@@ -1397,7 +1653,9 @@ ComPtr<ID3D12PipelineState> RenderManager::CreatePipeline(const char* VertexShad
 		sprintf_s(msg, "[RenderManager] CreateGraphicsPipelineState failed (hr=0x%08X): VS=%s PS=%s\n",
 			(unsigned int)hr, VertexShaderFile, PixelShaderFile);
 		OutputDebugStringA(msg);
-		assert(false && "CreateGraphicsPipelineState failed");
+		// オプション PSO はログのみ (null を返し、呼び出し側が登録しない)
+		assert(bOptional && "CreateGraphicsPipelineState failed");
+		pipelineState.Reset();
 	}
 
 	return pipelineState;
@@ -1428,6 +1686,14 @@ unsigned int RenderManager::AllocateSRVSlot()
 
 unsigned int RenderManager::AllocateRTVSlot()
 {
+	// SRV と同様、枯渇時の front() (空 list の参照) を明示的に止める
+	if (m_RTVDescriptorPool.empty())
+	{
+		OutputDebugStringA("[RenderManager] RTV descriptor pool exhausted (RTV_DESCRIPTOR_MAX)\n");
+		assert(false && "RTV descriptor pool exhausted");
+		return 0;
+	}
+
 	unsigned int index = m_RTVDescriptorPool.front();
 	m_RTVDescriptorPool.pop_front();
 	return index;
@@ -1566,7 +1832,15 @@ TEXTURE::~TEXTURE()
 
 RENDER_TARGET::~RENDER_TARGET()
 {
-	RenderManager::GetInstance()->DeferredRelease(
+	RenderManager* rhi = RenderManager::GetInstance();
+
+	// UAV 枠 (bAllowUnorderedAccess で生成した場合のみ) も遅延削除キュー経由で返却
+	if (UAVIndex != UINT_MAX)
+	{
+		rhi->ReleaseShaderResourceView(UAVIndex);
+	}
+
+	rhi->DeferredRelease(
 		std::move(Resource), (int)SRVIndex, (int)RTVIndex);
 }
 
@@ -1594,6 +1868,26 @@ D3D12_GPU_DESCRIPTOR_HANDLE RenderManager::GetGPUDescriptorHandle(unsigned int I
 	return OffsetGPUHandle(
 		m_SRVDescriptorHeap->GetGPUDescriptorHandleForHeapStart(),
 		Index, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+}
+
+
+// ローカル (ビデオ) メモリの現在使用量 [byte]。解像度変更のリーク / VRAM 検査用。
+// m_Adapter は EnumAdapters (IDXGIAdapter) の結果を格納しているため、
+// QueryInterface (As) で正しく IDXGIAdapter3 を取得してから問い合わせる。
+UINT64 RenderManager::QueryLocalVideoMemoryUsage()
+{
+	ComPtr<IDXGIAdapter3> adapter3;
+	if (!m_Adapter || FAILED(m_Adapter.As(&adapter3)) || !adapter3)
+	{
+		return 0;
+	}
+
+	DXGI_QUERY_VIDEO_MEMORY_INFO info{};
+	if (FAILED(adapter3->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &info)))
+	{
+		return 0;
+	}
+	return info.CurrentUsage;
 }
 
 

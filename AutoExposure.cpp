@@ -373,15 +373,16 @@ void AutoExposure::Dispatch(ID3D12Resource* sceneColorResource,
 
     // ---- Pass 2 : average + temporal adaptation ----
     {
-        // The result buffer was left in PIXEL_SHADER_RESOURCE after the
-        // previous frame's tonemap read; flip it back to UAV so the
-        // average pass can read the previous exposure and write the new
-        // one. On the very first frame it is already UAV (creation state).
+        // 結果バッファは RenderPostProcessing 先頭の PrepareResultForRead で
+        // 読み取り (PIXEL | NON_PIXEL) へ遷移済み (同一コマンドリスト内)。
+        // 平均パスが前フレームの露出を読み新しい値を書くため UAV へ戻す。
+        // 初回 (m_ResultInitialised = false) は COMMON のまま来て、直前の
+        // ゼロクリアで UAV へ暗黙昇格しているので遷移不要。
         if (m_ResultInitialised)
         {
             cl->ResourceBarrier(1,
                 &CD3DX12_RESOURCE_BARRIER::Transition(m_Result.Get(),
-                    D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+                    D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
                     D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
         }
 
@@ -396,7 +397,8 @@ void AutoExposure::Dispatch(ID3D12Resource* sceneColorResource,
 
     // ---- Copy result -> READBACK buffer (for ImGui display) ----
     // Transition UAV -> COPY_SOURCE, copy the 2 floats, then continue to
-    // PIXEL_SHADER_RESOURCE for the tonemap read. The CPU reads m_Readback
+    // PIXEL | NON_PIXEL_SHADER_RESOURCE for the in-frame reads (tonemap t11,
+    // later the TAA eye-adaptation input). The CPU reads m_Readback
     // a frame or two later (asynchronous, fine for a UI readout).
     cl->ResourceBarrier(1,
         &CD3DX12_RESOURCE_BARRIER::Transition(m_Result.Get(),
@@ -405,13 +407,24 @@ void AutoExposure::Dispatch(ID3D12Resource* sceneColorResource,
 
     cl->CopyBufferRegion(m_Readback.Get(), 0, m_Result.Get(), 0, 2 * sizeof(float));
 
-    // ---- Result : COPY_SOURCE -> SRV for the tonemap read (t11) ----
+    // ---- Result : COPY_SOURCE -> 読み取り (PIXEL | NON_PIXEL) ----
+    // トーンマップ (t11, ピクセル) に加え、TAA (コンピュート) も同フレーム内で
+    // 読めるよう複合読み取り状態にする。コマンドリスト実行完了で COMMON へ
+    // 減衰し、次フレームの PrepareResultForRead が再び読み取りへ遷移する。
     cl->ResourceBarrier(1,
         &CD3DX12_RESOURCE_BARRIER::Transition(m_Result.Get(),
             D3D12_RESOURCE_STATE_COPY_SOURCE,
-            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE));
 
     m_ResultInitialised = true;
+}
+
+void AutoExposure::PrepareResultForRead()
+{
+    // バッファは ExecuteCommandLists 完了ごとに COMMON へ減衰する (レガシーバリア)。前フレーム結果を読む前に明示遷移
+    if (!m_ResultInitialised) return;                 // 初回 Dispatch 前: COMMON のまま (初回のクリア / UAV 書き込みで暗黙昇格)
+    CommandList()->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_Result.Get(),
+        D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE));
 }
 
 void AutoExposure::UpdateReadback()

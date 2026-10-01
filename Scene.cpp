@@ -19,6 +19,10 @@ void FScene::AddPrimitive(UPrimitiveComponent* Primitive)
 	Primitive->SetSceneProxy(info.Proxy.get());
 	Primitive->ClearRenderStateDirty();	// 生成直後は最新スナップショット
 
+	// ベロシティ履歴の登録 (Prev = Current = 生成時の変換, テレポート保留)。
+	// 最初のプッシュはテレポート扱いなのでスポーン時の姿勢から速度は出ない
+	m_VelocityData.Register(Primitive, info.Proxy->GetLocalToWorld());
+
 	m_Primitives.push_back(std::move(info));
 
 	// 初回フレームのトランスフォーム / 境界プッシュを予約する
@@ -39,6 +43,9 @@ void FScene::RemovePrimitive(UPrimitiveComponent* Primitive)
 		m_Primitives.erase(it);
 	}
 
+	// ベロシティ履歴も破棄 (同じアドレスに別コンポーネントが来ても古い Prev を使わない)
+	m_VelocityData.Remove(Primitive);
+
 	// ダーティリストからも除去する (ダングリングポインタ防止)
 	m_PrimitiveRenderStateDirtyList.erase(
 		std::remove(m_PrimitiveRenderStateDirtyList.begin(), m_PrimitiveRenderStateDirtyList.end(), Primitive),
@@ -54,6 +61,11 @@ void FScene::RemovePrimitive(UPrimitiveComponent* Primitive)
 
 void FScene::UpdateAllPrimitiveSceneInfos()
 {
+	// ---- ベロシティ: 前フレームの描画値 -> Prev (全エントリ) ----
+	// プッシュの有無に関わらず毎フレーム行う (動きが止まったプリミティブは次のフレームで
+	// 速度 0 に戻る。古い Prev が残り続ける危険の解消)
+	m_VelocityData.StartFrame();
+
 	// 処理中のエンキュー (push_back による再確保) に備えて
 	// ローカルへ swap してから処理する (World::Tick の PendingKill と同じ理由)
 	std::vector<UPrimitiveComponent*> renderStateDirty;
@@ -77,6 +89,9 @@ void FScene::UpdateAllPrimitiveSceneInfos()
 		// 境界を再計算してプッシュしておく (従来の毎フレーム
 		// UpdateBounds 相当の挙動を保存)
 		component->SendRenderTransform();
+
+		// ベロシティ: 今フレーム描く変換 (キーはコンポーネントなのでプロキシ再生成を跨いで履歴が残る)
+		m_VelocityData.UpdateTransform(component, it->Proxy->GetLocalToWorld());
 	}
 
 	// ---- トランスフォームダーティ (プッシュ型) ----
@@ -88,7 +103,16 @@ void FScene::UpdateAllPrimitiveSceneInfos()
 	{
 		component->SendRenderTransform();
 		component->ClearRenderTransformDirty();
+
+		// ベロシティ: 今フレーム描く変換 (プロキシへプッシュした値そのもの)
+		if (const FPrimitiveSceneProxy* proxy = component->GetSceneProxy())
+		{
+			m_VelocityData.UpdateTransform(component, proxy->GetLocalToWorld());
+		}
 	}
+
+	// ---- ベロシティ: テレポート保留をすべて下ろす (今フレームのプッシュで消費済み) ----
+	m_VelocityData.EndFrameUpdates();
 }
 
 // ============================================================

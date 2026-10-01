@@ -8,6 +8,7 @@
 #include "LumenScene.h"
 #include "VolumetricFog.h"
 #include "Camera.h"
+#include "AntiAliasingSettings.h"
 
 using namespace DirectX;
 
@@ -20,21 +21,55 @@ using namespace DirectX;
 //         GameManager での初期設定) をスナップショット
 //      2. Saved/Config/EngineSettings.ini が在れば読み込み、
 //         各オブジェクトへ適用 (無ければ初期値のまま = 初回起動)
-//    終了時 (SaveCurrent) : 現在値を INI へ書き出し (自動保存)
+//    終了時 (SaveCurrent) : 現在値を INI へ書き出し (自動保存)。
+//                           SetSaveEnabled(false) 中 (テストドライバ
+//                           -taatest) は書き出さない
 //    随時 (Reset 系)      : スナップショットへ巻き戻し = Default に戻す
+//                           (ResetAll は ResetAntiAliasing も含む。
+//                            Edit > Reset to Default > Anti-Aliasing と
+//                            Anti-Aliasing ウィンドウの "Reset to Default" は
+//                            FAntiAliasingParams のみ)
 //
 //  対象:
 //    - APostProcessVolume   : PP_SETTINGS の永続化対象フィールド + EV
 //    - AutoExposure         : Params 一式
 //    - ColorGradingLUTBaker : Artist LUT パス + Weight
-//    - FSceneRenderer       : トランスルーセンシーソート設定
+//    - FSceneRenderer       : トランスルーセンシーソート設定 ([Translucency]) /
+//                             FAntiAliasingParams 一式 ([AntiAliasing] セクション。
+//                             [Translucency] の後、[Lumen] の前に書く。
+//                             キー = フィールド名 = UE の CVar 対応:
+//                               AntiAliasingMethod                 r.AntiAliasingMethod (0 None / 2 TemporalAA)
+//                               ScreenPercentage                   r.ScreenPercentage [10, 200]
+//                               bTemporalAAUpsampling              r.TemporalAA.Upsampling (既定 1 [PORT])
+//                               TemporalAAQuality                  r.TemporalAA.Quality [0, 3]
+//                               TemporalAASamples                  r.TemporalAASamples [1, 64]
+//                               TemporalAACurrentFrameWeight       r.TemporalAACurrentFrameWeight [0, 1]
+//                               TemporalAAFilterSize               r.TemporalAAFilterSize [0.1, 2]
+//                               bTemporalAACatmullRom              r.TemporalAACatmullRom
+//                               bTemporalAAUpsampleFiltered        r.TemporalAAUpsampleFiltered
+//                               TemporalAAHistoryScreenPercentage  r.TemporalAA.HistoryScreenPercentage [100, 200]
+//                               bTemporalAAR11G11B10History        r.TemporalAA.R11G11B10History
+//                               bTemporalAAAllowDownsampling       r.TemporalAA.AllowDownsampling
+//                               UpscaleQuality                     r.Upscale.Quality [0, 5]
+//                               UpscaleSoftness                    r.Upscale.Softness [0, 1]
+//                               TonemapperMergeWithUpscaleMode     r.Tonemapper.MergeWithUpscale.Mode [0, 2]
+//                               TonemapperMergeWithUpscaleThreshold r.Tonemapper.MergeWithUpscale.Threshold [0, 1]
+//                               ViewTextureMipBiasOffset           r.ViewTextureMipBias.Offset [-2, 1]
+//                               ViewTextureMipBiasMin              r.ViewTextureMipBias.Min [-4, 0]
+//                               CameraRotationThreshold            カメラカット判定の回転 [0, 180] 度
+//                               CameraTranslationThreshold         カメラカット判定の移動 [0, 10000] m)。
+//                             読み込み時にスライダーと同じ範囲へクランプし、
+//                             NaN は既定値、未実装の AA 手法 (1/3/4) は 0/0/2 へ丸める。
+//                             FTemporalAADebugSettings (可視化 / ジッタ / ワンショット要求) は
+//                             Lumen の DebugMode と同じく保存しない
 //    - FLumenSceneData      : Params 一式 ([Lumen] セクション)。
 //                             DebugMode (Debug View) はデバッグ表示は
 //                             毎回 Off で起動
 //    - FVolumetricFog       : Params 一式 ([VolumetricFog] セクション。
 //                             r.VolumetricFog.* 相当のレンダラ設定)
 //    - ImGuiManager         : FLayoutSettings ([ImGui] セクション):
-//                             メニューバー / 各ウィンドウの表示フラグ /
+//                             メニューバー / 各ウィンドウの表示フラグ
+//                             (Anti-Aliasing ウィンドウの bShowAntiAliasing を含む) /
 //                             Outliner スプリッタ比率。
 //                             ウィンドウ位置・サイズは ImGui 本体の
 //                             imgui.ini が担当するので対象外
@@ -49,10 +84,16 @@ using namespace DirectX;
 //          - USceneComponent    : Location / Rotation / Scale
 //          - UPrimitiveComponent: Visible / CastShadow / AffectDistanceField /
 //                                 Min・MaxDrawDistance / TranslucencySortPriority
+//                                 (適用 = テレポート扱い: FScene::MarkPrimitiveTeleported で
+//                                  次のトランスフォーム転送の前フレーム変換を今の変換にし、
+//                                  ベロシティを出さない。UE bTeleport 相当)
 //          - UCameraComponent   : FOV / NearClip / FarClip
+//                                 (適用 = テレポート扱い: NotifyCameraCut でカメラカットを要求)
 //          - UPolygon2DComponent: VertexColor
 //          - マテリアルスロット  : M<j>. プレフィックス
-//            (UStaticMeshComponent 全スロット / UFieldQuadComponent)
+//            (UStaticMeshComponent 全スロット / UFieldQuadComponent)。
+//            EnableResponsiveAA (UMaterial::bEnableResponsiveAA) は b2 の外の CPU 専用フラグで、
+//            キーが無い旧 INI では既定 false のまま
 //          - ULightComponent 系  : 型別プロパティ一式
 //          - UExponentialHeightFogComponent : フォグ / Volumetric Fog プロパティ一式
 //
@@ -96,6 +137,7 @@ private:
 		// ---- Blend Mode / Two Sided ----
 		int      BlendMode = 0;				// EBlendMode (0=Opaque 1=Masked 2=Translucent 3=Additive)
 		bool     TwoSided = false;
+		bool     EnableResponsiveAA = false;	// UMaterial::bEnableResponsiveAA (CPU 専用。Translucent / Additive のみ効く)
 		float    Opacity = 1.0f;
 		float    OpacityMaskClipValue = 0.3333f;
 
@@ -282,11 +324,16 @@ private:
 	FLumenSceneData::Params       m_DefaultLumen{};
 	FVolumetricFog::Params        m_DefaultVolumetricFog{};
 	ACameraActor::FLevelEditorViewportSettings m_DefaultViewport{};
+	FAntiAliasingParams           m_DefaultAntiAliasing{};
 
 	// ワールド内全アクター (m_DefaultActors[i] = スポーン順 i 番のアクター)
 	std::vector<ActorSnapshot> m_DefaultActors;
 
 	bool m_Initialized = false;
+
+	// false の間は SaveCurrent が何も書かない (テストドライバ -taatest。
+	// 終了時自動保存 / 手動保存ボタンとも INI を書き換えない)
+	bool m_bSaveEnabled = true;
 
 	// ---- 内部ヘルパ ----
 	void CaptureDefaults();
@@ -338,6 +385,11 @@ private:
 	static void WriteEditorViewport(ConfigFile& Ini, const ACameraActor::FLevelEditorViewportSettings& v);
 	static void ReadEditorViewport(const ConfigFile& Ini, ACameraActor::FLevelEditorViewportSettings& v);
 
+	// FAntiAliasingParams <-> [AntiAliasing] セクション (キー = フィールド名)。
+	// 読み込み後に SanitizeAntiAliasingParams で §7.1 の範囲へ収める
+	static void WriteAntiAliasing(ConfigFile& Ini, const FAntiAliasingParams& p);
+	static void ReadAntiAliasing(const ConfigFile& Ini, FAntiAliasingParams& p);
+
 public:
 	// World.BeginPlay 後・ImGuiManager.Start 前に 1 回だけ呼ぶ。
 	// ImGui は Start 前でもレイアウト設定 (コード初期値) を保持しているので、
@@ -346,7 +398,11 @@ public:
 
 	// 現在値を INI へ保存。GameManager のデストラクタから自動で
 	// 呼ばれる (= 終了時自動保存)。ImGui の手動保存ボタンからも可。
+	// SetSaveEnabled(false) 中は何もせず false を返す。
 	bool SaveCurrent() const;
+
+	// INI 保存の有効 / 無効 (テストドライバが上書きした設定を永続化しないため)
+	void SetSaveEnabled(bool b) { m_bSaveEnabled = b; }
 
 	// ---- Default (コード初期値) へ巻き戻す ----
 	void ResetImGuiLayout();		// ImGui レイアウト (ウィンドウ表示フラグ / スプリッタ比率)
@@ -359,6 +415,7 @@ public:
 	void ResetLumen();				// Lumen Params (DebugMode は現在値を維持)
 	void ResetVolumetricFog();		// Volumetric Fog Params (r.VolumetricFog.* 相当)
 	void ResetEditorViewport();		// ビューポート操作設定 (カメラ速度 / 感度 / スムージング)
+	void ResetAntiAliasing();		// FAntiAliasingParams (デバッグ設定 FTemporalAADebugSettings は別構造体なので不変)
 	void ResetAll();
 
 	int GetDefaultLightCount() const;

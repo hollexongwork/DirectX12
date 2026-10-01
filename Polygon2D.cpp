@@ -48,6 +48,7 @@ public:
 			XMMATRIX localToWorld = XMMatrixIdentity();
 			PRIMITIVE_CONSTANT constant{};
 			XMStoreFloat4x4(&constant.LocalToWorld, XMMatrixTranspose(localToWorld));
+			XMStoreFloat4x4(&constant.PreviousLocalToWorld, XMMatrixTranspose(localToWorld));	// 前フレーム行列も単位行列
 			RM->SetConstant(RenderManager::CONSTANT_TYPE::PRIMITIVE, &constant, sizeof(constant));
 		}
 

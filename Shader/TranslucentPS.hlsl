@@ -176,7 +176,8 @@ PS_OUTPUT main(PS_INPUT input, bool bIsFrontFace : SV_IsFrontFace)
     PS_OUTPUT output;
 
     // ---- BaseColor + Opacity ----
-    float4 baseColor = TextureBaseColor.Sample(Sampler, input.TexCoord) * input.Color;
+    // Automatic View Mip Bias (b0 MaterialTextureMipBias。TemporalUpscale 時のみ非 0、それ以外は 0 で Sample と同値)
+    float4 baseColor = TextureBaseColor.SampleBias(Sampler, input.TexCoord, MaterialTextureMipBias) * input.Color;
     float opacity = saturate(baseColor.a * Material.Opacity);
 
     // 屈折を自前合成するか (BLEND_Translucent のみ。Additive は対象外)
@@ -227,12 +228,12 @@ PS_OUTPUT main(PS_INPUT input, bool bIsFrontFace : SV_IsFrontFace)
     }
 
     float3x3 TBN = BuildTBN(vertexNormal, input.Tangent);
-    float3 normalSample = TextureNormal.Sample(Sampler, input.TexCoord).xyz * 2.0f - 1.0f;
+    float3 normalSample = TextureNormal.SampleBias(Sampler, input.TexCoord, MaterialTextureMipBias).xyz * 2.0f - 1.0f;
     float3 mappedNormal = normalize(mul(normalSample, TBN));
     float3 normal = normalize(lerp(vertexNormal, mappedNormal, Material.NormalWeight));
 
     // ---- ARM (GeometryPS と同じフォールバック規約) ----
-    float4 ARM = TextureMSRA.Sample(Sampler, input.TexCoord);
+    float4 ARM = TextureMSRA.SampleBias(Sampler, input.TexCoord, MaterialTextureMipBias);
     float occlusion = (ARM.r == 0.0f) ? 1.0f : ARM.r;
     float roughness = (ARM.g == 0.0f) ? Material.Roughness : ARM.g;
     float metallic = (ARM.b == 0.0f) ? Material.Metallic : ARM.b;

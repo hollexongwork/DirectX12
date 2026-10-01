@@ -36,4 +36,15 @@ public:
 	float GetFarClip() const { return m_FarClip; }
 	void  SetNearClip(float NearClip) { m_NearClip = NearClip; }
 	void  SetFarClip(float FarClip) { m_FarClip = FarClip; }
+
+	// ---- カメラカットのラッチ (UE: テレポート / Reset / Load 時の bCameraCut) ----
+	// NotifyCameraCut で立て、ACameraActor::Tick が IsCameraCutPending を読んで
+	// コントローラの慣性を捨て (消費しない)、UWorld::CalcSceneView が
+	// ConsumeCameraCut で消費して FSceneView::bCameraCut に反映する。
+	void NotifyCameraCut() { m_bCameraCutPending = true; }            // テレポート / Reset / Load
+	bool IsCameraCutPending() const { return m_bCameraCutPending; }    // ACameraActor::Tick が読む (消費しない)
+	bool ConsumeCameraCut() { const bool b = m_bCameraCutPending; m_bCameraCutPending = false; return b; }
+
+private:
+	bool m_bCameraCutPending = false;
 };

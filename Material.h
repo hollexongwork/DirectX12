@@ -150,6 +150,13 @@ private:
 	{
 		MATERIAL Material;
 	};
+
+	// ---- Responsive AA (UMaterial::bEnableResponsiveAA) ----
+	// CPU 専用フラグ (MATERIAL / b2 の外なので定数バッファのレイアウト 224 B は不変)。
+	// true の Translucent / Additive サブセットは RenderResponsiveAAMask が Responsive AA マスク
+	// (R8_UNORM) へ描き、TAA がその画素の現フレーム重みを 0.25 にする (動く半透明の残像を短くする)。
+	// Material は FSlot へ値コピーされるのでプロキシへもそのまま渡る
+	bool bEnableResponsiveAA = false;
 	
 public:	
 
@@ -179,6 +186,10 @@ public:
 
 	bool IsRefractionUseF0() const { return Params.bRefractionUseF0 != FALSE; }
 	void SetRefractionUseF0(bool bUse) { Params.bRefractionUseF0 = bUse ? TRUE : FALSE; }
+
+	// ---- Responsive AA (UMaterial::bEnableResponsiveAA。Translucent / Additive のみ有効) ----
+	bool ShouldEnableResponsiveAA() const { return bEnableResponsiveAA; }
+	void SetEnableResponsiveAA(bool bEnable) { bEnableResponsiveAA = bEnable; }
 
 	void Bind(RenderManager* rm) const;
 };

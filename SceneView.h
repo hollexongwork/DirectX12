@@ -37,6 +37,15 @@ struct FSceneView
 	float    FarClip = 500.0f;
 	float    AspectRatio = 16.0f / 9.0f;
 
+	// ---- カメラカット (UE FSceneView::bCameraCut) ----
+	// ゲーム側 (UWorld::CalcSceneView) が立てる: ワールド要求 (RequestCameraCut) /
+	// カメラコンポーネントのラッチ (NotifyCameraCut) の消費 / アクティブカメラの変更。
+	// レンダラ (PrepareViewStateForVisibility) はこれに初回フレーム / bValid 復帰 /
+	// AA 手法変更 / デバッグのリセット要求を OR して FViewInfo::bCameraCut とし、
+	// 前フレーム情報 (TAA 履歴 / Lumen・Fog のリプロジェクション) を破棄する。
+	bool        bCameraCut = false;
+	const void* CameraId = nullptr;		// 統計表示用 (アクティブカメラの識別子。null = カメラ不在)
+
 	// ---- 解決済みポストプロセス設定 (FFinalPostProcessSettings 相当) ----
 	// APostProcessVolume からゲーム側 (UWorld::CalcSceneView) で
 	// 解決済み。ボリューム不在 / 無効時は既定値が入る。

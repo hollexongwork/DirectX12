@@ -120,7 +120,17 @@ public:
 	// 値スナップショットする。カメラ不在時は bValid = false のまま
 	// 返し、レンダラはビュー定数 / CSM の更新をスキップする。
 	// GameManager::Draw が毎フレーム呼び、レンダラのパス列へ渡す。
-	FSceneView CalcSceneView(float AspectRatio) const;
+	// bCameraCut (ワールド要求 / カメラのカットラッチ消費 / アクティブカメラ変更) と
+	// CameraId も埋め、ワールド要求をクリアする (そのため非 const)。
+	FSceneView CalcSceneView(float AspectRatio);
+
+	// ---- カメラカット要求 (ImGui "Camera Cut Now" / テストドライバ) ----
+	// 次の CalcSceneView で FSceneView::bCameraCut を立てる (1 回で消費)
+	void RequestCameraCut() { m_bCameraCutRequested = true; }
 
 	FScene* GetScene() { return &m_Scene; }
+
+private:
+	bool m_bCameraCutRequested = false;
+	const UCameraComponent* m_LastViewCamera = nullptr;	// 前回 CalcSceneView のアクティブカメラ (変更 = カット)
 };

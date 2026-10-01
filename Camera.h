@@ -61,6 +61,10 @@ private:
 
 	int m_SpeedChangeWheelAccumulator = 0;	// 速度段階変更用のホイール端数 [WHEEL_DELTA 単位]
 
+	// false の間は Tick の入力ブロック全体 (マウス / ホイール / キーボード) を無視する。
+	// インパルスは 0 のまま UpdateSimulation へ渡る (テストドライバ -taatest 用)
+	bool m_bInputEnabled = true;
+
 	void OnChangeCameraSpeed(int WheelDelta);
 	void ApplyViewportSettingsToController();
 
@@ -79,4 +83,12 @@ public:
 
 	// ホイール 1 ノッチのドリー移動量 [m] (ImGui 表示用)
 	float GetScrollDollyDistance() const;
+
+	// ---- テストドライバ (FTemporalAATestDriver) 用 ----
+	// 入力の有効 / 無効。無効中はスクリプトが設定したトランスフォームを
+	// コントローラが動かさない (速度 0 / 未放出量 0 の場合)
+	void SetInputEnabled(bool bEnabled) { m_bInputEnabled = bEnabled; }
+
+	// コントローラの速度と未放出の変位 / 回転を破棄する (外部からのテレポート後など)
+	void ResetVelocity() { m_CameraController.ResetVelocity(); }
 };

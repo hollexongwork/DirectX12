@@ -138,6 +138,19 @@ public:
     // (TEXTURE_TYPE::AUTO_EXPOSURE).
     unsigned int                GetExposureSRVIndex()  const { return m_ResultSRVIndex; }
 
+    // ---- 結果バッファの状態管理 ----
+    // m_Result はバッファなので、レガシーバリアでは ExecuteCommandLists 完了ごとに
+    // COMMON へ減衰する (フレームを跨いだ「PSR 常駐」は成立しない)。
+    // RenderPostProcessing の先頭 (結果を読む全パスより前) で呼び、
+    // COMMON -> 読み取り (PIXEL | NON_PIXEL) を明示遷移する。
+    // 初回 Dispatch 前 (IsResultValid() = false) は何もしない。
+    // フレーム内の遷移: COMMON -> RD -> UAV -> COPY_SOURCE -> RD (-> 減衰)
+    void PrepareResultForRead();
+
+    // 結果バッファに有効な露出値があるか (初回 Dispatch 以降 true)。
+    // false の間は前フレーム露出として読んではならない (TAA は手動露出へフォールバック)
+    bool IsResultValid() const { return m_ResultInitialised; }
+
     // Latest GPU-computed values read back to the CPU (for ImGui display).
     // These lag the GPU by a frame or two (readback is asynchronous) but are
     // fine for an on-screen readout. Valid only after the first frames once

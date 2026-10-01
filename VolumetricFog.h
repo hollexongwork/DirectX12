@@ -109,7 +109,7 @@ private:
 
 		XMFLOAT4   GridSize;						// xyz = froxel 数, w = GridPixelSize
 		XMFLOAT4   GridZParams;						// xyz = (B, O, S), w = 1/GridSizeZ
-		XMFLOAT4   ScreenSize;						// xy = バックバッファ, zw = 1/xy
+		XMFLOAT4   ScreenSize;						// xy = レンダー解像度 R (m_ViewWidth/Height), zw = 1/xy
 		XMFLOAT4   ProjectionParams;				// x = 1/P._11, y = 1/P._22, z = Near, w = MaxDistance
 		XMFLOAT4   CameraOrigin;
 		XMFLOAT4   FrameJitter;						// xyz = セルオフセット, w = HistoryWeight
@@ -145,10 +145,14 @@ private:
 	Params         m_Params;
 	Stats          m_Stats;
 
-	// ---- グリッド次元 (Init でバックバッファサイズから確定) ----
+	// ---- グリッド次元 (CreateVolumes でレンダー解像度 R から確定) ----
 	unsigned int m_GridSizeX = 1;
 	unsigned int m_GridSizeY = 1;
 	unsigned int m_GridSizeZ = VOLUMETRIC_FOG_GRID_SIZE_Z;
+
+	// ボリュームを作ったビュー (レンダー) 解像度。b0 の ScreenSize に使う (バックバッファではない)
+	unsigned int m_ViewWidth = 1;
+	unsigned int m_ViewHeight = 1;
 
 	// 独立コンピュートルートシグネチャ (3 パス共通):
 	//  [0]  CBV  b0  (FVolumetricFogParams)
@@ -202,7 +206,17 @@ public:
 	explicit FVolumetricFog(RenderManager* owner);
 	~FVolumetricFog();
 
-	void Init();	// グリッド次元 / RS / PSO / ボリューム / UAV / SRV
+	void Init();	// RS / PSO / b0 バッファ + CreateVolumes(バックバッファ解像度)
+
+	// レンダー解像度 Width x Height からグリッド次元 (ceil(W/8), ceil(H/8), 64) を決め、
+	// 5 枚のボリューム (UAV 状態) と SRV / UAV を作る。m_bHistoryValid = false にする
+	// (履歴ボリュームが未定義のため)。テンポラルジッタの位相 (m_FrameNumber) と
+	// ピンポン (m_LightScatteringFrame) は触らない = 再確保しても再確保無しの実行とフレーム整合を保つ。
+	// 先に ReleaseVolumes を呼んでおくこと
+	void CreateVolumes(unsigned int Width, unsigned int Height);
+
+	// 5 枚のボリュームとその SRV / UAV 枠を遅延削除キューへ返す (デストラクタも使う)
+	void ReleaseVolumes();
 
 	// froxel Z 分布パラメータ (GetVolumetricFogGridZParams 相当)。
 	// FOG 定数 (b7) の VolumetricFogGridZParams にも使う。

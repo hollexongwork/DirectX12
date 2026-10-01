@@ -1,4 +1,5 @@
 #pragma once
+#include <cstddef>
 #include <DirectXMath.h>
 using namespace DirectX;
 
@@ -70,10 +71,17 @@ struct PP_SETTINGS
     // --- Flag ---
     unsigned int Flags = PP_FLAG_BLOOM | PP_FLAG_AUTO_EXPOSURE |
         PP_FLAG_COLOR_GRADING | PP_FLAG_WHITE_BALANCE;
-    float        _pp_pad0 = 0.0f;
-    float        _pp_pad1 = 0.0f;
-    float        _pp_pad2 = 0.0f;
+
+    // --- レンダラ専有 (旧パディング。永続化しない: Write/ReadPostProcess は触れない) ---
+    // FSceneRenderer がパスの直前に書く (ボリューム側の値は使われない)
+    float        UpscaleUnsharpAmount = 0.0f;   // 一次空間アップスケール (mode 5) のアンシャープ量
+                                                // = r.Upscale.Softness x max(0, 1 - (In.x*In.y)/(O.x*O.y))
+    unsigned int VisualizeMode = 0;             // Temporal AA デバッグ表示 (ETemporalAADebugView)
+    float        VisualizeScale = 1.0f;         // デバッグ表示の増幅 (FTemporalAADebugSettings::VisualizeScale)
 };
+static_assert(offsetof(PP_SETTINGS, UpscaleUnsharpAmount) == 164, "b4 UpscaleUnsharpAmount offset (was _pp_pad0)");
+static_assert(offsetof(PP_SETTINGS, VisualizeMode) == 168, "b4 VisualizeMode offset (was _pp_pad1)");
+static_assert(offsetof(PP_SETTINGS, VisualizeScale) == 172, "b4 VisualizeScale offset (was _pp_pad2)");
 
 // Compile-time guard: HLSL POSTPROCESS block layout must match.
 //   group0 16 + group1 16 + grading 5*16=80 + misc 16 + DOF 2*16=32 + flags-block 16

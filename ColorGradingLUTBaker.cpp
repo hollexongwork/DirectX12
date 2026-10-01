@@ -218,8 +218,10 @@ void ColorGradingLUTBaker::CreateFallbackSRV()
 	d.SampleDesc.Count = 1;
 	d.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
 
+	// ベイク CS (コンピュート) が t0 で読むため NON_PIXEL を含む読み取り状態で生成する
+	// (PIXEL_SHADER_RESOURCE のみだとコンピュートからの読み取りが状態不一致になる)
 	HRESULT hr = Device()->CreateCommittedResource(&prop, D3D12_HEAP_FLAG_NONE,
-		&d, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, nullptr,
+		&d, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, nullptr,
 		IID_PPV_ARGS(&m_FallbackTex));
 	assert(SUCCEEDED(hr));
 	m_FallbackTex->SetName(L"ArtistLUTFallback");
@@ -244,6 +246,14 @@ void ColorGradingLUTBaker::LoadArtistLUT(const char* ddsFile)
 	// LUT data is linear, not sRGB.
 	m_ArtistLUT = m_Owner->LoadTexture(ddsFile, false);
 	assert(m_ArtistLUT && m_ArtistLUT->Resource);
+
+	// LoadTexture は PIXEL_SHADER_RESOURCE で終わるが、Artist LUT はベイク CS
+	// (コンピュート, t0) が読むため NON_PIXEL を含む読み取り状態へ遷移しておく
+	// (記録中のコマンドリストへ積む。LoadTexture の COPY_DEST -> PSR の直後)
+	CommandList()->ResourceBarrier(1,
+		&CD3DX12_RESOURCE_BARRIER::Transition(m_ArtistLUT->Resource.Get(),
+			D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+			D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE));
 
 	m_ArtistLUTPath = ddsFile;
 

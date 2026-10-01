@@ -4,7 +4,7 @@
 #include "Structs.hlsl"
 
 // =============================================================
-//  SRV レジスタレイアウト (C++ TEXTURE_TYPE と 1:1 ミラー必須, t0..t34)
+//  SRV レジスタレイアウト (C++ TEXTURE_TYPE と 1:1 ミラー必須, t0..t36)
 //  ワールド座標 (深度 + InvViewProjection から再構築する)。
 // =============================================================
 
@@ -16,7 +16,7 @@ Texture2D<float4> TextureNormal : register(t1); // GBufferA: World Normal (.w = 
 Texture2D<float4> TextureMSRA : register(t2); // GBufferB: R=Metallic G=Specular B=Roughness A=AO
 Texture2D<float> TextureDepth : register(t3); // 非線形深度
 Texture2D<float2> TextureLinearDepth : register(t4); // R=view距離 G=正規化0..1
-Texture2D<float4> TextureEnvironment : register(t5); // 予約・未使用 (equirect 環境マップは IBLBaker のベイク入力のみ。t0..t34 ミラー維持のため宣言は残す)
+Texture2D<float4> TextureEnvironment : register(t5); // 予約・未使用 (equirect 環境マップは IBLBaker のベイク入力のみ。t0..t36 ミラー維持のため宣言は残す)
 
 // ---- IBL ----
 TextureCube<float4> IrradianceCube : register(t6); // 拡散 irradiance (畳み込み済)
@@ -113,6 +113,14 @@ Texture3D<float4> LumenRCSH_B : register(t32);
 //      HeightFogCommon.hlsl の CombineVolumetricFog がサンプルする。
 TextureCube<float4> FogInscatteringColorCubemap : register(t33);
 Texture3D<float4> IntegratedLightScattering : register(t34);
+
+// ---- Temporal AA (t35-t36, TemporalAA.h / VelocityRendering.h) ----
+// t35: シーンベロシティ (R16G16_UNORM, VelocityCommon.hlsl のエンコード済み)。
+//      0 (クリア値) = 未書き込み -> 深度からカメラモーションへフォールバック。
+//      ベロシティパスを描いていないフレームは 1x1 のダミー (RG = 0) が入る。
+// t36: TAA の DebugOutput / TAA 出力 (可視化パス VisualizeTemporalAAPS 用)
+Texture2D<float2> SceneVelocityTexture : register(t35); // 0 = 未書き込み (カメラ運動へフォールバック)
+Texture2D<float4> TemporalAADebugTexture : register(t36);
 
 // ---- サンプラー ----
 SamplerState Sampler : register(s0); // ANISOTROPIC, WRAP

@@ -46,6 +46,9 @@ Material::Material()
 	Params.RefractionDepthBias = 0.0f;
 	Params.bRefractionUseF0    = FALSE;
 	Params._padSubstrate       = { 0.0f, 0.0f };
+
+	// ---- Responsive AA (UMaterial::bEnableResponsiveAA 既定 false。b2 の外の CPU 専用フラグ) ----
+	bEnableResponsiveAA = false;
 }
 
 void Material::Bind(RenderManager* rm) const

@@ -683,15 +683,10 @@ void FShadowSceneRenderer::RenderShadowDepthMaps(FScene* Scene)
 				D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
 	}
 
-	// ---- フル解像度ビューポート / シザーを復元 ----
-	// (後続の LinearDepth / デファードパスは BeginFrame のビューポートを
-	//  前提にしているため、ここで必ず戻す)
-	D3D12_VIEWPORT fullVP{ 0.0f, 0.0f,
-		(FLOAT)m_RHI->GetBackBufferWidth(), (FLOAT)m_RHI->GetBackBufferHeight(), 0.0f, 1.0f };
-	D3D12_RECT fullSC{ 0, 0,
-		(LONG)m_RHI->GetBackBufferWidth(), (LONG)m_RHI->GetBackBufferHeight() };
-	cl->RSSetViewports(1, &fullVP);
-	cl->RSSetScissorRects(1, &fullSC);
+	// ---- 既定ビューポート / シザーを復元 ----
+	// (後続の LinearDepth / デファードパスは BeginFrame のビューポート
+	//  (RHI の既定ビューポート) を前提にしているため、ここで必ず戻す)
+	m_RHI->RestoreDefaultViewport();
 }
 
 

@@ -6,6 +6,7 @@
 #include "PrimitiveSceneProxy.h"
 #include "FBXModel.h"
 #include "DistanceFieldAtlas.h"
+#include "Halton.h"
 
 #include "D3DX12.h"
 
@@ -35,39 +36,18 @@ FLumenSceneData::~FLumenSceneData()
 
 	if (m_DepthAtlasSRVIndex) { m_RHI->ReleaseShaderResourceView(m_DepthAtlasSRVIndex); }
 
-	auto releaseComputeTexture = [this](FLumenComputeTexture& tex)
-		{
-			if (tex.Resource)
-			{
-				m_RHI->DeferredRelease(tex.Resource, (int)tex.SRVIndex, -1);
-				m_RHI->ReleaseShaderResourceView(tex.UAVIndex);
-				tex.Resource = nullptr;
-			}
-		};
-	releaseComputeTexture(m_DirectLightingAtlas);
-	releaseComputeTexture(m_IndirectLightingAtlas);
-	releaseComputeTexture(m_FinalLightingAtlas);
+	ReleaseComputeTexture(m_DirectLightingAtlas);
+	ReleaseComputeTexture(m_IndirectLightingAtlas);
+	ReleaseComputeTexture(m_FinalLightingAtlas);
 	for (unsigned int i = 0; i < LUMEN_GLOBAL_SDF_CLIPMAPS; i++)
 	{
-		releaseComputeTexture(m_GlobalSDF[i]);
+		ReleaseComputeTexture(m_GlobalSDF[i]);
 	}
-	releaseComputeTexture(m_ProbeGeo);
-	releaseComputeTexture(m_ProbeTraceRadiance);
-	releaseComputeTexture(m_ProbeFilteredRadiance);
-	for (int i = 0; i < 2; i++)
-	{
-		releaseComputeTexture(m_ProbeSH[i].SHR);
-		releaseComputeTexture(m_ProbeSH[i].SHG);
-		releaseComputeTexture(m_ProbeSH[i].SHB);
-		releaseComputeTexture(m_ProbeSH[i].Aux);
-	}
-	releaseComputeTexture(m_DiffuseIndirect[0]);
-	releaseComputeTexture(m_DiffuseIndirect[1]);
-	releaseComputeTexture(m_ReflectionTexture);
-	releaseComputeTexture(m_RCAtlas);
+	ReleaseScreenTextures();
+	ReleaseComputeTexture(m_RCAtlas);
 	for (int i = 0; i < 3; i++)
 	{
-		releaseComputeTexture(m_RCSH[i]);
+		ReleaseComputeTexture(m_RCSH[i]);
 	}
 
 	if (m_DepthAtlas)
@@ -102,7 +82,11 @@ bool FLumenSceneData::IsHardwareRayTracingSupported() const
 void FLumenSceneData::Init()
 {
 	InitAtlases();
-	InitScreenTextures();
+	// 解像度に依存しないテクスチャ (Global SDF / Radiance Cache SH) と、
+	// レンダー解像度のスクリーンテクスチャ (バックバッファ解像度で開始。
+	// 解像度変更時は FSceneRenderer::ResizeRenderTargets が Release / Create で作り直す)
+	InitGlobalTextures();
+	CreateScreenTextures((unsigned int)m_RHI->GetBackBufferWidth(), (unsigned int)m_RHI->GetBackBufferHeight());
 	InitBuffers();
 	InitComputePipelines();
 
@@ -388,13 +372,24 @@ void FLumenSceneData::InitAtlases()
 
 
 // ------------------------------------------------------------
-//  Global SDF / スクリーンプローブ / 反射 / Radiance Cache
+//  コンピュートテクスチャの解放 (リソース + SRV / UAV 枠を遅延削除キューへ)
 // ------------------------------------------------------------
-void FLumenSceneData::InitScreenTextures()
+void FLumenSceneData::ReleaseComputeTexture(FLumenComputeTexture& Texture)
 {
-	const unsigned int width = (unsigned int)m_RHI->GetBackBufferWidth();
-	const unsigned int height = (unsigned int)m_RHI->GetBackBufferHeight();
+	if (Texture.Resource)
+	{
+		m_RHI->DeferredRelease(Texture.Resource, (int)Texture.SRVIndex, -1);
+		m_RHI->ReleaseShaderResourceView(Texture.UAVIndex);
+	}
+	Texture = FLumenComputeTexture{};
+}
 
+
+// ------------------------------------------------------------
+//  解像度に依存しないテクスチャ: Global SDF / Radiance Cache SH ボリューム
+// ------------------------------------------------------------
+void FLumenSceneData::InitGlobalTextures()
+{
 	const D3D12_RESOURCE_STATES readState =
 		D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
 
@@ -405,6 +400,36 @@ void FLumenSceneData::InitScreenTextures()
 	CreateComputeTexture(m_GlobalSDF[1], L"LumenGlobalSDF1",
 		LUMEN_GLOBAL_SDF_RESOLUTION, LUMEN_GLOBAL_SDF_RESOLUTION, LUMEN_GLOBAL_SDF_RESOLUTION,
 		DXGI_FORMAT_R16_FLOAT, readState);
+
+	// ---- Radiance Cache SH ボリューム (16^3 x3) ----
+	for (int i = 0; i < 3; i++)
+	{
+		static const wchar_t* names[3] = {
+			L"LumenRCSH_R", L"LumenRCSH_G", L"LumenRCSH_B" };
+		CreateComputeTexture(m_RCSH[i], names[i],
+			LUMEN_RC_PROBES_PER_AXIS, LUMEN_RC_PROBES_PER_AXIS, LUMEN_RC_PROBES_PER_AXIS,
+			DXGI_FORMAT_R16G16B16A16_FLOAT, readState);
+	}
+}
+
+
+// ------------------------------------------------------------
+//  レンダー解像度 (Width x Height = R) のスクリーンテクスチャ:
+//  スクリーンプローブ / プローブ SH 履歴 / DiffuseIndirect 履歴 / 反射。
+//  中身は未定義なので、作り直した直後のフレームは呼び出し側が
+//  FLumenFrameInputs::bHistoryValid = false を渡す (ViewRectSize 規則, §4.9)。
+//  プローブジッタの位相 (m_ProbeJitterIndex) と SH のピンポン (m_ProbeSHFrame) は
+//  保持する (再確保の有無で同じジッタ列を保つ)。先に ReleaseScreenTextures を呼んでおくこと
+// ------------------------------------------------------------
+void FLumenSceneData::CreateScreenTextures(unsigned int Width, unsigned int Height)
+{
+	assert(m_ProbeGeo.Resource == nullptr && "FLumenSceneData::CreateScreenTextures: ReleaseScreenTextures first");
+
+	const unsigned int width = (Width < 1u) ? 1u : Width;
+	const unsigned int height = (Height < 1u) ? 1u : Height;
+
+	const D3D12_RESOURCE_STATES readState =
+		D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
 
 	// ---- Screen Probe Gather ----
 	m_NumProbesX = (width + LUMEN_PROBE_DOWNSAMPLE - 1) / LUMEN_PROBE_DOWNSAMPLE;
@@ -436,6 +461,7 @@ void FLumenSceneData::InitScreenTextures()
 		CreateComputeTexture(m_DiffuseIndirect[i], L"LumenDiffuseIndirect",
 			width, height, 1, DXGI_FORMAT_R16G16B16A16_FLOAT, readState);
 	}
+	// ピンポン添字のみ (両方とも新規で中身は未定義。履歴は bHistoryValid = false で読まれない)
 	m_DiffuseIndirectFrame = 0;
 	m_DiffuseIndirectCurrent = 0;
 
@@ -443,15 +469,31 @@ void FLumenSceneData::InitScreenTextures()
 	CreateComputeTexture(m_ReflectionTexture, L"LumenReflections",
 		width, height, 1, DXGI_FORMAT_R16G16B16A16_FLOAT, readState);
 
-	// ---- Radiance Cache SH ボリューム (16^3 x3) ----
-	for (int i = 0; i < 3; i++)
+	// 統計 (UpdateLumenScene も毎フレーム m_NumProbesX/Y から書き直す)
+	m_Stats.NumProbesX = m_NumProbesX;
+	m_Stats.NumProbesY = m_NumProbesY;
+}
+
+
+// ------------------------------------------------------------
+//  スクリーンテクスチャの解放 (CreateScreenTextures の対。Global SDF / RC / アトラスは保持)
+//  リソースと SRV / UAV 枠は遅延削除キューへ (実解放は呼び出し側の WaitGPU)
+// ------------------------------------------------------------
+void FLumenSceneData::ReleaseScreenTextures()
+{
+	ReleaseComputeTexture(m_ProbeGeo);
+	ReleaseComputeTexture(m_ProbeTraceRadiance);
+	ReleaseComputeTexture(m_ProbeFilteredRadiance);
+	for (int i = 0; i < 2; i++)
 	{
-		static const wchar_t* names[3] = {
-			L"LumenRCSH_R", L"LumenRCSH_G", L"LumenRCSH_B" };
-		CreateComputeTexture(m_RCSH[i], names[i],
-			LUMEN_RC_PROBES_PER_AXIS, LUMEN_RC_PROBES_PER_AXIS, LUMEN_RC_PROBES_PER_AXIS,
-			DXGI_FORMAT_R16G16B16A16_FLOAT, readState);
+		ReleaseComputeTexture(m_ProbeSH[i].SHR);
+		ReleaseComputeTexture(m_ProbeSH[i].SHG);
+		ReleaseComputeTexture(m_ProbeSH[i].SHB);
+		ReleaseComputeTexture(m_ProbeSH[i].Aux);
 	}
+	ReleaseComputeTexture(m_DiffuseIndirect[0]);
+	ReleaseComputeTexture(m_DiffuseIndirect[1]);
+	ReleaseComputeTexture(m_ReflectionTexture);
 }
 
 
@@ -1120,13 +1162,8 @@ void FLumenSceneData::RenderCardCaptures()
 		cl->ResourceBarrier(_countof(barriers), barriers);
 	}
 
-	// ---- フル解像度ビューポート / シザーを復元 ----
-	D3D12_VIEWPORT fullVP{ 0.0f, 0.0f,
-		(FLOAT)m_RHI->GetBackBufferWidth(), (FLOAT)m_RHI->GetBackBufferHeight(), 0.0f, 1.0f };
-	D3D12_RECT fullSC{ 0, 0,
-		(LONG)m_RHI->GetBackBufferWidth(), (LONG)m_RHI->GetBackBufferHeight() };
-	cl->RSSetViewports(1, &fullVP);
-	cl->RSSetScissorRects(1, &fullSC);
+	// ---- 既定ビューポート / シザーを復元 (RHI の既定ビューポート) ----
+	m_RHI->RestoreDefaultViewport();
 }
 
 
@@ -1571,24 +1608,12 @@ void FLumenSceneData::RenderLumenScreenGI(const FLumenFrameInputs& Inputs)
 
 		if (m_Params.bProbeJitter)
 		{
-			auto halton = [](unsigned int index, unsigned int base)
-				{
-					float result = 0.0f;
-					float f = 1.0f / (float)base;
-					while (index > 0)
-					{
-						result += f * (float)(index % base);
-						index /= base;
-						f /= (float)base;
-					}
-					return result;
-				};
-
+			// Halton は共通実装 (Halton.h。VolumetricFog / TAA と共有)
 			const unsigned int index = (m_ProbeJitterIndex % 16) + 1;
 			const float ds = (float)LUMEN_PROBE_DOWNSAMPLE;
 			m_ProbeJitter = {
-				floorf(halton(index, 2) * ds),
-				floorf(halton(index, 3) * ds) };
+				floorf(Halton(index, 2) * ds),
+				floorf(Halton(index, 3) * ds) };
 			m_ProbeJitterIndex++;
 		}
 		else

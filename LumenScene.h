@@ -440,8 +440,12 @@ private:
 	ID3D12GraphicsCommandList* CommandList();
 
 	void InitAtlases();
-	void InitScreenTextures();	// GDF / プローブ / 反射 / RC
+	void InitGlobalTextures();	// Global SDF / Radiance Cache SH (解像度非依存。Init で 1 回)
 	void InitBuffers();
+
+	// コンピュートテクスチャのリソース + SRV / UAV 枠を遅延削除キューへ返し、空に戻す
+	// (デストラクタ / ReleaseScreenTextures 共用)
+	void ReleaseComputeTexture(FLumenComputeTexture& Texture);
 	void InitComputePipelines();
 	// 必須 PSO のローダ (TryCreateComputePipeline + assert。SWRT 用)
 	ComPtr<ID3D12PipelineState> CreateComputePipeline(const char* csoFile);
@@ -499,6 +503,14 @@ public:
 	~FLumenSceneData();
 
 	void Init();
+
+	// ---- レンダー解像度のスクリーンテクスチャ (解像度変更: FSceneRenderer::ResizeRenderTargets) ----
+	// CreateScreenTextures : Width x Height (= R) でプローブ / プローブ SH / DiffuseIndirect /
+	//                        反射を作る。中身は未定義なので直後のフレームは bHistoryValid = false で
+	//                        使うこと (呼び出し側の ViewRectSize 規則)。プローブジッタの位相は保持する
+	// ReleaseScreenTextures: 上記を遅延削除キューへ返す (Global SDF / RC / アトラスは保持)
+	void CreateScreenTextures(unsigned int Width, unsigned int Height);
+	void ReleaseScreenTextures();
 
 	// 毎フレーム: FScene のプロキシ列からオブジェクト / カードバッファを
 	// 詰め直し、新規プロキシのキャプチャを予約する。HWRT 有効時は

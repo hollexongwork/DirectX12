@@ -3,6 +3,7 @@
 #include "VolumetricFog.h"
 #include "LightGridInjection.h"
 #include "ShadowRendering.h"
+#include "Halton.h"		// Halton 列 (VolumetricFogTemporalRandom 相当のセル内ジッタ。Lumen / TAA と共有)
 #include "D3DX12.h"
 #include <fstream>
 #include <vector>
@@ -26,8 +27,13 @@ FVolumetricFog::~FVolumetricFog()
 			m_ParamBuffer[i]->Unmap(0, nullptr);
 	}
 
-	// ボリュームテクスチャ / デスクリプタ枠は遅延削除キューへ
-	// (in-flight のコマンドリストが参照している可能性があるため)
+	ReleaseVolumes();
+}
+
+// ボリュームテクスチャ / デスクリプタ枠は遅延削除キューへ
+// (in-flight のコマンドリストが参照している可能性があるため)
+void FVolumetricFog::ReleaseVolumes()
+{
 	auto release = [&](FVolumeTexture& v)
 		{
 			if (v.Resource)
@@ -35,12 +41,48 @@ FVolumetricFog::~FVolumetricFog()
 				m_Owner->DeferredRelease(std::move(v.Resource), (int)v.SRVIndex, -1);
 				m_Owner->ReleaseShaderResourceView(v.UAVIndex);	// UAV も SRV ヒープの枠
 			}
+			v.Resource.Reset();
+			v.SRVIndex = 0;
+			v.UAVIndex = 0;
+			v.State = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
 		};
 	release(m_VBufferA);
 	release(m_VBufferB);
 	release(m_LightScattering[0]);
 	release(m_LightScattering[1]);
 	release(m_IntegratedLightScattering);
+}
+
+void FVolumetricFog::CreateVolumes(unsigned int Width, unsigned int Height)
+{
+	assert(m_VBufferA.Resource == nullptr && "FVolumetricFog::CreateVolumes: ReleaseVolumes first");
+
+	// ------------------------------------------------------------
+	//  グリッド次元 (レンダー解像度 R から確定)
+	// ------------------------------------------------------------
+	m_ViewWidth = (Width < 1u) ? 1u : Width;
+	m_ViewHeight = (Height < 1u) ? 1u : Height;
+	m_GridSizeX = (m_ViewWidth + VOLUMETRIC_FOG_GRID_PIXEL_SIZE - 1) / VOLUMETRIC_FOG_GRID_PIXEL_SIZE;
+	m_GridSizeY = (m_ViewHeight + VOLUMETRIC_FOG_GRID_PIXEL_SIZE - 1) / VOLUMETRIC_FOG_GRID_PIXEL_SIZE;
+	m_GridSizeZ = VOLUMETRIC_FOG_GRID_SIZE_Z;
+
+	m_Stats.GridSizeX = m_GridSizeX;
+	m_Stats.GridSizeY = m_GridSizeY;
+	m_Stats.GridSizeZ = m_GridSizeZ;
+	m_Stats.NumFroxels = m_GridSizeX * m_GridSizeY * m_GridSizeZ;
+
+	// ------------------------------------------------------------
+	//  ボリュームテクスチャ (全て R16G16B16A16_FLOAT, GridSize, UAV 状態で開始)
+	// ------------------------------------------------------------
+	CreateVolumeTexture(m_VBufferA, L"VolumetricFogVBufferA");
+	CreateVolumeTexture(m_VBufferB, L"VolumetricFogVBufferB");
+	CreateVolumeTexture(m_LightScattering[0], L"VolumetricFogLightScattering0");
+	CreateVolumeTexture(m_LightScattering[1], L"VolumetricFogLightScattering1");
+	CreateVolumeTexture(m_IntegratedLightScattering, L"VolumetricFogIntegratedLightScattering");
+
+	// 履歴 (LightScattering) の中身は未定義 -> 次の Dispatch はテンポラル再投影を使わない。
+	// m_FrameNumber (ジッタ位相) / m_LightScatteringFrame (ピンポン) は保持する
+	m_bHistoryValid = false;
 }
 
 ID3D12Device* FVolumetricFog::Device()
@@ -173,20 +215,6 @@ void FVolumetricFog::Transition(FVolumeTexture& Volume, D3D12_RESOURCE_STATES Ne
 void FVolumetricFog::Init()
 {
 	// ------------------------------------------------------------
-	//  グリッド次元 (バックバッファサイズから確定)
-	// ------------------------------------------------------------
-	unsigned int width = (unsigned int)m_Owner->GetBackBufferWidth();
-	unsigned int height = (unsigned int)m_Owner->GetBackBufferHeight();
-	m_GridSizeX = (width + VOLUMETRIC_FOG_GRID_PIXEL_SIZE - 1) / VOLUMETRIC_FOG_GRID_PIXEL_SIZE;
-	m_GridSizeY = (height + VOLUMETRIC_FOG_GRID_PIXEL_SIZE - 1) / VOLUMETRIC_FOG_GRID_PIXEL_SIZE;
-	m_GridSizeZ = VOLUMETRIC_FOG_GRID_SIZE_Z;
-
-	m_Stats.GridSizeX = m_GridSizeX;
-	m_Stats.GridSizeY = m_GridSizeY;
-	m_Stats.GridSizeZ = m_GridSizeZ;
-	m_Stats.NumFroxels = m_GridSizeX * m_GridSizeY * m_GridSizeZ;
-
-	// ------------------------------------------------------------
 	//  コンピュートルートシグネチャ (3 パス共通)
 	//  デスクリプタはフリーリストから個別確保され連続性が無いため、
 	//  1 テーブル = 1 デスクリプタで分割する (FLightGridInjection と同じ)。
@@ -291,13 +319,10 @@ void FVolumetricFog::Init()
 	m_PSOIntegration = CreateComputePipeline("Shader/cso/VolumetricFogIntegration_CS.cso");
 
 	// ------------------------------------------------------------
-	//  ボリュームテクスチャ (全て R16G16B16A16_FLOAT, GridSize)
+	//  ボリュームテクスチャ (バックバッファ解像度で開始。レンダー解像度が
+	//  変わると FSceneRenderer::ResizeRenderTargets が ReleaseVolumes / CreateVolumes で作り直す)
 	// ------------------------------------------------------------
-	CreateVolumeTexture(m_VBufferA, L"VolumetricFogVBufferA");
-	CreateVolumeTexture(m_VBufferB, L"VolumetricFogVBufferB");
-	CreateVolumeTexture(m_LightScattering[0], L"VolumetricFogLightScattering0");
-	CreateVolumeTexture(m_LightScattering[1], L"VolumetricFogLightScattering1");
-	CreateVolumeTexture(m_IntegratedLightScattering, L"VolumetricFogIntegratedLightScattering");
+	CreateVolumes((unsigned int)m_Owner->GetBackBufferWidth(), (unsigned int)m_Owner->GetBackBufferHeight());
 
 	// ------------------------------------------------------------
 	//  b0 アップロードバッファ x2 (FVolumetricFogParams, 256 アライン)
@@ -326,22 +351,6 @@ void FVolumetricFog::Init()
 			m_ParamBuffer[i]->Map(0, nullptr, &m_ParamPtr[i]);
 		}
 	}
-}
-
-// ------------------------------------------------------------
-//  Halton 列 (VolumetricFogTemporalRandom 相当のセル内ジッタ)
-// ------------------------------------------------------------
-static float Halton(unsigned int Index, unsigned int Base)
-{
-	float result = 0.0f;
-	float f = 1.0f;
-	while (Index > 0)
-	{
-		f /= (float)Base;
-		result += f * (float)(Index % Base);
-		Index /= Base;
-	}
-	return result;
 }
 
 void FVolumetricFog::Dispatch(const FVolumetricFogInputs& Inputs)
@@ -436,8 +445,9 @@ void FVolumetricFog::Dispatch(const FVolumetricFogInputs& Inputs)
 
 	p.GridSize = { (float)m_GridSizeX, (float)m_GridSizeY, (float)m_GridSizeZ, (float)VOLUMETRIC_FOG_GRID_PIXEL_SIZE };
 	p.GridZParams = { gridZ.x, gridZ.y, gridZ.z, 1.0f / (float)m_GridSizeZ };
-	const float screenW = (float)m_Owner->GetBackBufferWidth();
-	const float screenH = (float)m_Owner->GetBackBufferHeight();
+	// ボリュームを作ったレンダー解像度 (SVPosition -> froxel の対応。バックバッファではない)
+	const float screenW = (float)m_ViewWidth;
+	const float screenH = (float)m_ViewHeight;
 	p.ScreenSize = { screenW, screenH, 1.0f / screenW, 1.0f / screenH };
 	// 対称透視射影の対角成分は転置の影響を受けない
 	p.ProjectionParams = { 1.0f / view.Projection._11, 1.0f / view.Projection._22, nearPlane, maxDistance };

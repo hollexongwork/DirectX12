@@ -22,6 +22,7 @@
 //    - Opaque / Masked サブセット -> DrawPrimitive (ベースパス)
 //    - Translucent / Additive サブセット -> DrawTranslucency
 //      (トランスルーセンシーパス, SceneColor へフォワード合成)
+//      + bEnableResponsiveAA なら DrawResponsiveAA (Responsive AA マスク)
 //    - PSO はサブセットごとにマテリアルから選択する
 //      (BasePass / BasePassTwoSided / Translucency 系 / ShadowDepth 系)
 // ============================================================
@@ -60,6 +61,13 @@ private:
 	}
 
 	bool IsMeshValid() const { return m_Mesh != nullptr && m_Mesh->IsLoaded(); }
+
+	// Responsive AA マスクへ描くスロットか (Translucent / Additive かつ bEnableResponsiveAA、
+	// または bForceAll = FTemporalAADebugSettings::bForceResponsiveAA)
+	static bool IsResponsiveAASlot(const FSlot& Slot, bool bForceAll)
+	{
+		return IsTranslucentBlendMode(Slot.Mat.GetBlendMode()) && (bForceAll || Slot.Mat.ShouldEnableResponsiveAA());
+	}
 
 public:
 	FStaticMeshSceneProxy(UStaticMeshComponent* Component)
@@ -235,6 +243,83 @@ public:
 		}
 	}
 
+	// ---- ベロシティパス (FSceneRenderer::RenderVelocities) ----
+	// 前フレームから動いた時だけ呼ばれる。b1 = LocalToWorld + PreviousLocalToWorld。
+	// Opaque          : Velocity (マテリアル無し)
+	// Masked          : BaseColor テクスチャがある時だけ t0 + b2 をバインドして
+	//                   VelocityMaskedPS が GeometryPS と同じ OpacityMask で clip (シャドウ深度と同じ規則)
+	// Two Sided       : カリング無効 PSO
+	// Translucent / Additive : 描かない (UE 既定: 半透明は速度を書かない)
+	void DrawVelocity(RenderManager* RM, const XMFLOAT4X4& PreviousLocalToWorld) const override
+	{
+		if (!IsMeshValid()) return;
+
+		UploadPrimitiveConstant(RM, &PreviousLocalToWorld);	// b1 = LocalToWorld + PreviousLocalToWorld
+
+		unsigned int subsetCount = m_Mesh->GetSubsetCount();
+		for (unsigned int i = 0; i < subsetCount; ++i)
+		{
+			const FSlot& slot = ResolveSlot(i);
+
+			const EBlendMode blendMode = slot.Mat.GetBlendMode();
+			if (IsTranslucentBlendMode(blendMode))
+			{
+				continue;
+			}
+
+			const bool bTwoSided = slot.Mat.IsTwoSided();
+			if (IsMaskedBlendMode(blendMode) && slot.BaseColor != nullptr)
+			{
+				RM->SetPipelineState(bTwoSided ? "VelocityMaskedTwoSided" : "VelocityMasked");
+				RM->SetTexture(RenderManager::TEXTURE_TYPE::BASE_COLOR, slot.BaseColor.get());
+				slot.Mat.Bind(RM);	// b2 (BlendMode / OpacityMaskClipValue)
+			}
+			else
+			{
+				RM->SetPipelineState(bTwoSided ? "VelocityTwoSided" : "Velocity");
+			}
+
+			m_Mesh->DrawSubset(i);
+		}
+	}
+
+	// ---- Responsive AA マスクパス (FSceneRenderer::RenderResponsiveAAMask) ----
+	// マテリアルが bEnableResponsiveAA の Translucent / Additive サブセット (bForceAll なら全半透明
+	// サブセット) だけを ResponsiveAA[TwoSided] でマスク (R8_UNORM) へ描く。VS / b0 / b1 は
+	// 半透明の描画と同じなので、半透明深度プリパスの深度に対する LESS_EQUAL がビット一致で通り、
+	// 最前面の Translucent 層 (+ その手前の Additive) が残る (UE のステンシル bit 3 相当 [PORT])。
+	// ResponsiveAAPS は定数 1 を返すだけなのでテクスチャ / b2 はバインドしない
+	bool HasResponsiveAATranslucency(bool bForceAll) const override
+	{
+		if (!IsMeshValid()) return false;
+
+		const unsigned int subsetCount = m_Mesh->GetSubsetCount();
+		for (unsigned int i = 0; i < subsetCount; ++i)
+		{
+			if (IsResponsiveAASlot(ResolveSlot(i), bForceAll))
+				return true;
+		}
+		return false;
+	}
+
+	void DrawResponsiveAA(RenderManager* RM, bool bForceAll) const override
+	{
+		if (!IsMeshValid()) return;
+
+		UploadPrimitiveConstant(RM);	// b1 (半透明の描画と同じ値)
+
+		const unsigned int subsetCount = m_Mesh->GetSubsetCount();
+		for (unsigned int i = 0; i < subsetCount; ++i)
+		{
+			const FSlot& slot = ResolveSlot(i);
+			if (!IsResponsiveAASlot(slot, bForceAll))
+				continue;
+
+			RM->SetPipelineState(slot.Mat.IsTwoSided() ? "ResponsiveAATwoSided" : "ResponsiveAA");
+			m_Mesh->DrawSubset(i);
+		}
+	}
+
 	// ---- Lumen カードキャプチャパス (FLumenSceneData::RenderCardCaptures) ----
 	// b0 = カードビュー (ローカル空間オルソ) は呼び出し側が積み済み。
 	// b1 へ単位行列を積み、マテリアル付きでローカル空間のまま描く。
@@ -245,9 +330,10 @@ public:
 	{
 		if (!IsMeshValid()) return;
 
-		// b1: 単位行列 (ローカル空間描画。単位行列は転置不要)
+		// b1: 単位行列 (ローカル空間描画。単位行列は転置不要)。前フレーム行列も単位行列
 		PRIMITIVE_CONSTANT primitiveConstant{};
 		XMStoreFloat4x4(&primitiveConstant.LocalToWorld, XMMatrixIdentity());
+		XMStoreFloat4x4(&primitiveConstant.PreviousLocalToWorld, XMMatrixIdentity());
 		RM->SetConstant(RenderManager::CONSTANT_TYPE::PRIMITIVE,
 			&primitiveConstant, sizeof(primitiveConstant));
 

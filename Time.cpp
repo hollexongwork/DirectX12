@@ -9,6 +9,8 @@ float Time::unscaledTime = 0.0f;
 float Time::deltaTime = 0.0f;
 float Time::unscaledDeltaTime = 0.0f;
 float Time::timeScale = 1.0f;
+float Time::fixedDeltaTime = 0.0f;
+float Time::measuredDeltaTime = 0.0f;
 
 Time::Time()
 {
@@ -26,7 +28,8 @@ void Time::Update()
     std::chrono::duration<float> duration = currentTime - lastFrameTime;
 
     constexpr float MAX_DELTA = 0.1f;
-    unscaledDeltaTime = std::min(duration.count(), MAX_DELTA);
+    measuredDeltaTime = duration.count();
+    unscaledDeltaTime = (fixedDeltaTime > 0.0f) ? fixedDeltaTime : std::min(duration.count(), MAX_DELTA);
     deltaTime = unscaledDeltaTime * timeScale;
 
     unscaledTime += unscaledDeltaTime;
@@ -54,3 +57,11 @@ void Time::Reset()
     deltaTime = 0.0f;
     unscaledDeltaTime = 0.0f;
 }
+
+void Time::SetFixedDeltaTime(float Seconds)
+{
+    // 負値 / NaN は無効 (= 実測値) として扱う
+    fixedDeltaTime = (Seconds > 0.0f) ? Seconds : 0.0f;
+}
+
+float Time::GetMeasuredDeltaTime() { return measuredDeltaTime; }

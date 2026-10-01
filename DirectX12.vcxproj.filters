@@ -280,6 +280,30 @@
     <ClCompile Include="VolumetricFog.cpp">
       <Filter>ソース ファイル\System\Render\Fog</Filter>
     </ClCompile>
+    <ClCompile Include="ScreenshotCapture.cpp">
+      <Filter>ソース ファイル\System\Render</Filter>
+    </ClCompile>
+    <ClCompile Include="TemporalAATestDriver.cpp">
+      <Filter>ソース ファイル\System</Filter>
+    </ClCompile>
+    <ClCompile Include="ScreenPercentage.cpp">
+      <Filter>ソース ファイル\System\Render</Filter>
+    </ClCompile>
+    <ClCompile Include="PostProcessUpscale.cpp">
+      <Filter>ソース ファイル\System\Render\PostProcess</Filter>
+    </ClCompile>
+    <ClCompile Include="SceneViewState.cpp">
+      <Filter>ソース ファイル\System\Scene</Filter>
+    </ClCompile>
+    <ClCompile Include="VelocityRendering.cpp">
+      <Filter>ソース ファイル\System\Render</Filter>
+    </ClCompile>
+    <ClCompile Include="TemporalAASelfTest.cpp">
+      <Filter>ソース ファイル\System\Render</Filter>
+    </ClCompile>
+    <ClCompile Include="TemporalAA.cpp">
+      <Filter>ソース ファイル\System\Render\PostProcess</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ImGUI\imconfig.h">
@@ -476,6 +500,45 @@
     </ClInclude>
     <ClInclude Include="VolumetricFog.h">
       <Filter>ソース ファイル\System\Render\Fog</Filter>
+    </ClInclude>
+    <ClInclude Include="ScreenshotCapture.h">
+      <Filter>ソース ファイル\System\Render</Filter>
+    </ClInclude>
+    <ClInclude Include="TemporalAATestDriver.h">
+      <Filter>ソース ファイル\System</Filter>
+    </ClInclude>
+    <ClInclude Include="Halton.h">
+      <Filter>ソース ファイル\Math</Filter>
+    </ClInclude>
+    <ClInclude Include="SceneRenderingUtils.h">
+      <Filter>ソース ファイル\System\Scene</Filter>
+    </ClInclude>
+    <ClInclude Include="AntiAliasingSettings.h">
+      <Filter>ソース ファイル\System\Render</Filter>
+    </ClInclude>
+    <ClInclude Include="ScreenPercentage.h">
+      <Filter>ソース ファイル\System\Render</Filter>
+    </ClInclude>
+    <ClInclude Include="PostProcessUpscale.h">
+      <Filter>ソース ファイル\System\Render\PostProcess</Filter>
+    </ClInclude>
+    <ClInclude Include="ViewMatrices.h">
+      <Filter>ソース ファイル\System\Scene</Filter>
+    </ClInclude>
+    <ClInclude Include="SceneViewState.h">
+      <Filter>ソース ファイル\System\Scene</Filter>
+    </ClInclude>
+    <ClInclude Include="SceneVelocityData.h">
+      <Filter>ソース ファイル\System\Render</Filter>
+    </ClInclude>
+    <ClInclude Include="VelocityRendering.h">
+      <Filter>ソース ファイル\System\Render</Filter>
+    </ClInclude>
+    <ClInclude Include="TemporalAASelfTest.h">
+      <Filter>ソース ファイル\System\Render</Filter>
+    </ClInclude>
+    <ClInclude Include="TemporalAA.h">
+      <Filter>ソース ファイル\System\Render\PostProcess</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
@@ -709,6 +772,96 @@
     </FxCompile>
     <FxCompile Include="Shader\HeightFogCommon.hlsl">
       <Filter>Shader\Fog</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\PostProcessUpscale_Nearest_PS.hlsl">
+      <Filter>Shader\PostProcess</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\PostProcessUpscale_Bilinear_PS.hlsl">
+      <Filter>Shader\PostProcess</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\PostProcessUpscale_Directional_PS.hlsl">
+      <Filter>Shader\PostProcess</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\PostProcessUpscale_CatmullRom_PS.hlsl">
+      <Filter>Shader\PostProcess</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\PostProcessUpscale_Lanczos_PS.hlsl">
+      <Filter>Shader\PostProcess</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\PostProcessUpscale_Gaussian_PS.hlsl">
+      <Filter>Shader\PostProcess</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\PostProcessUpscale.hlsl">
+      <Filter>Shader\Header</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\TemporalAACommon.hlsl">
+      <Filter>Shader\Header</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\VelocityCommon.hlsl">
+      <Filter>Shader\Header</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\BasePassVertexCommon.hlsl">
+      <Filter>Shader\Header</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\VelocityPixelShader.hlsl">
+      <Filter>Shader\Header</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\VelocityVS.hlsl">
+      <Filter>Shader</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\VelocityPS.hlsl">
+      <Filter>Shader</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\VelocityMaskedPS.hlsl">
+      <Filter>Shader</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\ResponsiveAAPS.hlsl">
+      <Filter>Shader</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\VisualizeTemporalAAPS.hlsl">
+      <Filter>Shader\PostProcess</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\TemporalAA.hlsl">
+      <Filter>Shader\Header</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\TemporalAA_Main_Low_CS.hlsl">
+      <Filter>Shader\PostProcess</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\TemporalAA_Main_Medium_CS.hlsl">
+      <Filter>Shader\PostProcess</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\TemporalAA_Main_High_CS.hlsl">
+      <Filter>Shader\PostProcess</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\TemporalAA_Main_MediumHigh_CS.hlsl">
+      <Filter>Shader\PostProcess</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\TemporalAASelfTest_CS.hlsl">
+      <Filter>Shader\PostProcess</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\TemporalAA_Upsampling_Low_CS.hlsl">
+      <Filter>Shader\PostProcess</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\TemporalAA_Upsampling_Medium_CS.hlsl">
+      <Filter>Shader\PostProcess</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\TemporalAA_Upsampling_High_CS.hlsl">
+      <Filter>Shader\PostProcess</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\TemporalAA_Upsampling_MediumHigh_CS.hlsl">
+      <Filter>Shader\PostProcess</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\TemporalAA_SuperSampling_CS.hlsl">
+      <Filter>Shader\PostProcess</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\TemporalAAMitchellNetravali_CS.hlsl">
+      <Filter>Shader\PostProcess</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\TemporalAA_Main_Low_Downsample_CS.hlsl">
+      <Filter>Shader\PostProcess</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\TemporalAA_Upsampling_Low_Downsample_CS.hlsl">
+      <Filter>Shader\PostProcess</Filter>
     </FxCompile>
   </ItemGroup>
 </Project>

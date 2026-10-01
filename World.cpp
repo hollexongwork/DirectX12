@@ -85,17 +85,30 @@ void UWorld::SendAllEndOfFrameUpdates()
 //  APostProcessVolume) を直接読まないよう、フレームに 1 回だけ
 //  ここで値スナップショットへ解決する。
 // ------------------------------------------------------------
-FSceneView UWorld::CalcSceneView(float AspectRatio) const
+FSceneView UWorld::CalcSceneView(float AspectRatio)
 {
 	FSceneView view;
 
 	// ---- カメラ (アクティブビュー) ----
 	// 不在時は bValid = false のまま (レンダラは前フレームの
 	// ビュー定数を保持し、CSM をスキップする = 従来挙動)
-	if (const UCameraComponent* camera = m_Scene.GetActiveCamera())
+	UCameraComponent* camera = m_Scene.GetActiveCamera();
+	if (camera)
 	{
 		camera->GetSceneView(view, AspectRatio);
+		view.bCameraCut = camera->ConsumeCameraCut();			// カメラのカットラッチ (テレポート / Reset / Load)
 	}
+
+	// ---- カメラカット (UE FSceneView::bCameraCut) ----
+	view.bCameraCut = view.bCameraCut || m_bCameraCutRequested;	// ゲーム要求 (RequestCameraCut)
+	m_bCameraCutRequested = false;
+	if (camera != m_LastViewCamera)
+	{
+		// アクティブカメラの変更 (初回フレームの null -> カメラも含む)
+		view.bCameraCut = true;
+		m_LastViewCamera = camera;
+	}
+	view.CameraId = camera;
 
 	// ---- ポストプロセス (FFinalPostProcessSettings 解決に相当) ----
 	// ボリュームが登録されていればその設定を、無ければ既定値を使う。

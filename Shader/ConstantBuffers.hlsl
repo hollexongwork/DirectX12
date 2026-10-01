@@ -21,30 +21,46 @@
 #define PP_FLAG_DOF            (1u << 8)
 
 // -------------------------------------------------------------
-//  b0 : View (FViewUniformShaderParameters 相当)
-//  ビュー行列群 + カメラ + 代表ディレクショナルライト。
+//  b0 : View (FViewUniformShaderParameters 相当, 448 B)
+//  ビュー行列群 + カメラ + 代表ディレクショナルライト + Temporal AA / TAAU。
 //  太陽ライトは View ユニフォームに常駐する。
+//  Projection / InvViewProjection は TAA ジッタ込み (UE ViewToClip / ClipToTranslatedWorld)。
+//  シャドウ / Lumen カード等のビューはゼロ初期化の定数を使うので、
+//  テンポラル系フィールドとミップバイアスは 0 になる。
 // -------------------------------------------------------------
 cbuffer ViewConstantBuffer : register(b0)
 {
     float4x4 View;
-    float4x4 Projection;
-    float4x4 InvViewProjection;
+    float4x4 Projection; // 64  ジッタ込み
+    float4x4 InvViewProjection; // 128 ジッタ込み (深度 + UV からのワールド復元)
     float4 WorldCameraOrigin; // xyz = カメラワールド位置 [m]
     float4 NearFar; // x=Near, y=Far
     // DirectionalLightDirection.xyz = 受光面からライトへ向かう方向 (発光方向の逆)
     // DirectionalLightColor.rgb     = 線形色 x 強度 (lux)。ライト不在時は 0 (無光)
     float4 DirectionalLightDirection;
     float4 DirectionalLightColor;
+    // ---- Temporal AA / TAAU ----
+    float4x4 PrevViewProjection; // 256 前フレーム (ジッタ込み)
+    float4x4 ClipToPrevClip; // 320 NoAA
+    float4 TemporalAAJitter; // 384 xy cur, zw prev (NDC)
+    float4 TemporalAAParams; // 400 x = SampleIndex, y = SampleCount, zw = ジッタ (レンダー px)
+    float4 ViewSizeAndInvSize; // 416 (R.x, R.y, 1/R.x, 1/R.y)
+    float MaterialTextureMipBias; // 432 マテリアルテクスチャの SampleBias (TemporalUpscale 時のみ非 0)
+    float MaterialTextureDerivativeMultiply; // 436 = 2^MipBias (予約)
+    uint StateFrameIndexMod8; // 440 TAA 有効時 FrameIndex & 7, それ以外 0
+    uint StateFrameIndex; // 444
 };
 
 // -------------------------------------------------------------
-//  b1 : Primitive (FPrimitiveUniformShaderParameters 相当)
+//  b1 : Primitive (FPrimitiveUniformShaderParameters 相当, 128 B)
 //  per-draw のローカル→ワールド変換。
+//  PreviousLocalToWorld は前フレームに描いた変換 (ベロシティパス用。
+//  それ以外のパスでは LocalToWorld と同値 / 単位行列)
 // -------------------------------------------------------------
 cbuffer PrimitiveConstantBuffer : register(b1)
 {
     float4x4 LocalToWorld;
+    float4x4 PreviousLocalToWorld; // 64 前フレームの LocalToWorld (UE PreviousLocalToWorld)
 };
 
 // ---- Blend Mode (C++ EBlendMode と 1:1) ----
@@ -193,9 +209,10 @@ cbuffer PostProcessConstantBuffer : register(b4)
         float DofPad;
 
         uint Flags;
-        float _pp_pad0;
-        float _pp_pad1;
-        float _pp_pad2;
+        // --- レンダラ専有 (永続化しない。C++ PP_SETTINGS の同名フィールド) ---
+        float UpscaleUnsharpAmount; // 一次空間アップスケール mode 5 のアンシャープ量 (r.Upscale.Softness x (1 - 面積比))
+        uint VisualizeMode;         // Temporal AA デバッグ表示 (ETemporalAADebugView)
+        float VisualizeScale;       // デバッグ表示の増幅 (FTemporalAADebugSettings::VisualizeScale)
     } PostProcess;
 };
 

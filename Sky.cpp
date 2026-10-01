@@ -18,6 +18,10 @@ ASky::ASky()
 	mesh->SetCastShadow(false);
 	mesh->SetAffectDistanceFieldLighting(false);
 
+	// カメラ追従 (平行移動のみ) のため速度は書かない。深度が 1 にクランプされるので
+	// TAA は遠方画素の回転のみ再投影 (d = Q) で正しい動きを再構成する (UE の空は速度を書かない)
+	mesh->SetRenderVelocity(false);
+
 	SetActorScale3D({ 10000.0f, 10000.0f, 10000.0f });
 
 	Material& material = mesh->GetMaterial(0);

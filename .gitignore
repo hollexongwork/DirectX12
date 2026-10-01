@@ -432,3 +432,7 @@ FodyWeavers.xsd
 *.dds
 *.fbx
 *.mdf
+
+# Runtime outputs (F9 / ImGui screenshots, -taatest default output)
+Saved/Screenshots/
+Saved/TAATest/

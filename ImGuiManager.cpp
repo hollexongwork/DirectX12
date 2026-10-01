@@ -23,6 +23,10 @@
 #include "VolumetricFog.h"
 #include "SettingsManager.h"
 #include "Input.h"
+#include "ScreenPercentage.h"
+#include "AntiAliasingSettings.h"
+#include "PostProcessUpscale.h"
+#include "TemporalAA.h"
 
 #include <filesystem>
 #include <cctype>
@@ -80,6 +84,7 @@ void ImGuiManager::Draw()
 	if (m_Layout.bShowGBuffer)   BufferWindow();
 	if (m_Layout.bShowLightGrid) LightGridWindow();
 	if (m_Layout.bShowLumen)     LumenWindow();      // 表示切替は Settings メニュー
+	if (m_Layout.bShowAntiAliasing) AntiAliasingWindow(); // 表示切替は Settings メニュー
 	if (m_Layout.bShowCulling)   CullingWindow();
 }
 
@@ -162,6 +167,7 @@ void ImGuiManager::EditMenu()
 		if (ImGui::MenuItem("Lumen"))          m_Settings->ResetLumen();
 		if (ImGui::MenuItem("Volumetric Fog")) m_Settings->ResetVolumetricFog();
 		if (ImGui::MenuItem("Viewport Controls")) m_Settings->ResetEditorViewport();
+		if (ImGui::MenuItem("Anti-Aliasing"))  m_Settings->ResetAntiAliasing();
 		if (ImGui::MenuItem("Debug Windows"))  m_Settings->ResetImGuiLayout();
 
 		ImGui::Separator();
@@ -175,6 +181,7 @@ void ImGuiManager::EditMenu()
 void ImGuiManager::SettingsMenu()
 {
 	ImGui::MenuItem("Lumen", nullptr, &m_Layout.bShowLumen);
+	ImGui::MenuItem("Anti-Aliasing", nullptr, &m_Layout.bShowAntiAliasing);
 }
 
 
@@ -190,10 +197,12 @@ void ImGuiManager::DebugMenu()
 	if (ImGui::MenuItem("Show All"))
 	{
 		m_Layout.bShowGBuffer = m_Layout.bShowLightGrid = m_Layout.bShowLumen = m_Layout.bShowCulling = true;
+		m_Layout.bShowAntiAliasing = true;
 	}
 	if (ImGui::MenuItem("Hide All"))
 	{
 		m_Layout.bShowGBuffer = m_Layout.bShowLightGrid = m_Layout.bShowLumen = m_Layout.bShowCulling = false;
+		m_Layout.bShowAntiAliasing = false;
 	}
 }
 
@@ -213,6 +222,35 @@ void ImGuiManager::BufferWindow()
 
 	ImGui::Text("LinearDepth");
 	ImGui::Image((void*)m_SceneRenderer->GetSceneTextures()->LinearDepthDisplaySRVHandle.ptr, ImVec2(200.0f, 100.0f));
+
+	// ベロシティの生データ (R16G16_UNORM)。静止しているが書き込んだ画素はオリーブ (0.5, 0.5)、
+	// 未書き込み (クリア値 0) は黒。ベロシティパスを描かないフレーム (TAA 無効かつ可視化無し) は前回の内容
+	ImGui::Text("Velocity");
+	ImGui::Image((void*)m_SceneRenderer->GetSceneTextures()->Velocity->SRVHandle.ptr, ImVec2(200.0f, 100.0f));
+
+	// 今フレームの TAA 出力 (= CommitViewState が確定した次フレームの入力履歴)。
+	// RenderPostProcessing の後なのでピクセルシェーダから読める状態 (PSR / RD)。TAA 未実行なら表示しない
+	{
+		const FSceneViewState& viewState = m_SceneRenderer->GetViewState();
+		const FTAATexture* history = viewState.GetHistoryTexture(viewState.PrevFrameViewInfo.TemporalAAHistory);
+		if (history != nullptr && history->RT)
+		{
+			ImGui::Text("TAA History (%u x %u)", history->Extent.x, history->Extent.y);
+			ImGui::Image((void*)history->RT->SRVHandle.ptr, ImVec2(200.0f, 100.0f));
+		}
+		else
+		{
+			ImGui::TextDisabled("TAA History (not written this frame)");
+		}
+	}
+
+	// Responsive AA マスク (R8_UNORM)。bEnableResponsiveAA の半透明の最前面が赤 (1)。
+	// 今フレーム描かなかった時 (TAA 無効 / Responsive の半透明が無い) は前回の内容のまま (TAA はダミーを読む)
+	if (m_SceneRenderer->IsResponsiveAAMaskValid())
+		ImGui::Text("Responsive AA");
+	else
+		ImGui::TextDisabled("Responsive AA (not drawn this frame)");
+	ImGui::Image((void*)m_SceneRenderer->GetSceneTextures()->ResponsiveAAMask->SRVHandle.ptr, ImVec2(200.0f, 100.0f));
 
 	ImGui::End();
 }
@@ -432,6 +470,350 @@ void ImGuiManager::LumenWindow()
 
 		ImGui::Text("Reflections");
 		ImGui::Image((void*)lumen->GetReflectionSRVHandle().ptr, ImVec2(previewWidth, 180.0f));
+	}
+
+	ImGui::End();
+}
+
+
+// ============================================================
+//  Anti-Aliasing (r.AntiAliasingMethod / r.ScreenPercentage /
+//  r.TemporalAA.* / r.Upscale.* / r.ViewTextureMipBias.*) ウィンドウ
+//  永続化設定 (FAntiAliasingParams: [AntiAliasing]) と非永続のデバッグ設定
+//  (FTemporalAADebugSettings: "(not saved)")。
+// ============================================================
+namespace
+{
+	void NotSavedTag()
+	{
+		ImGui::SameLine();
+		ImGui::TextDisabled("(not saved)");
+	}
+
+	const char* GetHistoryFormatName(DXGI_FORMAT Format)
+	{
+		switch (Format)
+		{
+		case DXGI_FORMAT_R16G16B16A16_FLOAT: return "RGBA16F";
+		case DXGI_FORMAT_R11G11B10_FLOAT:    return "R11G11B10F";
+		case DXGI_FORMAT_UNKNOWN:            return "-";
+		default:                             return "other";
+		}
+	}
+}
+
+
+void ImGuiManager::AntiAliasingWindow()
+{
+	using namespace AntiAliasingRanges;
+
+	ImGui::SetNextWindowSize(ImVec2(470.0f, 640.0f), ImGuiCond_FirstUseEver);
+	ImGui::Begin("Anti-Aliasing", &m_Layout.bShowAntiAliasing);
+
+	FAntiAliasingParams& p = m_SceneRenderer->GetAntiAliasingParams();
+	FTemporalAADebugSettings& d = m_SceneRenderer->GetTemporalAADebugSettings();
+	const FViewFamilyInfo& F = m_SceneRenderer->GetViewFamily();
+	const FViewInfo& V = m_SceneRenderer->GetViewInfo();
+	const FTemporalAAStats& s = m_SceneRenderer->GetTemporalAAStats();
+	RenderManager* rhi = m_SceneRenderer->GetRHI();
+
+	// ---- 統計 ----
+	ImGui::Text("Method       : %s  (%s)", GetAntiAliasingMethodName(F.AntiAliasingMethod),
+		GetPrimaryScreenPercentageMethodName(F.PrimaryScreenPercentageMethod));
+	if (F.bTemporalAA)
+	{
+		ImGui::Text("TAA Pass     : %s  Quality %s%s%s", GetTAAPassConfigName(F.TAAPass), GetTAAQualityName(F.TAAQuality),
+			F.bTAADownsample ? "  +HalfRes" : "", F.bR11G11B10History ? "  R11G11B10" : "");
+	}
+	else
+	{
+		ImGui::Text("TAA Pass     : -");
+	}
+	ImGui::Text("Output O     : %u x %u", F.OutputExtent.x, F.OutputExtent.y);
+	ImGui::Text("Render R     : %u x %u  (%.1f %%)", F.RenderExtent.x, F.RenderExtent.y, F.EffectivePrimaryResolutionFraction * 100.0f);
+	ImGui::Text("Secondary S  : %u x %u", F.SecondaryExtent.x, F.SecondaryExtent.y);
+	ImGui::Text("History H    : %u x %u", F.HistoryExtent.x, F.HistoryExtent.y);
+	ImGui::Text("Post P       : %u x %u (actual)%s", s.PostExtent.x, s.PostExtent.y, F.bSpatialUpscale ? "  -> spatial upscale" : "");
+	// 一次空間アップスケール: 実際に走ったパス (PSO) / トーンマップ統合 (バイリニア) / 不要
+	if (s.UpscalePipeline != nullptr)
+		ImGui::Text("Upscale      : %s  (requested %s)", s.UpscalePipeline, GetUpscaleMethodName(p.UpscaleQuality));
+	else if (s.bUpscaleMerged)
+		ImGui::Text("Upscale      : merged with tonemap (bilinear)");
+	else
+		ImGui::Text("Upscale      : -  (P = O)");
+	ImGui::Text("UF (H.x/R.x) : %.4f", (F.RenderExtent.x > 0) ? (double)F.HistoryExtent.x / (double)F.RenderExtent.x : 0.0);
+	ImGui::Text("Jitter       : #%d / %d  (%+.4f, %+.4f) px", V.TemporalJitterIndex, V.TemporalJitterSequenceLength,
+		V.TemporalJitterPixels.x, V.TemporalJitterPixels.y);
+	ImGui::Text("Mip bias     : %.4f", V.MaterialTextureMipBias);
+	ImGui::Text("Camera cut   : %s   Prev transforms reset: %s", V.bCameraCut ? "YES" : "no", V.bPrevTransformsReset ? "YES" : "no");
+	ImGui::Text("TAA history  : %s  %s  %u x %u", s.bHistoryValidThisFrame ? "valid" : "invalid",
+		GetHistoryFormatName(s.HistoryFormat), s.HistoryExtent.x, s.HistoryExtent.y);
+	ImGui::Text("Lumen / Fog history : %s / %s", s.bLumenHistoryValid ? "valid" : "invalid", s.bFogHistoryValid ? "valid" : "invalid");
+	ImGui::Text("Velocity draws : %d   Merge : %s   TAA ran : %s   PSO fallback : %s",
+		s.NumVelocityDraws, s.bUpscaleMerged ? "yes" : "no", s.bTAARanThisFrame ? "yes" : "no", s.bFallbackMissingPSO ? "YES" : "no");
+	ImGui::Text("Resizes : %d   Free SRV %zu / RTV %zu   Deferred queue %zu", s.NumResizes,
+		rhi->GetNumFreeSRVDescriptors(), rhi->GetNumFreeRTVDescriptors(), rhi->GetDeferredReleaseQueueLength());
+	{
+		// VRAM (CurrentUsage) は 1 秒に 1 回だけ問い合わせる
+		const double now = ImGui::GetTime();
+		if (m_LastVRAMQueryTime < 0.0 || now - m_LastVRAMQueryTime >= 1.0)
+		{
+			m_LastVRAMUsage = rhi->QueryLocalVideoMemoryUsage();
+			m_LastVRAMQueryTime = now;
+		}
+		ImGui::Text("VRAM   : %.1f MB   Frame index : %u", (double)m_LastVRAMUsage / (1024.0 * 1024.0), m_SceneRenderer->GetViewState().FrameIndex);
+	}
+	if (s.LastSelfTestFailures < 0)
+		ImGui::Text("Self test : not run");
+	else if (s.LastSelfTestFailures == 0)
+		ImGui::Text("Self test : all passed");
+	else
+		ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Self test : %d FAILED (see debug output)", s.LastSelfTestFailures);
+
+	ImGui::Separator();
+
+	// ---- 手法 / スクリーンパーセンテージ / TAAU ----
+	{
+		static const char* kMethodNames[] = { "None", "FXAA (n/a)", "Temporal AA", "MSAA (n/a)", "TSR (n/a)" };
+		const int current = std::clamp(p.AntiAliasingMethod, 0, 4);
+		if (ImGui::BeginCombo("Method", kMethodNames[current]))
+		{
+			for (int i = 0; i < IM_ARRAYSIZE(kMethodNames); ++i)
+			{
+				const bool bImplemented = (i == 0 || i == 2);	// 1 / 3 / 4 は未実装 (INI 読み込みでも 0 / 0 / 2 へ丸める)
+				if (ImGui::Selectable(kMethodNames[i], current == i, bImplemented ? 0 : ImGuiSelectableFlags_Disabled))
+				{
+					p.AntiAliasingMethod = i;
+				}
+			}
+			ImGui::EndCombo();
+		}
+	}
+	{
+		// ドラッグ中はローカルコピーだけを動かし、離した時に確定する (再確保はドラッグ 1 回につき 1 回)
+		if (!m_bEditingScreenPercentage)
+			m_EditScreenPercentage = p.ScreenPercentage;
+		ImGui::SliderFloat("Screen Percentage", &m_EditScreenPercentage, kScreenPercentageMin, kScreenPercentageMax, "%.0f %%", ImGuiSliderFlags_AlwaysClamp);
+		m_bEditingScreenPercentage = ImGui::IsItemActive();
+		if (ImGui::IsItemDeactivatedAfterEdit())
+			p.ScreenPercentage = m_EditScreenPercentage;
+		const bool bTAAU = (F.PrimaryScreenPercentageMethod == EPrimaryScreenPercentageMethod::TemporalUpscale);
+		ImGui::SameLine();
+		ImGui::TextDisabled("(%s: %.0f-%.0f, R %ux%u)", bTAAU ? "TAAU" : "Spatial",
+			(bTAAU ? kMinTAAUpsampleResolutionFraction : kMinSpatialResolutionFraction) * 100.0f,
+			(bTAAU ? kMaxTAAUpsampleResolutionFraction : kMaxSpatialResolutionFraction) * 100.0f,
+			F.RenderExtent.x, F.RenderExtent.y);
+	}
+	ImGui::Checkbox("Temporal Upsampling (TAAU)", &p.bTemporalAAUpsampling);
+
+	// ---- Temporal AA ----
+	if (ImGui::CollapsingHeader("Temporal AA (r.TemporalAA*)", ImGuiTreeNodeFlags_DefaultOpen))
+	{
+		{
+			ImGui::Combo("Quality", &p.TemporalAAQuality,
+				[](void*, int i, const char** out) { *out = GetTAAQualityName((ETAAQuality)i); return true; }, nullptr, kQualityMax + 1);
+
+			ImGui::SliderInt("Samples", &p.TemporalAASamples, kSamplesMin, kSamplesMax, "%d", ImGuiSliderFlags_AlwaysClamp);
+			ImGui::SameLine();
+			ImGui::TextDisabled("(N %d, #%d)", V.TemporalJitterSequenceLength, V.TemporalJitterIndex);
+
+			ImGui::SliderFloat("Current Frame Weight", &p.TemporalAACurrentFrameWeight, kCurrentFrameWeightMin, kCurrentFrameWeightMax, "%.3f", ImGuiSliderFlags_AlwaysClamp);
+			ImGui::SliderFloat("Filter Size", &p.TemporalAAFilterSize, kFilterSizeMin, kFilterSizeMax, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+			ImGui::Checkbox("Catmull-Rom", &p.bTemporalAACatmullRom);
+			if (F.bTemporalAA && F.TAAPass != ETAAPassConfig::Main)
+			{
+				ImGui::SameLine();
+				ImGui::TextDisabled("(Main only)");
+			}
+		}
+		{
+			ImGui::Checkbox("Upsample Filtered", &p.bTemporalAAUpsampleFiltered);
+			if (F.bTemporalAA && F.TAAPass != ETAAPassConfig::MainUpsampling)
+			{
+				ImGui::SameLine();
+				ImGui::TextDisabled("(MainUpsampling only)");	// UE: SuperSampling は常に AA_FILTERED
+			}
+
+			if (!m_bEditingHistoryScreenPercentage)
+				m_EditHistoryScreenPercentage = p.TemporalAAHistoryScreenPercentage;
+			ImGui::SliderFloat("History Screen Percentage", &m_EditHistoryScreenPercentage,
+				kHistoryScreenPercentageMin, kHistoryScreenPercentageMax, "%.0f %%", ImGuiSliderFlags_AlwaysClamp);
+			m_bEditingHistoryScreenPercentage = ImGui::IsItemActive();
+			if (ImGui::IsItemDeactivatedAfterEdit())
+				p.TemporalAAHistoryScreenPercentage = m_EditHistoryScreenPercentage;
+			ImGui::SameLine();
+			ImGui::TextDisabled("(H %ux%u)", F.HistoryExtent.x, F.HistoryExtent.y);
+		}
+		{
+			ImGui::Checkbox("R11G11B10 History", &p.bTemporalAAR11G11B10History);
+			ImGui::SameLine();
+			ImGui::TextDisabled("(Quality 0/1, not SuperSampling)");
+			// UAV の型付きストア (D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE) が無ければ ComputeViewFamilyInfo は選ばない
+			const FDefaultTemporalUpscaler* upscaler = m_SceneRenderer->GetTemporalUpscaler();
+			if (upscaler == nullptr || !upscaler->IsR11G11B10HistorySupported())
+			{
+				ImGui::SameLine();
+				ImGui::TextDisabled("unsupported");
+			}
+			ImGui::Checkbox("Allow Downsampling", &p.bTemporalAAAllowDownsampling);
+			ImGui::SameLine();
+			ImGui::TextDisabled("(Quality 0)");
+		}
+	}
+
+	// ---- Spatial Upscale ----
+	if (ImGui::CollapsingHeader("Spatial Upscale (r.Upscale*, r.Tonemapper.MergeWithUpscale*)"))
+	{
+		ImGui::Combo("Spatial Upscale", &p.UpscaleQuality,
+			[](void*, int i, const char** out) { *out = GetUpscaleMethodName(i); return true; }, nullptr, (int)EUpscaleMethod::Count);
+		ImGui::SliderFloat("Softness", &p.UpscaleSoftness, kUpscaleSoftnessMin, kUpscaleSoftnessMax, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+		ImGui::SameLine();
+		ImGui::TextDisabled("(Gaussian Unsharp)");
+		static const char* kMergeNames[] = { "Off", "Always", "Threshold" };
+		ImGui::Combo("Merge With Tonemapper", &p.TonemapperMergeWithUpscaleMode, kMergeNames, IM_ARRAYSIZE(kMergeNames));
+		ImGui::SliderFloat("Merge Threshold", &p.TonemapperMergeWithUpscaleThreshold, kMergeThresholdMin, kMergeThresholdMax, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+	}
+
+	// ---- Texture Mip Bias ----
+	if (ImGui::CollapsingHeader("Texture Mip Bias (r.ViewTextureMipBias*)"))
+	{
+		ImGui::SliderFloat("Mip Bias Offset", &p.ViewTextureMipBiasOffset, kMipBiasOffsetMin, kMipBiasOffsetMax, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+		ImGui::SameLine();
+		ImGui::TextDisabled("(bias %.3f)", V.MaterialTextureMipBias);
+		ImGui::SliderFloat("Mip Bias Min", &p.ViewTextureMipBiasMin, kMipBiasMinMin, kMipBiasMinMax, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+	}
+
+	// ---- カメラカット / 大きなカメラ移動 ----
+	if (ImGui::CollapsingHeader("Camera (Cut / Large Movement)"))
+	{
+		ImGui::SliderFloat("Rotation Threshold", &p.CameraRotationThreshold,
+			kCameraRotationThresholdMin, kCameraRotationThresholdMax, "%.0f deg", ImGuiSliderFlags_AlwaysClamp);
+		if (ImGui::DragFloat("Translation Threshold", &p.CameraTranslationThreshold, 1.0f,
+			kCameraTranslationThresholdMin, kCameraTranslationThresholdMax, "%.1f m", ImGuiSliderFlags_AlwaysClamp))
+		{
+			p.CameraTranslationThreshold = std::clamp(p.CameraTranslationThreshold, kCameraTranslationThresholdMin, kCameraTranslationThresholdMax);
+		}
+		if (ImGui::Button("Camera Cut Now"))
+		{
+			m_World->RequestCameraCut();
+		}
+		ImGui::SameLine();
+		ImGui::TextDisabled("(discards Lumen / fog / TAA history)");
+	}
+
+	// ---- デバッグ (非永続) ----
+	if (ImGui::CollapsingHeader("Debug (not saved)"))
+	{
+		{
+			static const char* kViewNames[] =
+			{
+				"Off", "1 MotionVectors", "2 VelocityMask", "3 InputOutputSplit", "4 TemporalUpscalerIO",
+				"5 BlendFinal", "6 Rejection", "7 HistoryClamp", "8 ReprojectionError", "9 FilteredTemporalWeight",
+				"10 ClosestDepthOffset", "11 ResponsiveMask", "12 DynamicAntiGhost", "13 InputSampleAlignment",
+			};
+			static_assert(IM_ARRAYSIZE(kViewNames) == (int)ETemporalAADebugView::Count, "debug view names");
+			const int current = std::clamp((int)d.DebugView, 0, (int)ETemporalAADebugView::Count - 1);
+			if (ImGui::BeginCombo("Visualize", kViewNames[current]))
+			{
+				for (int i = 0; i < IM_ARRAYSIZE(kViewNames); ++i)
+				{
+					if (ImGui::Selectable(kViewNames[i], current == i))
+					{
+						d.DebugView = (ETemporalAADebugView)i;
+					}
+				}
+				ImGui::EndCombo();
+			}
+			NotSavedTag();
+			ImGui::SliderFloat("Visualize Scale", &d.VisualizeScale, kVisualizeScaleMin, kVisualizeScaleMax, "%.2f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic);
+			NotSavedTag();
+		}
+		{
+			const int maxIndex = (std::max)(0, V.TemporalJitterSequenceLength - 1);
+			ImGui::SliderInt("Override Temporal Index", &d.OverrideTemporalIndex, -1, maxIndex, "%d", ImGuiSliderFlags_AlwaysClamp);
+			NotSavedTag();
+			ImGui::Checkbox("Force Jitter Without TAA", &d.bForceJitterWithoutTAA);
+			NotSavedTag();
+			ImGui::Checkbox("Disable Jitter", &d.bDisableJitter);
+			NotSavedTag();
+		}
+		{
+			static const char* kFTWNames[] = { "Sum", "Nearest", "One" };
+			static_assert(IM_ARRAYSIZE(kFTWNames) == kFilteredTemporalWeightModeMax + 1, "FTW mode names");
+			ImGui::Combo("Filtered Temporal Weight", &d.FilteredTemporalWeightMode, kFTWNames, IM_ARRAYSIZE(kFTWNames));
+			NotSavedTag();
+		}
+		ImGui::Checkbox("Force Velocity Pass", &d.bForceVelocityPass);
+		NotSavedTag();
+		ImGui::Checkbox("Disable Velocity Small Object Cull", &d.bDisableVelocitySmallObjectCull);
+		NotSavedTag();
+		ImGui::Checkbox("Force Responsive AA", &d.bForceResponsiveAA);
+		NotSavedTag();
+
+		// ワンショット要求 (次の BeginFrame / CalcSceneView で処理される)
+		if (ImGui::Button("Reset History"))
+		{
+			d.bRequestHistoryReset = true;			// カメラカット扱い
+		}
+		NotSavedTag();
+		if (ImGui::Button("Run Self Test"))
+		{
+			d.bRequestSelfTest = true;				// 次の BeginFrame 先頭で実行 (ImGui 構築中には走らせない)
+		}
+		NotSavedTag();
+		if (ImGui::Button("Reallocate Render Targets"))
+		{
+			d.bRequestReallocate = true;
+		}
+		NotSavedTag();
+		if (ImGui::Button("Capture Screenshot (F9)"))
+		{
+			m_SceneRenderer->RequestScreenshot("");
+		}
+	}
+
+	ImGui::Separator();
+	if (ImGui::Button("Reset to Default"))
+	{
+		m_Settings->ResetAntiAliasing();
+	}
+
+	// ---- TemporalUpscalerIO (可視化 4) の 4 象限ラベル (UE VisualizeTemporalUpscaler) ----
+	// 可視化パス (VisualizeTemporalAAPS) がバックバッファ (出力解像度 O) に描いた 2x2 グリッドの各象限の
+	// 左上へ、前面描画リストで解像度 / パス / 品質を書く。象限の境界は ImGui の DisplaySize の半分をそのまま使う
+	// (O との比では写さない。クライアント領域 = バックバッファ O の大きさであることが前提)
+	if (d.DebugView == ETemporalAADebugView::TemporalUpscalerIO && F.OutputExtent.x > 0 && F.OutputExtent.y > 0)
+	{
+		ImDrawList* drawList = ImGui::GetForegroundDrawList();
+		const ImVec2 display = ImGui::GetIO().DisplaySize;
+		const float halfX = 0.5f * display.x, halfY = 0.5f * display.y;
+		const float margin = 6.0f;
+		const float topInset = ImGui::GetFrameHeight();			// メインメニューバーの下へ
+		auto label = [&](float X, float Y, const char* Text)
+			{
+				const ImVec2 size = ImGui::CalcTextSize(Text);
+				const ImVec2 p0(X + margin, Y + margin);
+				drawList->AddRectFilled(ImVec2(p0.x - 3.0f, p0.y - 2.0f), ImVec2(p0.x + size.x + 3.0f, p0.y + size.y + 2.0f), IM_COL32(0, 0, 0, 170));
+				drawList->AddText(p0, IM_COL32(255, 255, 255, 255), Text);
+			};
+
+		char text[160];
+		sprintf_s(text, "Input %ux%u (%.1f %%)  jitter #%d/%d", F.RenderExtent.x, F.RenderExtent.y,
+			F.EffectivePrimaryResolutionFraction * 100.0f, V.TemporalJitterIndex, V.TemporalJitterSequenceLength);
+		label(0.0f, topInset, text);
+		label(halfX, topInset, "Depth (LinearDepth)");
+		sprintf_s(text, "Motion (scale %.2f)", d.VisualizeScale);
+		label(0.0f, halfY, text);
+		if (s.bTAARanThisFrame)
+		{
+			sprintf_s(text, "Output %ux%u  history %ux%u  %s / %s", s.PostExtent.x, s.PostExtent.y,
+				s.HistoryExtent.x, s.HistoryExtent.y, GetTAAPassConfigName(F.TAAPass), GetTAAQualityName(F.TAAQuality));
+		}
+		else
+		{
+			sprintf_s(text, "Output %ux%u  (TAA not run)", s.PostExtent.x, s.PostExtent.y);
+		}
+		label(halfX, halfY, text);
 	}
 
 	ImGui::End();
@@ -1815,6 +2197,23 @@ bool ImGuiManager::DrawMaterialEditor(Material& Mat)
 	{
 		Mat.SetTwoSided(twoSided);
 		changed = true;
+	}
+
+	// ---- Responsive AA (UMaterial::bEnableResponsiveAA) ----
+	// Translucent / Additive のみ: TAA が Responsive AA マスクの画素の現フレーム重みを 0.25 に上げ、
+	// 動く半透明 (深度もベロシティも書かない) の残像を短くする。変更は呼び出し側がプロキシを再生成する
+	if (IsTranslucentBlendMode(Mat.Params.BlendMode))
+	{
+		bool responsiveAA = Mat.ShouldEnableResponsiveAA();
+		if (Checkbox("Responsive AA", &responsiveAA))
+		{
+			Mat.SetEnableResponsiveAA(responsiveAA);
+			changed = true;
+		}
+	}
+	else
+	{
+		TextDisabled("Responsive AA (Translucent / Additive only)");
 	}
 
 	// Masked のみ: OpacityMask の clip しきい値
