@@ -1,7 +1,6 @@
 #pragma once
 #include "RenderManager.h"
 
-#include <vector>
 #include <deque>
 #include <memory>
 
@@ -11,104 +10,104 @@ class FLumenHardwareRayTracing;
 
 // ============================================================
 //  LumenScene
-//  ƒOƒ[ƒoƒ‹ƒCƒ‹ƒ~ƒl[ƒVƒ‡ƒ“ƒVƒXƒeƒ€B
+//  ã‚°ãƒ­ãƒ¼ãƒãƒ«ã‚¤ãƒ«ãƒŸãƒãƒ¼ã‚·ãƒ§ãƒ³ã‚·ã‚¹ãƒ†ãƒ ã€‚
 //
-//  ---- Surface Cache (ƒGƒ~ƒbƒVƒuŒõŒ¹‰»‚Ì–{‘Ì) ----
-//    1. MeshCards ¶¬ : SDF ‚ğ‚ÂŠeƒvƒŠƒ~ƒeƒBƒu‚É 6 •ûŒü‚ÌƒJ[ƒh
-//    2. ƒJ[ƒhƒLƒƒƒvƒ`ƒƒ : Albedo / Normal / Emissive / Depth ‚ğ
-//         ƒAƒgƒ‰ƒX‚ÖÄ‚­ (ƒtƒŒ[ƒ€—\Z§)
-//    3. ’¼ÚŒõ -> Radiosity (‘½ƒoƒEƒ“ƒX) -> ‡¬:
-//         FinalLighting = (Direct + Indirect) * Albedo / ƒÎ
+//  ---- Surface Cache (ã‚¨ãƒŸãƒƒã‚·ãƒ–å…‰æºåŒ–ã®æœ¬ä½“) ----
+//    1. MeshCards ç”Ÿæˆ : SDF ã‚’æŒã¤å„ãƒ—ãƒªãƒŸãƒ†ã‚£ãƒ–ã« 6 æ–¹å‘ã®ã‚«ãƒ¼ãƒ‰
+//    2. ã‚«ãƒ¼ãƒ‰ã‚­ãƒ£ãƒ—ãƒãƒ£ : Albedo / Normal / Emissive / Depth ã‚’
+//         ã‚¢ãƒˆãƒ©ã‚¹ã¸ç„¼ã (ãƒ•ãƒ¬ãƒ¼ãƒ äºˆç®—åˆ¶)
+//    3. ç›´æ¥å…‰ -> Radiosity (å¤šãƒã‚¦ãƒ³ã‚¹) -> åˆæˆ:
+//         FinalLighting = (Direct + Indirect) * Albedo / Ï€
 //                       + Emissive * EmissiveBoost
-//         š Emissive ‚ª‚±‚±‚ÅŒõŒ¹‰»‚³‚ê‚é š
+//         â˜… Emissive ãŒã“ã“ã§å…‰æºåŒ–ã•ã‚Œã‚‹ â˜…
 //
-//  ---- ƒgƒŒ[ƒXŠî”Õ ----
-//    SWRT: ‹ß‹——£ = ƒƒbƒVƒ… SDF / ‰“‹——£ = Global Distance Field
-//          (ƒJƒƒ‰’Ç]ƒNƒŠƒbƒvƒ}ƒbƒv x2, –ˆƒtƒŒ[ƒ€Ä\’z)
-//    HWRT: DXR 1.1 RayQuery (BLAS = FBXModel / TLAS = –ˆƒtƒŒ[ƒ€B
-//          ƒqƒbƒg–@ü‚ÍƒƒbƒVƒ… SDF Œù”z‚ÌƒnƒCƒuƒŠƒbƒh\¬)
-//    ‘SƒŒƒC‹¤’Ê: ƒXƒNƒŠ[ƒ“ƒXƒy[ƒXƒgƒŒ[ƒX (‘OƒtƒŒ[ƒ€ SceneColor)
-//          ‚ğæ‚É‚µAƒ~ƒX‚Åã‹L‚ÖƒtƒH[ƒ‹ƒoƒbƒN
+//  ---- ãƒˆãƒ¬ãƒ¼ã‚¹åŸºç›¤ ----
+//    SWRT: è¿‘è·é›¢ = ãƒ¡ãƒƒã‚·ãƒ¥ SDF / é è·é›¢ = Global Distance Field
+//          (ã‚«ãƒ¡ãƒ©è¿½å¾“ã‚¯ãƒªãƒƒãƒ—ãƒãƒƒãƒ— x2, æ¯ãƒ•ãƒ¬ãƒ¼ãƒ å†æ§‹ç¯‰)
+//    HWRT: DXR 1.1 RayQuery (BLAS = FBXModel / TLAS = æ¯ãƒ•ãƒ¬ãƒ¼ãƒ ã€‚
+//          ãƒ’ãƒƒãƒˆæ³•ç·šã¯ãƒ¡ãƒƒã‚·ãƒ¥ SDF å‹¾é…ã®ãƒã‚¤ãƒ–ãƒªãƒƒãƒ‰æ§‹æˆ)
+//    å…¨ãƒ¬ã‚¤å…±é€š: ã‚¹ã‚¯ãƒªãƒ¼ãƒ³ã‚¹ãƒšãƒ¼ã‚¹ãƒˆãƒ¬ãƒ¼ã‚¹ (å‰ãƒ•ãƒ¬ãƒ¼ãƒ  SceneColor)
+//          ã‚’å…ˆã«è©¦ã—ã€ãƒŸã‚¹ã§ä¸Šè¨˜ã¸ãƒ•ã‚©ãƒ¼ãƒ«ãƒãƒƒã‚¯
 //
-//  ---- Final Gather (ƒXƒNƒŠ[ƒ“ GI) ----
-//    GatherMode 2 (Šù’è): Screen Probe Gather
-//      16px –ˆƒvƒ[ƒu -> hemi-octahedral 8x8 ƒgƒŒ[ƒX -> 3x3 ‹óŠÔ
-//      ƒtƒBƒ‹ƒ^ -> SH L1 + ƒeƒ“ƒ|ƒ‰ƒ‹’~Ï -> ƒtƒ‹‰ğ‘œ“xÏ•ª (t28)
-//    GatherMode 1: ƒsƒNƒZƒ‹–ˆƒR[ƒ“ƒgƒŒ[ƒX (ƒtƒH[ƒ‹ƒoƒbƒN)
+//  ---- Final Gather (ã‚¹ã‚¯ãƒªãƒ¼ãƒ³ GI) ----
+//    GatherMode 2 (æ—¢å®š): Screen Probe Gather
+//      16px æ¯ãƒ—ãƒ­ãƒ¼ãƒ– -> hemi-octahedral 8x8 ãƒˆãƒ¬ãƒ¼ã‚¹ -> 3x3 ç©ºé–“
+//      ãƒ•ã‚£ãƒ«ã‚¿ -> SH L1 + ãƒ†ãƒ³ãƒãƒ©ãƒ«è“„ç© -> ãƒ•ãƒ«è§£åƒåº¦ç©åˆ† (t28)
+//    GatherMode 1: ãƒ”ã‚¯ã‚»ãƒ«æ¯ã‚³ãƒ¼ãƒ³ãƒˆãƒ¬ãƒ¼ã‚¹ (ãƒ•ã‚©ãƒ¼ãƒ«ãƒãƒƒã‚¯)
 //
 //  ---- Reflections ----
-//    ƒ‰ƒtƒlƒX˜A“®‚Ì”½ËƒŒƒC (ƒXƒNƒŠ[ƒ“ -> SDF/HWRT) ‚Å Surface
-//    Cache ‚ğÌŒõ‚µAIBL ƒXƒyƒLƒ…ƒ‰‚Ì prefiltered ‚ğ·‚µ‘Ö‚¦‚é (t29)
+//    ãƒ©ãƒ•ãƒã‚¹é€£å‹•ã®åå°„ãƒ¬ã‚¤ (ã‚¹ã‚¯ãƒªãƒ¼ãƒ³ -> SDF/HWRT) ã§ Surface
+//    Cache ã‚’æ¡å…‰ã—ã€IBL ã‚¹ãƒšã‚­ãƒ¥ãƒ©ã® prefiltered ã‚’å·®ã—æ›¿ãˆã‚‹ (t29)
 //
 //  ---- Radiance Cache / Translucency GI ----
-//    ƒJƒƒ‰üˆÍ 16^3 ƒ[ƒ‹ƒhƒvƒ[ƒu (ƒgƒƒCƒ_ƒ‹, —\Z§XV) ‚ğ
-//    octahedral ƒAƒgƒ‰ƒX + SH L1 ƒ{ƒŠƒ…[ƒ€‰»‚µA”¼“§–¾ƒpƒX‚ª
-//    ÌŒõ‚·‚é (t30-t32)
+//    ã‚«ãƒ¡ãƒ©å‘¨å›² 16^3 ãƒ¯ãƒ¼ãƒ«ãƒ‰ãƒ—ãƒ­ãƒ¼ãƒ– (ãƒˆãƒ­ã‚¤ãƒ€ãƒ«, äºˆç®—åˆ¶æ›´æ–°) ã‚’
+//    octahedral ã‚¢ãƒˆãƒ©ã‚¹ + SH L1 ãƒœãƒªãƒ¥ãƒ¼ãƒ åŒ–ã—ã€åŠé€æ˜ãƒ‘ã‚¹ãŒ
+//    æ¡å…‰ã™ã‚‹ (t30-t32)
 // ============================================================
 
-// ---- Lumen ’è” ----
-static const unsigned int LUMEN_CARD_RESOLUTION = 64;	// ƒJ[ƒh 1 –‡‚Ì‰ğ‘œ“x (LumenTracingCommon.hlsl ‚Æ 1:1)
-static const unsigned int LUMEN_CARDS_PER_OBJECT = 6;	// }X/}Y/}Z
-static const unsigned int MAX_LUMEN_OBJECTS = 32;		// ƒIƒuƒWƒFƒNƒgƒXƒƒbƒg”
+// ---- Lumen å®šæ•° ----
+static const unsigned int LUMEN_CARD_RESOLUTION = 64;	// ã‚«ãƒ¼ãƒ‰ 1 æšã®è§£åƒåº¦ (LumenTracingCommon.hlsl ã¨ 1:1)
+static const unsigned int LUMEN_CARDS_PER_OBJECT = 6;	// Â±X/Â±Y/Â±Z
+static const unsigned int MAX_LUMEN_OBJECTS = 32;		// ã‚ªãƒ–ã‚¸ã‚§ã‚¯ãƒˆã‚¹ãƒ­ãƒƒãƒˆæ•°
 static const unsigned int MAX_LUMEN_CARDS = MAX_LUMEN_OBJECTS * LUMEN_CARDS_PER_OBJECT; // 192
-static const unsigned int LUMEN_ATLAS_TILES_X = 16;		// ƒAƒgƒ‰ƒX‚Ìƒ^ƒCƒ‹—ñ”
-static const unsigned int LUMEN_ATLAS_TILES_Y = 12;		// ƒAƒgƒ‰ƒX‚Ìƒ^ƒCƒ‹s” (16*12 = 192)
+static const unsigned int LUMEN_ATLAS_TILES_X = 16;		// ã‚¢ãƒˆãƒ©ã‚¹ã®ã‚¿ã‚¤ãƒ«åˆ—æ•°
+static const unsigned int LUMEN_ATLAS_TILES_Y = 12;		// ã‚¢ãƒˆãƒ©ã‚¹ã®ã‚¿ã‚¤ãƒ«è¡Œæ•° (16*12 = 192)
 static const unsigned int LUMEN_ATLAS_WIDTH = LUMEN_ATLAS_TILES_X * LUMEN_CARD_RESOLUTION;  // 1024
 static const unsigned int LUMEN_ATLAS_HEIGHT = LUMEN_ATLAS_TILES_Y * LUMEN_CARD_RESOLUTION; // 768
 
 // ---- Global Distance Field ----
-static const unsigned int LUMEN_GLOBAL_SDF_RESOLUTION = 128;	// ƒNƒŠƒbƒvƒ}ƒbƒv‰ğ‘œ“x (^3)
-static const unsigned int LUMEN_GLOBAL_SDF_CLIPMAPS = 2;		// ƒNƒŠƒbƒvƒ}ƒbƒv”
+static const unsigned int LUMEN_GLOBAL_SDF_RESOLUTION = 128;	// ã‚¯ãƒªãƒƒãƒ—ãƒãƒƒãƒ—è§£åƒåº¦ (^3)
+static const unsigned int LUMEN_GLOBAL_SDF_CLIPMAPS = 2;		// ã‚¯ãƒªãƒƒãƒ—ãƒãƒƒãƒ—æ•°
 
 // ---- Screen Probe Gather ----
-static const unsigned int LUMEN_PROBE_DOWNSAMPLE = 16;	// ƒvƒ[ƒuŠÔŠu [px]
-static const unsigned int LUMEN_PROBE_OCTA_RES = 8;		// octahedral ‰ğ‘œ“x (8x8 = 64 ƒŒƒC)
+static const unsigned int LUMEN_PROBE_DOWNSAMPLE = 16;	// ãƒ—ãƒ­ãƒ¼ãƒ–é–“éš” [px]
+static const unsigned int LUMEN_PROBE_OCTA_RES = 8;		// octahedral è§£åƒåº¦ (8x8 = 64 ãƒ¬ã‚¤)
 
 // ---- Radiance Cache ----
-static const unsigned int LUMEN_RC_PROBES_PER_AXIS = 16;	// 16^3 = 4096 ƒvƒ[ƒu
-static const unsigned int LUMEN_RC_ATLAS_SIZE = 512;		// 64x64 ƒ^ƒCƒ‹ x 8x8 octa
+static const unsigned int LUMEN_RC_PROBES_PER_AXIS = 16;	// 16^3 = 4096 ãƒ—ãƒ­ãƒ¼ãƒ–
+static const unsigned int LUMEN_RC_ATLAS_SIZE = 512;		// 64x64 ã‚¿ã‚¤ãƒ« x 8x8 octa
 
 // ============================================================
-//  GPU ƒ~ƒ‰[\‘¢‘Ì (HLSL Structs.hlsl ‚Æ 1:1 ƒ~ƒ‰[•K{)
+//  GPU ãƒŸãƒ©ãƒ¼æ§‹é€ ä½“ (HLSL Structs.hlsl ã¨ 1:1 ãƒŸãƒ©ãƒ¼å¿…é ˆ)
 // ============================================================
 
-// FLumenSceneObject (t24)BSDF ƒtƒB[ƒ‹ƒh‚Í FDFObjectData ‚Æ“¯‚¶ˆÓ–¡B
-// VolumeUVAdd.w = SDF 1 ƒ{ƒNƒZƒ‹‚Ìƒ[ƒ‹ƒh• [m] (ƒ}[ƒ`•à• / ƒoƒCƒAƒXŠî€)B
+// FLumenSceneObject (t24)ã€‚SDF ãƒ•ã‚£ãƒ¼ãƒ«ãƒ‰ã¯ FDFObjectData ã¨åŒã˜æ„å‘³ã€‚
+// VolumeUVAdd.w = SDF 1 ãƒœã‚¯ã‚»ãƒ«ã®ãƒ¯ãƒ¼ãƒ«ãƒ‰å¹… [m] (ãƒãƒ¼ãƒæ­©å¹… / ãƒã‚¤ã‚¢ã‚¹åŸºæº–)ã€‚
 struct FLumenSceneObjectData
 {
-	XMFLOAT4X4 WorldToVolume;				// ƒ[ƒ‹ƒh -> SDF ƒ{ƒŠƒ…[ƒ€ [-1,1] (“]’uÏ‚İ)
-	XMFLOAT4   VolumeUVScaleAndDistance;	// xyz=ƒAƒgƒ‰ƒX UV ƒXƒP[ƒ‹, w=‹——£’l -> ƒ[ƒ‹ƒh [m]
-	XMFLOAT4   VolumeUVAdd;					// xyz=ƒAƒgƒ‰ƒX UV ƒIƒtƒZƒbƒg, w=ƒ{ƒNƒZƒ‹ƒ[ƒ‹ƒh• [m]
-	unsigned int CardOffset = 0;			// ƒJ[ƒhƒoƒbƒtƒ@“à‚Ìæ“ªƒJ[ƒh
+	XMFLOAT4X4 WorldToVolume;				// ãƒ¯ãƒ¼ãƒ«ãƒ‰ -> SDF ãƒœãƒªãƒ¥ãƒ¼ãƒ  [-1,1] (è»¢ç½®æ¸ˆã¿)
+	XMFLOAT4   VolumeUVScaleAndDistance;	// xyz=ã‚¢ãƒˆãƒ©ã‚¹ UV ã‚¹ã‚±ãƒ¼ãƒ«, w=è·é›¢å€¤ -> ãƒ¯ãƒ¼ãƒ«ãƒ‰ [m]
+	XMFLOAT4   VolumeUVAdd;					// xyz=ã‚¢ãƒˆãƒ©ã‚¹ UV ã‚ªãƒ•ã‚»ãƒƒãƒˆ, w=ãƒœã‚¯ã‚»ãƒ«ãƒ¯ãƒ¼ãƒ«ãƒ‰å¹… [m]
+	unsigned int CardOffset = 0;			// ã‚«ãƒ¼ãƒ‰ãƒãƒƒãƒ•ã‚¡å†…ã®å…ˆé ­ã‚«ãƒ¼ãƒ‰
 	unsigned int NumCards = 0;
 	unsigned int bValid = 0;
 	unsigned int Pad0 = 0;
 };
 static_assert(sizeof(FLumenSceneObjectData) == 112,
-	"FLumenSceneObjectData must be 112 bytes (HLSL Structs.hlsl ‚Æ 1:1 ƒ~ƒ‰[)");
+	"FLumenSceneObjectData must be 112 bytes (HLSL Structs.hlsl ã¨ 1:1 ãƒŸãƒ©ãƒ¼)");
 
-// FLumenCardData (t25)BƒJ[ƒh‹óŠÔ = ƒLƒƒƒvƒ`ƒƒƒrƒ…[‹óŠÔ
-// (Œ´“_ = ƒJ[ƒhƒJƒƒ‰, XY = ƒJ[ƒh•½–Ê, +Z = –Ê‚ÖŒü‚©‚¤‰œs‚«,
-//  [“xƒŒƒ“ƒW [0, 2 * CardExtent.z])B
+// FLumenCardData (t25)ã€‚ã‚«ãƒ¼ãƒ‰ç©ºé–“ = ã‚­ãƒ£ãƒ—ãƒãƒ£ãƒ“ãƒ¥ãƒ¼ç©ºé–“
+// (åŸç‚¹ = ã‚«ãƒ¼ãƒ‰ã‚«ãƒ¡ãƒ©, XY = ã‚«ãƒ¼ãƒ‰å¹³é¢, +Z = é¢ã¸å‘ã‹ã†å¥¥è¡Œã,
+//  æ·±åº¦ãƒ¬ãƒ³ã‚¸ [0, 2 * CardExtent.z])ã€‚
 struct FLumenCardGPUData
 {
-	XMFLOAT4X4 WorldToCard;			// ƒ[ƒ‹ƒh -> ƒJ[ƒh‹óŠÔ (“]’uÏ‚İ)
-	XMFLOAT4X4 CardToWorld;			// ƒJ[ƒh‹óŠÔ -> ƒ[ƒ‹ƒh (“]’uÏ‚İ)
-	XMFLOAT4   CardExtentAndValid;	// xyz=ƒJ[ƒh”¼• (x,y=•½–Ê, z=”¼[“x), w=—LŒø
-	XMFLOAT4   AtlasUVScaleBias;	// ƒJ[ƒh UV [0,1] -> ƒAƒgƒ‰ƒX UV
-	XMFLOAT4   CardDirection;		// xyz=ƒ[ƒ‹ƒh‹óŠÔƒJ[ƒh–@ü (ŠOŒü‚«)
+	XMFLOAT4X4 WorldToCard;			// ãƒ¯ãƒ¼ãƒ«ãƒ‰ -> ã‚«ãƒ¼ãƒ‰ç©ºé–“ (è»¢ç½®æ¸ˆã¿)
+	XMFLOAT4X4 CardToWorld;			// ã‚«ãƒ¼ãƒ‰ç©ºé–“ -> ãƒ¯ãƒ¼ãƒ«ãƒ‰ (è»¢ç½®æ¸ˆã¿)
+	XMFLOAT4   CardExtentAndValid;	// xyz=ã‚«ãƒ¼ãƒ‰åŠå¹… (x,y=å¹³é¢, z=åŠæ·±åº¦), w=æœ‰åŠ¹
+	XMFLOAT4   AtlasUVScaleBias;	// ã‚«ãƒ¼ãƒ‰ UV [0,1] -> ã‚¢ãƒˆãƒ©ã‚¹ UV
+	XMFLOAT4   CardDirection;		// xyz=ãƒ¯ãƒ¼ãƒ«ãƒ‰ç©ºé–“ã‚«ãƒ¼ãƒ‰æ³•ç·š (å¤–å‘ã)
 };
 static_assert(sizeof(FLumenCardGPUData) == 176,
-	"FLumenCardGPUData must be 176 bytes (HLSL Structs.hlsl ‚Æ 1:1 ƒ~ƒ‰[)");
+	"FLumenCardGPUData must be 176 bytes (HLSL Structs.hlsl ã¨ 1:1 ãƒŸãƒ©ãƒ¼)");
 
 // ============================================================
-//  b6 : LUMEN_CONSTANT (HLSL LumenSceneParameters ‚Æ 1:1 ƒ~ƒ‰[•K{)
-//  ƒfƒtƒ@[ƒhƒ‰ƒCƒeƒBƒ“ƒO / ƒgƒ‰ƒ“ƒXƒ‹[ƒZƒ“ƒV[ƒpƒX‚ªQÆ‚·‚éB
+//  b6 : LUMEN_CONSTANT (HLSL LumenSceneParameters ã¨ 1:1 ãƒŸãƒ©ãƒ¼å¿…é ˆ)
+//  ãƒ‡ãƒ•ã‚¡ãƒ¼ãƒ‰ãƒ©ã‚¤ãƒ†ã‚£ãƒ³ã‚° / ãƒˆãƒ©ãƒ³ã‚¹ãƒ«ãƒ¼ã‚»ãƒ³ã‚·ãƒ¼ãƒ‘ã‚¹ãŒå‚ç…§ã™ã‚‹ã€‚
 // ============================================================
 struct LUMEN_CONSTANT
 {
 	unsigned int NumLumenObjects = 0;
-	unsigned int bLumenScreenGI = 0;		// 1 = ƒsƒNƒZƒ‹–ˆƒR[ƒ“ƒgƒŒ[ƒXŒo˜H
+	unsigned int bLumenScreenGI = 0;		// 1 = ãƒ”ã‚¯ã‚»ãƒ«æ¯ã‚³ãƒ¼ãƒ³ãƒˆãƒ¬ãƒ¼ã‚¹çµŒè·¯
 	unsigned int LumenNumScreenCones = 4;
 	unsigned int LumenDebugMode = 0;
 
@@ -118,11 +117,11 @@ struct LUMEN_CONSTANT
 	float LumenSkyOcclusionStrength = 1.0f;
 
 	float LumenSurfaceBias = 0.05f;
-	unsigned int LumenGatherMode = 2;		// 0=off 1=ƒsƒNƒZƒ‹–ˆ 2=Screen Probe Gather
+	unsigned int LumenGatherMode = 2;		// 0=off 1=ãƒ”ã‚¯ã‚»ãƒ«æ¯ 2=Screen Probe Gather
 	unsigned int bLumenReflections = 0;
-	float LumenReflectionMaxRoughness = 0.4f;
+	float LumenReflectionMaxRoughness = 0.4f;	// ç¾çŠ¶ã©ã®ã‚·ã‚§ãƒ¼ãƒ€ãƒ¼ã‚‚èª­ã¾ãªã„ (åå°„ãƒ‘ã‚¹ã¯ PassReflectionParams.x ã‚’ä½¿ç”¨ã€‚å°†æ¥ç”¨)
 
-	float LumenReflectionIntensity = 1.0f;
+	float LumenReflectionIntensity = 1.0f;		// ç¾çŠ¶ã©ã®ã‚·ã‚§ãƒ¼ãƒ€ãƒ¼ã‚‚èª­ã¾ãªã„ (åå°„ãƒ‘ã‚¹ã¯ PassReflectionParams.z ã‚’ä½¿ç”¨ã€‚å°†æ¥ç”¨)
 	unsigned int bLumenTranslucencyGI = 0;
 	float LumenTranslucencyGIIntensity = 1.0f;
 	float LumenPadA = 0.0f;
@@ -135,41 +134,41 @@ static_assert(sizeof(LUMEN_CONSTANT) == 96,
 
 // ============================================================
 //  FLumenFrameInputs
-//  FSceneRenderer ‚ª–ˆƒtƒŒ[ƒ€‰ğŒˆ‚µ‚Ä“n‚·ƒrƒ…[ / ƒ‰ƒCƒg /
-//  ƒV[ƒ“ƒeƒNƒXƒ`ƒƒî•ñ (Lumen ‘¤‚ÍƒQ[ƒ€‘¤ƒIƒuƒWƒFƒNƒg‚ÉG‚ê‚È‚¢)B
+//  FSceneRenderer ãŒæ¯ãƒ•ãƒ¬ãƒ¼ãƒ è§£æ±ºã—ã¦æ¸¡ã™ãƒ“ãƒ¥ãƒ¼ / ãƒ©ã‚¤ãƒˆ /
+//  ã‚·ãƒ¼ãƒ³ãƒ†ã‚¯ã‚¹ãƒãƒ£æƒ…å ± (Lumen å´ã¯ã‚²ãƒ¼ãƒ å´ã‚ªãƒ–ã‚¸ã‚§ã‚¯ãƒˆã«è§¦ã‚Œãªã„)ã€‚
 // ============================================================
 struct FLumenFrameInputs
 {
-	// ---- ƒ‰ƒCƒg ----
-	XMFLOAT4 DirectionalLightDirection = { 0.0f, 1.0f, 0.0f, 0.0f };	// óŒõ–Ê -> ƒ‰ƒCƒg
+	// ---- ãƒ©ã‚¤ãƒˆ ----
+	XMFLOAT4 DirectionalLightDirection = { 0.0f, 1.0f, 0.0f, 0.0f };	// å—å…‰é¢ -> ãƒ©ã‚¤ãƒˆ
 	XMFLOAT4 DirectionalLightColor = { 0.0f, 0.0f, 0.0f, 0.0f };
-	unsigned int LightBufferSRVIndex = 0;	// t13 ‚Æ“¯ˆê‚Ì StructuredBuffer
+	unsigned int LightBufferSRVIndex = 0;	// t13 ã¨åŒä¸€ã® StructuredBuffer
 	unsigned int NumLocalLights = 0;
 
 	// ---- IBL ----
-	unsigned int IrradianceSRVIndex = 0;	// ŠgU irradiance ƒLƒ…[ƒu
-	unsigned int PrefilterSRVIndex = 0;		// prefilter ƒLƒ…[ƒu (ƒ~ƒbƒv•t‚«)
+	unsigned int IrradianceSRVIndex = 0;	// æ‹¡æ•£ irradiance ã‚­ãƒ¥ãƒ¼ãƒ– (t11ã€‚ç¾çŠ¶ã©ã® Lumen ã‚·ã‚§ãƒ¼ãƒ€ãƒ¼ã‚‚ã‚µãƒ³ãƒ—ãƒ«ã—ãªã„ã€‚ã‚¹ã‚«ã‚¤ãƒ©ã‚¤ãƒ†ã‚£ãƒ³ã‚°ç”¨ã«äºˆç´„)
+	unsigned int PrefilterSRVIndex = 0;		// prefilter ã‚­ãƒ¥ãƒ¼ãƒ– (ãƒŸãƒƒãƒ—ä»˜ã)
 
-	// ---- ƒrƒ…[ ----
+	// ---- ãƒ“ãƒ¥ãƒ¼ ----
 	XMFLOAT4   CameraOrigin = { 0.0f, 0.0f, 0.0f, 0.0f };
-	XMFLOAT4X4 ViewProjectionT{};		// “]’uÏ‚İ
-	XMFLOAT4X4 InvViewProjectionT{};	// “]’uÏ‚İ
+	XMFLOAT4X4 ViewProjectionT{};		// è»¢ç½®æ¸ˆã¿
+	XMFLOAT4X4 InvViewProjectionT{};	// è»¢ç½®æ¸ˆã¿
 	unsigned int ScreenWidth = 0;
 	unsigned int ScreenHeight = 0;
 
-	// ---- —š—ğ (ƒXƒNƒŠ[ƒ“ƒXƒy[ƒXƒgƒŒ[ƒX / ƒeƒ“ƒ|ƒ‰ƒ‹—p) ----
+	// ---- å±¥æ­´ (ã‚¹ã‚¯ãƒªãƒ¼ãƒ³ã‚¹ãƒšãƒ¼ã‚¹ãƒˆãƒ¬ãƒ¼ã‚¹ / ãƒ†ãƒ³ãƒãƒ©ãƒ«ç”¨) ----
 	XMFLOAT4X4 PrevViewProjectionT{};
-	XMFLOAT4X4 PrevInvViewProjectionT{};	// ‘OƒtƒŒ[ƒ€‚Ì InvViewProjection (“]’uÏ‚İ)
+	XMFLOAT4X4 PrevInvViewProjectionT{};	// å‰ãƒ•ãƒ¬ãƒ¼ãƒ ã® InvViewProjection (è»¢ç½®æ¸ˆã¿)
 	XMFLOAT4   PrevCameraOrigin = { 0.0f, 0.0f, 0.0f, 0.0f };
 	bool       bHistoryValid = false;
 
-	// ---- ƒV[ƒ“ƒeƒNƒXƒ`ƒƒ SRV ----
-	unsigned int SceneDepthSRVIndex = 0;		// ”ñüŒ`[“x (R32F)
-	unsigned int LinearDepthSRVIndex = 0;		// RG32F (R=ƒrƒ…[‹——£)
+	// ---- ã‚·ãƒ¼ãƒ³ãƒ†ã‚¯ã‚¹ãƒãƒ£ SRV ----
+	unsigned int SceneDepthSRVIndex = 0;		// éç·šå½¢æ·±åº¦ (R32F)
+	unsigned int LinearDepthSRVIndex = 0;		// RG32F (R=ãƒ“ãƒ¥ãƒ¼è·é›¢)
 	unsigned int GBufferNormalSRVIndex = 0;		// GBufferA
-	unsigned int GBufferBSRVIndex = 0;			// GBufferB (ƒ‰ƒtƒlƒX)
-	unsigned int PrevSceneColorSRVIndex = 0;	// ‘OƒtƒŒ[ƒ€ SceneColor
-	unsigned int PrevLinearDepthSRVIndex = 0;	// ‘OƒtƒŒ[ƒ€ LinearDepth (—š—ğ[“xŒŸØ)
+	unsigned int GBufferBSRVIndex = 0;			// GBufferB (ãƒ©ãƒ•ãƒã‚¹)
+	unsigned int PrevSceneColorSRVIndex = 0;	// å‰ãƒ•ãƒ¬ãƒ¼ãƒ  SceneColor
+	unsigned int PrevLinearDepthSRVIndex = 0;	// å‰ãƒ•ãƒ¬ãƒ¼ãƒ  LinearDepth (å±¥æ­´æ·±åº¦æ¤œè¨¼)
 };
 
 // ============================================================
@@ -178,169 +177,169 @@ struct FLumenFrameInputs
 class FLumenSceneData
 {
 public:
-	// ---- §Œäƒpƒ‰ƒ[ƒ^ (ImGui: Lumen ƒEƒBƒ“ƒhƒE‚©‚ç‘€ì) ----
+	// ---- åˆ¶å¾¡ãƒ‘ãƒ©ãƒ¡ãƒ¼ã‚¿ (ImGui: Lumen ã‚¦ã‚£ãƒ³ãƒ‰ã‚¦ã‹ã‚‰æ“ä½œ) ----
 	struct Params
 	{
-		bool  bEnabled = true;				// Lumen ƒV[ƒ“‘S‘Ì (ƒLƒƒƒvƒ`ƒƒ + ƒ‰ƒCƒeƒBƒ“ƒO)
-		int   GatherMode = 2;				// 0=off 1=ƒsƒNƒZƒ‹–ˆƒgƒŒ[ƒX 2=Screen Probe Gather
-		int   NumScreenCones = 4;			// ƒsƒNƒZƒ‹–ˆŒo˜H‚ÌƒR[ƒ“” (1..8)
-		float GIIntensity = 1.0f;			// ŠgU GI ‚Ì‹­“x
-		float EmissiveBoost = 1.0f;			// Surface Cache ‚ÌƒGƒ~ƒbƒVƒu”{—¦
-		float MaxTraceDistance = 15.0f;		// ƒgƒŒ[ƒXÅ‘å‹——£ [m]
-		float SurfaceBias = 0.05f;			// ƒŒƒCŠJn‚Ì–@üƒIƒtƒZƒbƒg [m]
-		float SkyOcclusionStrength = 1.0f;	// IBL ‚ÌƒXƒJƒC‰Â‹—¦Œ¸Š (0..1)
-		int   NumRadiosityRays = 4;			// Radiosity ‚ÌƒeƒNƒZƒ‹‚ ‚½‚èƒŒƒC”
-		int   RadiosityCardsPerFrame = 32;	// Radiosity ‚ÌƒtƒŒ[ƒ€‚ ‚½‚èXVƒJ[ƒh”
-		float RadiosityTemporalAlpha = 0.2f;	// Radiosity ‚Ìƒeƒ“ƒ|ƒ‰ƒ‹ƒuƒŒƒ“ƒh—¦ (1 = ’~Ï‚È‚µ)
-		int   CaptureBudgetPerFrame = 12;	// ƒLƒƒƒvƒ`ƒƒ‚ÌƒtƒŒ[ƒ€‚ ‚½‚èƒJ[ƒh”
-		unsigned int DebugMode = 0;			// 0=off 1=GI‚Ì‚İ 2=ƒXƒJƒC‰Â‹—¦ 3=GIŠgUŠñ—^ 4=Short Range AO
+		bool  bEnabled = true;				// Lumen ã‚·ãƒ¼ãƒ³å…¨ä½“ (ã‚­ãƒ£ãƒ—ãƒãƒ£ + ãƒ©ã‚¤ãƒ†ã‚£ãƒ³ã‚°)
+		int   GatherMode = 2;				// 0=off 1=ãƒ”ã‚¯ã‚»ãƒ«æ¯ãƒˆãƒ¬ãƒ¼ã‚¹ 2=Screen Probe Gather
+		int   NumScreenCones = 4;			// ãƒ”ã‚¯ã‚»ãƒ«æ¯çµŒè·¯ã®ã‚³ãƒ¼ãƒ³æ•° (1..8)
+		float GIIntensity = 1.0f;			// æ‹¡æ•£ GI ã®å¼·åº¦
+		float EmissiveBoost = 1.0f;			// Surface Cache ã®ã‚¨ãƒŸãƒƒã‚·ãƒ–å€ç‡
+		float MaxTraceDistance = 15.0f;		// ãƒˆãƒ¬ãƒ¼ã‚¹æœ€å¤§è·é›¢ [m]
+		float SurfaceBias = 0.05f;			// ãƒ¬ã‚¤é–‹å§‹ã®æ³•ç·šã‚ªãƒ•ã‚»ãƒƒãƒˆ [m]
+		float SkyOcclusionStrength = 1.0f;	// IBL ã®ã‚¹ã‚«ã‚¤å¯è¦–ç‡æ¸›è¡° (0..1)
+		int   NumRadiosityRays = 4;			// Radiosity ã®ãƒ†ã‚¯ã‚»ãƒ«ã‚ãŸã‚Šãƒ¬ã‚¤æ•°
+		int   RadiosityCardsPerFrame = 32;	// Radiosity ã®ãƒ•ãƒ¬ãƒ¼ãƒ ã‚ãŸã‚Šæ›´æ–°ã‚«ãƒ¼ãƒ‰æ•°
+		float RadiosityTemporalAlpha = 0.2f;	// Radiosity ã®ãƒ†ãƒ³ãƒãƒ©ãƒ«ãƒ–ãƒ¬ãƒ³ãƒ‰ç‡ (1 = è“„ç©ãªã—)
+		int   CaptureBudgetPerFrame = 12;	// ã‚­ãƒ£ãƒ—ãƒãƒ£ã®ãƒ•ãƒ¬ãƒ¼ãƒ ã‚ãŸã‚Šã‚«ãƒ¼ãƒ‰æ•°
+		unsigned int DebugMode = 0;			// 0=off 1=GIã®ã¿ 2=ã‚¹ã‚«ã‚¤å¯è¦–ç‡ 3=GIæ‹¡æ•£å¯„ä¸ 4=Short Range AO
 
 		// ---- Global Distance Field ----
-		bool  bGlobalSDF = true;			// ‰“‹——£ƒgƒŒ[ƒX‚ÉƒNƒŠƒbƒvƒ}ƒbƒv‚ğg‚¤
-		float GlobalSDFExtent0 = 12.8f;		// ƒNƒŠƒbƒvƒ}ƒbƒv0 ”¼Œa [m] (1 ‚Í 4 ”{)
-		float DetailTraceDistance = 2.5f;	// ƒƒbƒVƒ… SDF ‚Å’Ç‚¤‹ß‹——£ [m]
+		bool  bGlobalSDF = true;			// é è·é›¢ãƒˆãƒ¬ãƒ¼ã‚¹ã«ã‚¯ãƒªãƒƒãƒ—ãƒãƒƒãƒ—ã‚’ä½¿ã†
+		float GlobalSDFExtent0 = 12.8f;		// ã‚¯ãƒªãƒƒãƒ—ãƒãƒƒãƒ—0 åŠå¾„ [m] (1 ã¯ 4 å€)
+		float DetailTraceDistance = 2.5f;	// ãƒ¡ãƒƒã‚·ãƒ¥ SDF ã§è¿½ã†è¿‘è·é›¢ [m]
 
 		// ---- Screen Probe Gather ----
-		bool  bScreenSpaceTrace = true;		// ‘OƒtƒŒ[ƒ€ SceneColor ‚ÌƒXƒNƒŠ[ƒ“ƒgƒŒ[ƒX
-		float ScreenTraceThickness = 0.3f;	// ƒXƒNƒŠ[ƒ“ƒgƒŒ[ƒX‚ÌŒú‚İ”»’è [m]
-		float TemporalAlpha = 0.1f;			// ƒvƒ[ƒu SH ‚Ìƒeƒ“ƒ|ƒ‰ƒ‹ƒuƒŒƒ“ƒh—¦
-		float ScreenTemporalAlpha = 0.05f;	// ƒtƒ‹‰ğ‘œ“x DiffuseIndirect ‚Ìƒeƒ“ƒ|ƒ‰ƒ‹ƒuƒŒƒ“ƒh—¦ (1 = ’~Ï‚È‚µ)
-		bool  bProbeJitter = true;			// ƒvƒ[ƒu”z’u‚ğƒZƒ‹“à‚Å–ˆƒtƒŒ[ƒ€ƒWƒbƒ^ (—h‚ç‚¬ -> ƒmƒCƒY‰»‚µ‚Äƒeƒ“ƒ|ƒ‰ƒ‹‚Å•½‹Ï)
-		float SkySampleMip = 1.5f;			// ƒXƒJƒCÌŒõ‚Ì prefilter ƒ~ƒbƒv
+		bool  bScreenSpaceTrace = true;		// å‰ãƒ•ãƒ¬ãƒ¼ãƒ  SceneColor ã®ã‚¹ã‚¯ãƒªãƒ¼ãƒ³ãƒˆãƒ¬ãƒ¼ã‚¹
+		float ScreenTraceThickness = 0.3f;	// ã‚¹ã‚¯ãƒªãƒ¼ãƒ³ãƒˆãƒ¬ãƒ¼ã‚¹ã®åšã¿åˆ¤å®š [m]
+		float TemporalAlpha = 0.1f;			// ãƒ—ãƒ­ãƒ¼ãƒ– SH ã®ãƒ†ãƒ³ãƒãƒ©ãƒ«ãƒ–ãƒ¬ãƒ³ãƒ‰ç‡
+		float ScreenTemporalAlpha = 0.05f;	// ãƒ•ãƒ«è§£åƒåº¦ DiffuseIndirect ã®ãƒ†ãƒ³ãƒãƒ©ãƒ«ãƒ–ãƒ¬ãƒ³ãƒ‰ç‡ (1 = è“„ç©ãªã—)
+		bool  bProbeJitter = true;			// ãƒ—ãƒ­ãƒ¼ãƒ–é…ç½®ã‚’ã‚»ãƒ«å†…ã§æ¯ãƒ•ãƒ¬ãƒ¼ãƒ ã‚¸ãƒƒã‚¿ (æºã‚‰ã -> ãƒã‚¤ã‚ºåŒ–ã—ã¦ãƒ†ãƒ³ãƒãƒ©ãƒ«ã§å¹³å‡)
+		float SkySampleMip = 1.5f;			// ã‚¹ã‚«ã‚¤æ¡å…‰ã® prefilter ãƒŸãƒƒãƒ—
 
-		// ---- Short Range AO (‹ß‹——£ƒXƒNƒŠ[ƒ“ƒXƒy[ƒXÕ•Á + ƒxƒ“ƒgƒm[ƒ}ƒ‹) ----
-		bool  bShortRangeAO = true;			// 16px ƒvƒ[ƒu‚Å’×‚ê‚éÚG•”‚ÌÕ•Á‚ğ•â‚¤
-		float ShortRangeAOMaxDistance = 0.4f;	// ƒŒƒC’· [m] (ƒvƒ[ƒuŠÔŠu‚æ‚è’Z‚­•Û‚Â = “ñdŒvã–h~)
-		int   ShortRangeAORays = 4;			// ƒsƒNƒZƒ‹‚ ‚½‚èƒŒƒC” (1..8)
-		float ShortRangeAOIntensity = 1.0f;	// “K—p‹­“x (0 = –³Œø‘Š“–, 1 = ‚»‚Ì‚Ü‚Ü)
-		float ShortRangeAOThickness = 0.1f;	// ƒXƒNƒŠ[ƒ“ƒXƒy[ƒXÕ•Á‚ÌŒú‚İ [m]
-		bool  bShortRangeAOBentNormal = true;	// Õ‚ç‚ê‚Ä‚¢‚È‚¢•ûŒü‚Ì•½‹Ï–@ü‚Å GI ‚ğ•]‰¿
+		// ---- Short Range AO (è¿‘è·é›¢ã‚¹ã‚¯ãƒªãƒ¼ãƒ³ã‚¹ãƒšãƒ¼ã‚¹é®è”½ + ãƒ™ãƒ³ãƒˆãƒãƒ¼ãƒãƒ«) ----
+		bool  bShortRangeAO = true;			// 16px ãƒ—ãƒ­ãƒ¼ãƒ–ã§æ½°ã‚Œã‚‹æ¥è§¦éƒ¨ã®é®è”½ã‚’è£œã†
+		float ShortRangeAOMaxDistance = 0.4f;	// ãƒ¬ã‚¤é•· [m] (ãƒ—ãƒ­ãƒ¼ãƒ–é–“éš”ã‚ˆã‚ŠçŸ­ãä¿ã¤ = äºŒé‡è¨ˆä¸Šé˜²æ­¢)
+		int   ShortRangeAORays = 4;			// ãƒ”ã‚¯ã‚»ãƒ«ã‚ãŸã‚Šãƒ¬ã‚¤æ•° (1..8)
+		float ShortRangeAOIntensity = 1.0f;	// é©ç”¨å¼·åº¦ (0 = ç„¡åŠ¹ç›¸å½“, 1 = ãã®ã¾ã¾)
+		float ShortRangeAOThickness = 0.1f;	// ã‚¹ã‚¯ãƒªãƒ¼ãƒ³ã‚¹ãƒšãƒ¼ã‚¹é®è”½ã®åšã¿ [m]
+		bool  bShortRangeAOBentNormal = true;	// é®ã‚‰ã‚Œã¦ã„ãªã„æ–¹å‘ã®å¹³å‡æ³•ç·šã§ GI ã‚’è©•ä¾¡
 
 		// ---- Reflections ----
 		bool  bReflections = true;
-		float ReflectionMaxRoughness = 0.4f;	// ‚±‚êˆÈã‚Í IBL ‚Ì‚İ
-		float ReflectionFadeStart = 0.25f;		// ƒtƒF[ƒhŠJnƒ‰ƒtƒlƒX
+		float ReflectionMaxRoughness = 0.4f;	// ã“ã‚Œä»¥ä¸Šã¯ IBL ã®ã¿
+		float ReflectionFadeStart = 0.25f;		// ãƒ•ã‚§ãƒ¼ãƒ‰é–‹å§‹ãƒ©ãƒ•ãƒã‚¹
 		float ReflectionIntensity = 1.0f;
 
 		// ---- Radiance Cache / Translucency GI ----
 		bool  bRadianceCache = true;
 		bool  bTranslucencyGI = true;
 		float TranslucencyGIIntensity = 1.0f;
-		float RadianceCacheSpacing = 1.0f;			// ƒvƒ[ƒuŠÔŠu [m]
-		int   RadianceCacheProbesPerFrame = 128;	// ƒtƒŒ[ƒ€‚ ‚½‚èXVƒvƒ[ƒu”
+		float RadianceCacheSpacing = 1.0f;			// ãƒ—ãƒ­ãƒ¼ãƒ–é–“éš” [m]
+		int   RadianceCacheProbesPerFrame = 128;	// ãƒ•ãƒ¬ãƒ¼ãƒ ã‚ãŸã‚Šæ›´æ–°ãƒ—ãƒ­ãƒ¼ãƒ–æ•°
 
 		// ---- HWRT (DXR) ----
-		bool  bUseHardwareRayTracing = true;	// ‘Î‰ŠÂ‹«‚Å‚Ì‚İ—LŒø‰»‚³‚ê‚é
+		bool  bUseHardwareRayTracing = true;	// å¯¾å¿œç’°å¢ƒã§ã®ã¿æœ‰åŠ¹åŒ–ã•ã‚Œã‚‹
 	};
 
-	// ---- “Œv (ImGui •\¦—p) ----
+	// ---- çµ±è¨ˆ (ImGui è¡¨ç¤ºç”¨) ----
 	struct Stats
 	{
-		unsigned int NumObjects = 0;		// —LŒøƒIƒuƒWƒFƒNƒg”
-		unsigned int NumValidCards = 0;		// —LŒøƒJ[ƒh”
-		unsigned int NumPendingCaptures = 0;// ƒLƒƒƒvƒ`ƒƒ‘Ò‚¿ƒJ[ƒh”
+		unsigned int NumObjects = 0;		// æœ‰åŠ¹ã‚ªãƒ–ã‚¸ã‚§ã‚¯ãƒˆæ•°
+		unsigned int NumValidCards = 0;		// æœ‰åŠ¹ã‚«ãƒ¼ãƒ‰æ•°
+		unsigned int NumPendingCaptures = 0;// ã‚­ãƒ£ãƒ—ãƒãƒ£å¾…ã¡ã‚«ãƒ¼ãƒ‰æ•°
 		unsigned int NumCapturedThisFrame = 0;
-		unsigned int NumProbesX = 0;		// ƒXƒNƒŠ[ƒ“ƒvƒ[ƒu”
+		unsigned int NumProbesX = 0;		// ã‚¹ã‚¯ãƒªãƒ¼ãƒ³ãƒ—ãƒ­ãƒ¼ãƒ–æ•°
 		unsigned int NumProbesY = 0;
-		unsigned int NumTLASInstances = 0;	// HWRT ƒCƒ“ƒXƒ^ƒ“ƒX”
-		bool bHardwareRayTracingActive = false;	// ¡ƒtƒŒ[ƒ€ HWRT ‚ÅƒgƒŒ[ƒX‚µ‚½‚©
+		unsigned int NumTLASInstances = 0;	// HWRT ã‚¤ãƒ³ã‚¹ã‚¿ãƒ³ã‚¹æ•°
+		bool bHardwareRayTracingActive = false;	// ä»Šãƒ•ãƒ¬ãƒ¼ãƒ  HWRT ã§ãƒˆãƒ¬ãƒ¼ã‚¹ã—ãŸã‹
 	};
 
 private:
-	// HLSL ‘¤ (LumenSceneLightingCommon.hlsl) ‚Ì cbuffer LumenPassParams
-	// (b0) ‚Æ 1:1 ƒ~ƒ‰[•K{B
+	// HLSL å´ (LumenSceneLightingCommon.hlsl) ã® cbuffer LumenPassParams
+	// (b0) ã¨ 1:1 ãƒŸãƒ©ãƒ¼å¿…é ˆã€‚
 	struct FLumenPassParams
 	{
-		unsigned int CardStartIndex;		// GDF ƒrƒ‹ƒh‚Å‚ÍƒNƒŠƒbƒvƒ}ƒbƒv”Ô†
-		unsigned int NumCardsToProcess;
+		unsigned int CardStartIndex;		// GDF ãƒ“ãƒ«ãƒ‰ã§ã¯ã‚¯ãƒªãƒƒãƒ—ãƒãƒƒãƒ—ç•ªå·
+		unsigned int NumCardsToProcess;	// ã‚«ãƒ¼ãƒ‰ãƒ‘ã‚¹ã§ã¯ Dispatch ã® Z ã¨ä¸€è‡´ (ã‚·ã‚§ãƒ¼ãƒ€æœªå‚ç…§ã€‚ãƒ¬ã‚¤ã‚¢ã‚¦ãƒˆç¶­æŒã®ãŸã‚æ®‹ã™)
 		unsigned int PassNumLumenObjects;
 		unsigned int PassNumLocalLights;
 
-		XMFLOAT4 PassDirectionalLightDirection;	// xyz=óŒõ–Ê->ƒ‰ƒCƒg, w=—LŒø
-		XMFLOAT4 PassDirectionalLightColor;		// rgb=üŒ`F x ‹­“x (lux)
-		XMFLOAT4 PassAtlasParams;				// xy=1/ƒAƒgƒ‰ƒXƒTƒCƒY, z=ƒJ[ƒh‰ğ‘œ“x, w=ƒtƒŒ[ƒ€”Ô†
-		XMFLOAT4 PassTraceParams;				// x=Å‘å‹——£, y=–ÊƒoƒCƒAƒX, z=RadiosityƒŒƒC”, w=Emissiveƒu[ƒXƒg
-		XMFLOAT4 PassGlobalSDF0;				// xyz=ƒNƒŠƒbƒvƒ}ƒbƒv0’†S, w=”¼Œa (0=–³Œø)
+		XMFLOAT4 PassDirectionalLightDirection;	// xyz=å—å…‰é¢->ãƒ©ã‚¤ãƒˆ, w=æœ‰åŠ¹
+		XMFLOAT4 PassDirectionalLightColor;		// rgb=ç·šå½¢è‰² x å¼·åº¦ (lux)
+		XMFLOAT4 PassAtlasParams;				// xy=1/ã‚¢ãƒˆãƒ©ã‚¹ã‚µã‚¤ã‚º, z=ã‚«ãƒ¼ãƒ‰è§£åƒåº¦, w=ãƒ•ãƒ¬ãƒ¼ãƒ ç•ªå·
+		XMFLOAT4 PassTraceParams;				// x=æœ€å¤§è·é›¢, y=é¢ãƒã‚¤ã‚¢ã‚¹, z=Radiosityãƒ¬ã‚¤æ•°, w=Emissiveãƒ–ãƒ¼ã‚¹ãƒˆ
+		XMFLOAT4 PassGlobalSDF0;				// xyz=ã‚¯ãƒªãƒƒãƒ—ãƒãƒƒãƒ—0ä¸­å¿ƒ, w=åŠå¾„ (0=ç„¡åŠ¹)
 		XMFLOAT4 PassGlobalSDF1;
-		XMFLOAT4 PassProbeParams0;				// x=ƒvƒ[ƒu”X, y=ƒvƒ[ƒu”Y, z=ƒ_ƒEƒ“ƒTƒ“ƒvƒ‹, w=octa‰ğ‘œ“x
-		XMFLOAT4 PassProbeParams1;				// x=‰æ–Ê•, y=‰æ–Ê‚, z=ƒeƒ“ƒ|ƒ‰ƒ‹ƒ¿, w=—š—ğ—LŒø
-		XMFLOAT4 PassCameraOrigin;				// xyz=ƒJƒƒ‰, w=ƒfƒBƒe[ƒ‹ƒgƒŒ[ƒX‹——£
-		XMFLOAT4 PassPrevCameraOrigin;			// xyz=‘OƒJƒƒ‰, w=ƒXƒNƒŠ[ƒ“ƒgƒŒ[ƒXŒú‚İ
-		XMFLOAT4 PassRCParams0;					// xyz=RCÅ¬ƒR[ƒi[, w=ŠÔŠu
-		XMFLOAT4 PassRCParams1;					// x=ƒvƒ[ƒu”/², y=XVŠJn, z=XV”, w=ƒXƒJƒCƒ~ƒbƒv
-		XMFLOAT4 PassReflectionParams;			// x=Å‘åƒ‰ƒtƒlƒX, y=ƒtƒF[ƒhŠJn, z=‹­“x, w=ƒXƒNƒŠ[ƒ“ƒgƒŒ[ƒX—LŒø
-		XMFLOAT4 PassRadiosityParams;			// x=Radiosity ƒeƒ“ƒ|ƒ‰ƒ‹ƒ¿, y=ƒtƒ‹‰ğ‘œ“x GI ƒeƒ“ƒ|ƒ‰ƒ‹ƒ¿ (1=’~Ï‚È‚µ), z=Short Range AO ƒfƒoƒbƒO•\¦, w=ƒxƒ“ƒgƒm[ƒ}ƒ‹—LŒø
+		XMFLOAT4 PassProbeParams0;				// x=ãƒ—ãƒ­ãƒ¼ãƒ–æ•°X, y=ãƒ—ãƒ­ãƒ¼ãƒ–æ•°Y, z=ãƒ€ã‚¦ãƒ³ã‚µãƒ³ãƒ—ãƒ«, w=octaè§£åƒåº¦
+		XMFLOAT4 PassProbeParams1;				// x=ç”»é¢å¹…, y=ç”»é¢é«˜, z=ãƒ†ãƒ³ãƒãƒ©ãƒ«Î±, w=å±¥æ­´æœ‰åŠ¹
+		XMFLOAT4 PassCameraOrigin;				// xyz=ã‚«ãƒ¡ãƒ©, w=ãƒ‡ã‚£ãƒ†ãƒ¼ãƒ«ãƒˆãƒ¬ãƒ¼ã‚¹è·é›¢
+		XMFLOAT4 PassPrevCameraOrigin;			// xyz=å‰ã‚«ãƒ¡ãƒ©, w=ã‚¹ã‚¯ãƒªãƒ¼ãƒ³ãƒˆãƒ¬ãƒ¼ã‚¹åšã¿
+		XMFLOAT4 PassRCParams0;					// xyz=RCæœ€å°ã‚³ãƒ¼ãƒŠãƒ¼, w=é–“éš”
+		XMFLOAT4 PassRCParams1;					// x=ãƒ—ãƒ­ãƒ¼ãƒ–æ•°/è»¸, y=æ›´æ–°é–‹å§‹, z=æ›´æ–°æ•°, w=ã‚¹ã‚«ã‚¤ãƒŸãƒƒãƒ—
+		XMFLOAT4 PassReflectionParams;			// x=æœ€å¤§ãƒ©ãƒ•ãƒã‚¹, y=ãƒ•ã‚§ãƒ¼ãƒ‰é–‹å§‹, z=å¼·åº¦, w=ã‚¹ã‚¯ãƒªãƒ¼ãƒ³ãƒˆãƒ¬ãƒ¼ã‚¹æœ‰åŠ¹
+		XMFLOAT4 PassRadiosityParams;			// x=Radiosity ãƒ†ãƒ³ãƒãƒ©ãƒ«Î±, y=ãƒ•ãƒ«è§£åƒåº¦ GI ãƒ†ãƒ³ãƒãƒ©ãƒ«Î± (1=è“„ç©ãªã—), z=Short Range AO ãƒ‡ãƒãƒƒã‚°è¡¨ç¤º, w=ãƒ™ãƒ³ãƒˆãƒãƒ¼ãƒãƒ«æœ‰åŠ¹
 
-		XMFLOAT4X4 PassViewProjection;			// “]’uÏ‚İ
-		XMFLOAT4X4 PassInvViewProjection;		// “]’uÏ‚İ
-		XMFLOAT4X4 PassPrevViewProjection;		// “]’uÏ‚İ
-		XMFLOAT4X4 PassPrevInvViewProjection;	// “]’uÏ‚İ (‘OƒtƒŒ[ƒ€ƒvƒ[ƒuˆÊ’u‚ÌÄ\’z—p)
+		XMFLOAT4X4 PassViewProjection;			// è»¢ç½®æ¸ˆã¿
+		XMFLOAT4X4 PassInvViewProjection;		// è»¢ç½®æ¸ˆã¿
+		XMFLOAT4X4 PassPrevViewProjection;		// è»¢ç½®æ¸ˆã¿
+		XMFLOAT4X4 PassPrevInvViewProjection;	// è»¢ç½®æ¸ˆã¿ (å‰ãƒ•ãƒ¬ãƒ¼ãƒ ãƒ—ãƒ­ãƒ¼ãƒ–ä½ç½®ã®å†æ§‹ç¯‰ç”¨)
 
-		XMFLOAT4 PassProbeJitter;				// xy=¡ƒtƒŒ[ƒ€‚Ìƒvƒ[ƒu”z’uƒWƒbƒ^ [px], zw=‘OƒtƒŒ[ƒ€
-		XMFLOAT4 PassShortRangeAO;				// x=Å‘å‹——£ [m] (0=–³Œø), y=ƒŒƒC”, z=‹­“x, w=Œú‚İ [m]
+		XMFLOAT4 PassProbeJitter;				// xy=ä»Šãƒ•ãƒ¬ãƒ¼ãƒ ã®ãƒ—ãƒ­ãƒ¼ãƒ–é…ç½®ã‚¸ãƒƒã‚¿ [px], zw=å‰ãƒ•ãƒ¬ãƒ¼ãƒ 
+		XMFLOAT4 PassShortRangeAO;				// x=æœ€å¤§è·é›¢ [m] (0=ç„¡åŠ¹), y=ãƒ¬ã‚¤æ•°, z=å¼·åº¦, w=åšã¿ [m]
 	};
 	static_assert(sizeof(FLumenPassParams) == 528,
 		"FLumenPassParams must mirror HLSL cbuffer LumenPassParams (b0)");
 
-	// ---- ƒJ[ƒh‚Ìƒ[ƒJƒ‹‹óŠÔ’è‹` (ƒLƒƒƒvƒ`ƒƒ / s—ñ\’z—p CPU ƒf[ƒ^) ----
+	// ---- ã‚«ãƒ¼ãƒ‰ã®ãƒ­ãƒ¼ã‚«ãƒ«ç©ºé–“å®šç¾© (ã‚­ãƒ£ãƒ—ãƒãƒ£ / è¡Œåˆ—æ§‹ç¯‰ç”¨ CPU ãƒ‡ãƒ¼ã‚¿) ----
 	struct FLumenCardLocal
 	{
-		XMFLOAT4X4 LocalViewMatrix;		// ƒ[ƒJƒ‹‹óŠÔƒJ[ƒhƒrƒ…[ (“]’u‘O)
-		XMFLOAT4X4 ProjectionMatrix;	// ƒIƒ‹ƒ\Ë‰e (“]’u‘O)
-		XMFLOAT4X4 CardToLocal;			// ƒJ[ƒh‹óŠÔ -> ƒ[ƒJƒ‹ (= LocalViewMatrix ‚Ì‹t)
-		XMFLOAT3   Extent;				// ƒJ[ƒh”¼• (x,y=•½–Ê, z=”¼[“x)
+		XMFLOAT4X4 LocalViewMatrix;		// ãƒ­ãƒ¼ã‚«ãƒ«ç©ºé–“ã‚«ãƒ¼ãƒ‰ãƒ“ãƒ¥ãƒ¼ (è»¢ç½®å‰)
+		XMFLOAT4X4 ProjectionMatrix;	// ã‚ªãƒ«ã‚½å°„å½± (è»¢ç½®å‰)
+		XMFLOAT4X4 CardToLocal;			// ã‚«ãƒ¼ãƒ‰ç©ºé–“ -> ãƒ­ãƒ¼ã‚«ãƒ« (= LocalViewMatrix ã®é€†)
+		XMFLOAT3   Extent;				// ã‚«ãƒ¼ãƒ‰åŠå¹… (x,y=å¹³é¢, z=åŠæ·±åº¦)
 	};
 
-	// ---- ƒIƒuƒWƒFƒNƒgƒXƒƒbƒg (ƒvƒƒLƒV 1 ‚Â•ª‚Ìí’“ƒf[ƒ^) ----
-	// (ƒRƒ“ƒ|[ƒlƒ“ƒg, ƒvƒƒLƒV) ‚ÌƒyƒA‚ğƒL[‚É‰i‘±Š„“–‚·‚éB
+	// ---- ã‚ªãƒ–ã‚¸ã‚§ã‚¯ãƒˆã‚¹ãƒ­ãƒƒãƒˆ (ãƒ—ãƒ­ã‚­ã‚· 1 ã¤åˆ†ã®å¸¸é§ãƒ‡ãƒ¼ã‚¿) ----
+	// (ã‚³ãƒ³ãƒãƒ¼ãƒãƒ³ãƒˆ, ãƒ—ãƒ­ã‚­ã‚·) ã®ãƒšã‚¢ã‚’ã‚­ãƒ¼ã«æ°¸ç¶šå‰²å½“ã™ã‚‹ã€‚
 	struct FLumenObjectSlot
 	{
-		const class UPrimitiveComponent* Component = nullptr;	// ƒL[ 1
-		const FPrimitiveSceneProxy* Proxy = nullptr;	// ƒL[ 2Bnull = ‹ó‚«ƒXƒƒbƒg
+		const class UPrimitiveComponent* Component = nullptr;	// ã‚­ãƒ¼ 1
+		const FPrimitiveSceneProxy* Proxy = nullptr;	// ã‚­ãƒ¼ 2ã€‚null = ç©ºãã‚¹ãƒ­ãƒƒãƒˆ
 		FLumenCardLocal Cards[LUMEN_CARDS_PER_OBJECT];
-		bool bCaptured[LUMEN_CARDS_PER_OBJECT] = {};	// ƒLƒƒƒvƒ`ƒƒÏ‚İ‚©
+		bool bCaptured[LUMEN_CARDS_PER_OBJECT] = {};	// ã‚­ãƒ£ãƒ—ãƒãƒ£æ¸ˆã¿ã‹
 	};
 
-	// ---- ƒLƒƒƒvƒ`ƒƒ—v‹ (ƒtƒŒ[ƒ€—\Z§‚ÌƒLƒ…[) ----
+	// ---- ã‚­ãƒ£ãƒ—ãƒãƒ£è¦æ±‚ (ãƒ•ãƒ¬ãƒ¼ãƒ äºˆç®—åˆ¶ã®ã‚­ãƒ¥ãƒ¼) ----
 	struct FCaptureRequest
 	{
 		unsigned int SlotIndex = 0;
-		unsigned int CardIndex = 0;		// ƒXƒƒbƒg“à‚ÌƒJ[ƒh”Ô† (0..5)
+		unsigned int CardIndex = 0;		// ã‚¹ãƒ­ãƒƒãƒˆå†…ã®ã‚«ãƒ¼ãƒ‰ç•ªå· (0..5)
 	};
 
-	// ---- ƒRƒ“ƒsƒ…[ƒg—pƒeƒNƒXƒ`ƒƒ (UAV + SRV, 2D / 3D ‹¤—p) ----
+	// ---- ã‚³ãƒ³ãƒ”ãƒ¥ãƒ¼ãƒˆç”¨ãƒ†ã‚¯ã‚¹ãƒãƒ£ (UAV + SRV, 2D / 3D å…±ç”¨) ----
 	struct FLumenComputeTexture
 	{
 		ComPtr<ID3D12Resource> Resource;
 		unsigned int SRVIndex = 0;
 		unsigned int UAVIndex = 0;
-		D3D12_GPU_DESCRIPTOR_HANDLE SRVHandle{};	// ImGui ƒvƒŒƒrƒ…[—p
-		bool bInReadState = false;					// true = (PIXEL|NON_PIXEL) SRV ó‘Ô
+		D3D12_GPU_DESCRIPTOR_HANDLE SRVHandle{};	// ImGui ãƒ—ãƒ¬ãƒ“ãƒ¥ãƒ¼ç”¨
+		bool bInReadState = false;					// true = (PIXEL|NON_PIXEL) SRV çŠ¶æ…‹
 	};
 
-	// ---- ƒXƒNƒŠ[ƒ“ƒvƒ[ƒu SH ƒZƒbƒg (ƒeƒ“ƒ|ƒ‰ƒ‹‚Ìƒsƒ“ƒ|ƒ“) ----
+	// ---- ã‚¹ã‚¯ãƒªãƒ¼ãƒ³ãƒ—ãƒ­ãƒ¼ãƒ– SH ã‚»ãƒƒãƒˆ (ãƒ†ãƒ³ãƒãƒ©ãƒ«ã®ãƒ”ãƒ³ãƒãƒ³) ----
 	struct FLumenProbeSHSet
 	{
 		FLumenComputeTexture SHR;
 		FLumenComputeTexture SHG;
 		FLumenComputeTexture SHB;
-		FLumenComputeTexture Aux;	// x=ƒXƒJƒC‰Â‹—¦, y=ƒJƒƒ‰‹——£ (ƒŠƒvƒƒWƒFƒNƒVƒ‡ƒ“ŒŸØ)
+		FLumenComputeTexture Aux;	// x=ã‚¹ã‚«ã‚¤å¯è¦–ç‡, y=ã‚«ãƒ¡ãƒ©è·é›¢ (ãƒªãƒ—ãƒ­ã‚¸ã‚§ã‚¯ã‚·ãƒ§ãƒ³æ¤œè¨¼)
 	};
 
 	RenderManager* m_RHI = nullptr;
 	Params m_Params;
 	Stats  m_Stats;
 
-	// ---- ƒIƒuƒWƒFƒNƒgƒXƒƒbƒg + ƒLƒƒƒvƒ`ƒƒƒLƒ…[ ----
+	// ---- ã‚ªãƒ–ã‚¸ã‚§ã‚¯ãƒˆã‚¹ãƒ­ãƒƒãƒˆ + ã‚­ãƒ£ãƒ—ãƒãƒ£ã‚­ãƒ¥ãƒ¼ ----
 	FLumenObjectSlot m_Slots[MAX_LUMEN_OBJECTS];
 	std::deque<FCaptureRequest> m_CaptureQueue;
 
-	// ---- GPU ƒoƒbƒtƒ@ CPU ƒ~ƒ‰[ (–ˆƒtƒŒ[ƒ€‹l‚ß’¼‚µ) ----
+	// ---- GPU ãƒãƒƒãƒ•ã‚¡ CPU ãƒŸãƒ©ãƒ¼ (æ¯ãƒ•ãƒ¬ãƒ¼ãƒ è©°ã‚ç›´ã—) ----
 	FLumenSceneObjectData m_ObjectData[MAX_LUMEN_OBJECTS];
 	FLumenCardGPUData     m_CardData[MAX_LUMEN_CARDS];
 	unsigned int          m_NumObjects = 0;
 
-	// ---- ƒIƒuƒWƒFƒNƒg / ƒJ[ƒhƒoƒbƒtƒ@ (StructuredBuffer, t24/t25) ----
+	// ---- ã‚ªãƒ–ã‚¸ã‚§ã‚¯ãƒˆ / ã‚«ãƒ¼ãƒ‰ãƒãƒƒãƒ•ã‚¡ (StructuredBuffer, t24/t25) ----
 	ComPtr<ID3D12Resource> m_ObjectBuffer[2];
 	FLumenSceneObjectData* m_ObjectBufferPointer[2] = {};
 	unsigned int           m_ObjectBufferSRVIndex[2] = {};
@@ -349,61 +348,61 @@ private:
 	unsigned int           m_CardBufferSRVIndex[2] = {};
 	unsigned int           m_BufferFrame = 0;
 
-	// ---- ƒLƒƒƒvƒ`ƒƒƒAƒgƒ‰ƒX (ƒOƒ‰ƒtƒBƒbƒNƒXƒpƒX‚Ì MRT) ----
-	// íİó‘Ô‚Í (PIXEL | NON_PIXEL) ‚Ì“Ç‚İæ‚èBƒLƒƒƒvƒ`ƒƒƒpƒX‚ÌŠÔ‚¾‚¯
-	// RENDER_TARGET / DEPTH_WRITE ‚Ö‘JˆÚ‚µ‚Ä–ß‚· (RenderCardCaptures)B
-	std::unique_ptr<RENDER_TARGET> m_AlbedoAtlas;	// RGBA8 (a=—LŒøƒ}[ƒJ[)
-	std::unique_ptr<RENDER_TARGET> m_NormalAtlas;	// RGBA8 (ƒJ[ƒh‹óŠÔ–@ü)
-	std::unique_ptr<RENDER_TARGET> m_EmissiveAtlas;	// R11G11B10F (ƒGƒ~ƒbƒVƒuƒ‰ƒfƒBƒAƒ“ƒX)
+	// ---- ã‚­ãƒ£ãƒ—ãƒãƒ£ã‚¢ãƒˆãƒ©ã‚¹ (ã‚°ãƒ©ãƒ•ã‚£ãƒƒã‚¯ã‚¹ãƒ‘ã‚¹ã® MRT) ----
+	// å¸¸åœ¨çŠ¶æ…‹ã¯ (PIXEL | NON_PIXEL) ã®èª­ã¿å–ã‚Šã€‚ã‚­ãƒ£ãƒ—ãƒãƒ£ãƒ‘ã‚¹ã®é–“ã ã‘
+	// RENDER_TARGET / DEPTH_WRITE ã¸é·ç§»ã—ã¦æˆ»ã™ (RenderCardCaptures)ã€‚
+	std::unique_ptr<RENDER_TARGET> m_AlbedoAtlas;	// RGBA8 (a=æœ‰åŠ¹ãƒãƒ¼ã‚«ãƒ¼)
+	std::unique_ptr<RENDER_TARGET> m_NormalAtlas;	// RGBA8 (ã‚«ãƒ¼ãƒ‰ç©ºé–“æ³•ç·š)
+	std::unique_ptr<RENDER_TARGET> m_EmissiveAtlas;	// R11G11B10F (ã‚¨ãƒŸãƒƒã‚·ãƒ–ãƒ©ãƒ‡ã‚£ã‚¢ãƒ³ã‚¹)
 
-	// ---- [“xƒAƒgƒ‰ƒX (R32_TYPELESS: DSV D32 / SRV R32) ----
+	// ---- æ·±åº¦ã‚¢ãƒˆãƒ©ã‚¹ (R32_TYPELESS: DSV D32 / SRV R32) ----
 	ComPtr<ID3D12Resource>       m_DepthAtlas;
 	ComPtr<ID3D12DescriptorHeap> m_DepthAtlasDSVHeap;
 	D3D12_CPU_DESCRIPTOR_HANDLE  m_DepthAtlasDSV{};
 	unsigned int                 m_DepthAtlasSRVIndex = 0;
 
-	// ---- ƒ‰ƒCƒeƒBƒ“ƒOƒAƒgƒ‰ƒX (RGBA16F, UAV <-> SRV) ----
+	// ---- ãƒ©ã‚¤ãƒ†ã‚£ãƒ³ã‚°ã‚¢ãƒˆãƒ©ã‚¹ (RGBA16F, UAV <-> SRV) ----
 	FLumenComputeTexture m_DirectLightingAtlas;
 	FLumenComputeTexture m_IndirectLightingAtlas;
 	FLumenComputeTexture m_FinalLightingAtlas;
 
-	// ---- Global Distance Field (128^3 R16F ƒNƒŠƒbƒvƒ}ƒbƒv x2) ----
+	// ---- Global Distance Field (128^3 R16F ã‚¯ãƒªãƒƒãƒ—ãƒãƒƒãƒ— x2) ----
 	FLumenComputeTexture m_GlobalSDF[LUMEN_GLOBAL_SDF_CLIPMAPS];
-	XMFLOAT4 m_GlobalSDFParams[LUMEN_GLOBAL_SDF_CLIPMAPS] = {};	// xyz=’†S, w=”¼Œa
+	XMFLOAT4 m_GlobalSDFParams[LUMEN_GLOBAL_SDF_CLIPMAPS] = {};	// xyz=ä¸­å¿ƒ, w=åŠå¾„
 
 	// ---- Screen Probe Gather ----
 	unsigned int m_NumProbesX = 0;
 	unsigned int m_NumProbesY = 0;
-	FLumenComputeTexture m_ProbeGeo;			// xyz=–@ü, w=ƒrƒ…[‹——£ (0=–³Œø)
+	FLumenComputeTexture m_ProbeGeo;			// xyz=æ³•ç·š, w=ãƒ“ãƒ¥ãƒ¼è·é›¢ (0=ç„¡åŠ¹)
 	FLumenComputeTexture m_ProbeTraceRadiance;	// (PW*8) x (PH*8)
 	FLumenComputeTexture m_ProbeFilteredRadiance;
-	FLumenProbeSHSet     m_ProbeSH[2];			// ƒeƒ“ƒ|ƒ‰ƒ‹‚Ìƒsƒ“ƒ|ƒ“
+	FLumenProbeSHSet     m_ProbeSH[2];			// ãƒ†ãƒ³ãƒãƒ©ãƒ«ã®ãƒ”ãƒ³ãƒãƒ³
 	unsigned int         m_ProbeSHFrame = 0;
-	XMFLOAT2             m_ProbeJitter = { 8.0f, 8.0f };		// ¡ƒtƒŒ[ƒ€‚ÌƒAƒ“ƒJ[ƒIƒtƒZƒbƒg [px]
-	XMFLOAT2             m_PrevProbeJitter = { 8.0f, 8.0f };	// ‘OƒtƒŒ[ƒ€ (—š—ğƒŠƒvƒƒWƒFƒNƒVƒ‡ƒ“—p)
+	XMFLOAT2             m_ProbeJitter = { 8.0f, 8.0f };		// ä»Šãƒ•ãƒ¬ãƒ¼ãƒ ã®ã‚¢ãƒ³ã‚«ãƒ¼ã‚ªãƒ•ã‚»ãƒƒãƒˆ [px]
+	XMFLOAT2             m_PrevProbeJitter = { 8.0f, 8.0f };	// å‰ãƒ•ãƒ¬ãƒ¼ãƒ  (å±¥æ­´ãƒªãƒ—ãƒ­ã‚¸ã‚§ã‚¯ã‚·ãƒ§ãƒ³ç”¨)
 	unsigned int         m_ProbeJitterIndex = 0;
-	FLumenComputeTexture m_DiffuseIndirect[2];	// ƒtƒ‹‰ğ‘œ“x (t28)Bƒeƒ“ƒ|ƒ‰ƒ‹‚Ìƒsƒ“ƒ|ƒ“
-	unsigned int         m_DiffuseIndirectFrame = 0;	// ¡ƒtƒŒ[ƒ€‚Ì‘‚«‚İæ
-	unsigned int         m_DiffuseIndirectCurrent = 0;	// ÅŒã‚É‘‚¢‚½ (ƒfƒtƒ@[ƒh‚ª“Ç‚Ş) •û
+	FLumenComputeTexture m_DiffuseIndirect[2];	// ãƒ•ãƒ«è§£åƒåº¦ (t28)ã€‚ãƒ†ãƒ³ãƒãƒ©ãƒ«ã®ãƒ”ãƒ³ãƒãƒ³
+	unsigned int         m_DiffuseIndirectFrame = 0;	// ä»Šãƒ•ãƒ¬ãƒ¼ãƒ ã®æ›¸ãè¾¼ã¿å…ˆ
+	unsigned int         m_DiffuseIndirectCurrent = 0;	// æœ€å¾Œã«æ›¸ã„ãŸ (ãƒ‡ãƒ•ã‚¡ãƒ¼ãƒ‰ãŒèª­ã‚€) æ–¹
 
 	// ---- Reflections ----
-	FLumenComputeTexture m_ReflectionTexture;	// ƒtƒ‹‰ğ‘œ“x (t29)
+	FLumenComputeTexture m_ReflectionTexture;	// ãƒ•ãƒ«è§£åƒåº¦ (t29)
 
 	// ---- Radiance Cache ----
 	FLumenComputeTexture m_RCAtlas;				// 512x512 octahedral
-	FLumenComputeTexture m_RCSH[3];				// 16^3 SH ƒ{ƒŠƒ…[ƒ€ R/G/B (t30-t32)
-	unsigned int m_RCCursor = 0;				// XVƒ‰ƒEƒ“ƒhƒƒrƒ“
-	XMFLOAT4 m_RCVolumeParams0 = { 0.0f, 0.0f, 0.0f, 1.0f };	// xyz=Å¬ƒR[ƒi[, w=ŠÔŠu
+	FLumenComputeTexture m_RCSH[3];				// 16^3 SH ãƒœãƒªãƒ¥ãƒ¼ãƒ  R/G/B (t30-t32)
+	unsigned int m_RCCursor = 0;				// æ›´æ–°ãƒ©ã‚¦ãƒ³ãƒ‰ãƒ­ãƒ“ãƒ³
+	XMFLOAT4 m_RCVolumeParams0 = { 0.0f, 0.0f, 0.0f, 1.0f };	// xyz=æœ€å°ã‚³ãƒ¼ãƒŠãƒ¼, w=é–“éš”
 
 	// ---- HWRT (DXR TLAS) ----
 	std::unique_ptr<FLumenHardwareRayTracing> m_HardwareRayTracing;
 	bool m_bHWRTActiveThisFrame = false;
 
-	// Radiosity ƒeƒ“ƒ|ƒ‰ƒ‹’~Ï‚Ì‰Â”Û (RGBA16F Œ^•t‚« UAV ƒ[ƒh‘Î‰B
-	// ”ñ‘Î‰‚È‚ç PassRadiosityParams.x = 1 ‚Å’u‚«Š·‚¦‚Ì‚İ)
+	// Radiosity ãƒ†ãƒ³ãƒãƒ©ãƒ«è“„ç©ã®å¯å¦ (RGBA16F å‹ä»˜ã UAV ãƒ­ãƒ¼ãƒ‰å¯¾å¿œã€‚
+	// éå¯¾å¿œãªã‚‰ PassRadiosityParams.x = 1 ã§ç½®ãæ›ãˆã®ã¿)
 	bool m_bRadiosityTemporalSupported = false;
 
-	// ---- ƒRƒ“ƒsƒ…[ƒg (“Æ—§ƒ‹[ƒgƒVƒOƒlƒ`ƒƒ + PSO ŒQ) ----
+	// ---- ã‚³ãƒ³ãƒ”ãƒ¥ãƒ¼ãƒˆ (ç‹¬ç«‹ãƒ«ãƒ¼ãƒˆã‚·ã‚°ãƒãƒãƒ£ + PSO ç¾¤) ----
 	ComPtr<ID3D12RootSignature> m_ComputeRootSignature;
 	ComPtr<ID3D12PipelineState> m_PSODirectLighting;
 	ComPtr<ID3D12PipelineState> m_PSORadiosity;
@@ -418,79 +417,84 @@ private:
 	ComPtr<ID3D12PipelineState> m_PSORCTrace;
 	ComPtr<ID3D12PipelineState> m_PSORCSH;
 
-	// HWRT (RayQuery, SM 6.5) ƒoƒŠƒAƒ“ƒgBcso •sİ / ¶¬¸”s‚Í null
-	// ‚Ì‚Ü‚Ü SWRT ‚ÖƒtƒH[ƒ‹ƒoƒbƒN‚·‚éB
+	// HWRT (RayQuery, SM 6.5) ãƒãƒªã‚¢ãƒ³ãƒˆã€‚cso ä¸åœ¨ / ç”Ÿæˆå¤±æ•—æ™‚ã¯ null
+	// ã®ã¾ã¾ SWRT ã¸ãƒ•ã‚©ãƒ¼ãƒ«ãƒãƒƒã‚¯ã™ã‚‹ã€‚
 	ComPtr<ID3D12PipelineState> m_PSODirectLightingRT;
 	ComPtr<ID3D12PipelineState> m_PSORadiosityRT;
 	ComPtr<ID3D12PipelineState> m_PSOProbeTraceRT;
 	ComPtr<ID3D12PipelineState> m_PSOReflectionsRT;
 	ComPtr<ID3D12PipelineState> m_PSORCTraceRT;
 
-	// b0 ƒAƒbƒvƒ[ƒhƒoƒbƒtƒ@ (16 ƒXƒƒbƒg x 512B x 2 ƒtƒŒ[ƒ€)
+	// b0 ã‚¢ãƒƒãƒ—ãƒ­ãƒ¼ãƒ‰ãƒãƒƒãƒ•ã‚¡ (16 ã‚¹ãƒ­ãƒƒãƒˆ x 1024B x 2 ãƒ•ãƒ¬ãƒ¼ãƒ ã€‚FLumenPassParams ã¯ 528B)
 	static const unsigned int PASS_PARAM_SLOTS = 16;
 	static const unsigned int PASS_PARAM_STRIDE = 1024;
 	ComPtr<ID3D12Resource> m_PassParamBuffer[2];
 	unsigned char* m_PassParamPointer[2] = {};
 
-	// ---- Radiosity ƒ‰ƒEƒ“ƒhƒƒrƒ“ ----
+	// ---- Radiosity ãƒ©ã‚¦ãƒ³ãƒ‰ãƒ­ãƒ“ãƒ³ ----
 	unsigned int m_RadiosityCardCursor = 0;
 	unsigned int m_FrameNumber = 0;
 
-	// ---- “à•”ƒwƒ‹ƒp[ ----
+	// ---- å†…éƒ¨ãƒ˜ãƒ«ãƒ‘ãƒ¼ ----
 	ID3D12Device* Device();
 	ID3D12GraphicsCommandList* CommandList();
 
 	void InitAtlases();
-	void InitScreenTextures();	// GDF / ƒvƒ[ƒu / ”½Ë / RC
+	void InitGlobalTextures();	// Global SDF / Radiance Cache SH (è§£åƒåº¦éä¾å­˜ã€‚Init ã§ 1 å›)
 	void InitBuffers();
+
+	// ã‚³ãƒ³ãƒ”ãƒ¥ãƒ¼ãƒˆãƒ†ã‚¯ã‚¹ãƒãƒ£ã®ãƒªã‚½ãƒ¼ã‚¹ + SRV / UAV æ ã‚’é…å»¶å‰Šé™¤ã‚­ãƒ¥ãƒ¼ã¸è¿”ã—ã€ç©ºã«æˆ»ã™
+	// (ãƒ‡ã‚¹ãƒˆãƒ©ã‚¯ã‚¿ / ReleaseScreenTextures å…±ç”¨)
+	void ReleaseComputeTexture(FLumenComputeTexture& Texture);
 	void InitComputePipelines();
+	// å¿…é ˆ PSO ã®ãƒ­ãƒ¼ãƒ€ (TryCreateComputePipeline + assertã€‚SWRT ç”¨)
 	ComPtr<ID3D12PipelineState> CreateComputePipeline(const char* csoFile);
-	// ¸”s‚ğ‹–—e‚·‚éƒ[ƒ_ (HWRT ƒoƒŠƒAƒ“ƒg—pB•sİ / ¸”s‚Å null)
+	// å¤±æ•—ã‚’è¨±å®¹ã™ã‚‹ãƒ­ãƒ¼ãƒ€ (ä¸åœ¨ / å¤±æ•—ã§ nullã€‚HWRT ãƒãƒªã‚¢ãƒ³ãƒˆã¯ç›´æ¥ã€SWRT ã¯ CreateComputePipeline çµŒç”±ã§ä½¿ã†)
 	ComPtr<ID3D12PipelineState> TryCreateComputePipeline(const char* csoFile);
 
-	// ƒRƒ“ƒsƒ…[ƒgƒeƒNƒXƒ`ƒƒ¶¬ (2D: Depth=1 / 3D: Depth>1)
+	// ã‚³ãƒ³ãƒ”ãƒ¥ãƒ¼ãƒˆãƒ†ã‚¯ã‚¹ãƒãƒ£ç”Ÿæˆ (2D: Depth=1 / 3D: Depth>1)
 	void CreateComputeTexture(FLumenComputeTexture& Texture, const wchar_t* Name,
 		unsigned int Width, unsigned int Height, unsigned int Depth,
-		DXGI_FORMAT Format, bool bStartInReadState);
+		DXGI_FORMAT Format, D3D12_RESOURCE_STATES InitialState);
 
-	// ƒƒbƒVƒ…‚Ìƒ[ƒJƒ‹‹«ŠE‚©‚ç 6 ƒJ[ƒh‚ğ\’z‚·‚é (MeshCards ¶¬)
+	// ãƒ¡ãƒƒã‚·ãƒ¥ã®ãƒ­ãƒ¼ã‚«ãƒ«å¢ƒç•Œã‹ã‚‰ 6 ã‚«ãƒ¼ãƒ‰ã‚’æ§‹ç¯‰ã™ã‚‹ (MeshCards ç”Ÿæˆ)
 	void BuildMeshCards(const FPrimitiveSceneProxy* Proxy, FLumenObjectSlot& Slot) const;
 
-	// ƒXƒƒbƒgŠ„“– / ‰ğ•ú (ƒvƒƒLƒVÄ¶¬‚Å©“®“I‚ÉÄŠ„“–‚³‚ê‚é)
+	// ã‚¹ãƒ­ãƒƒãƒˆå‰²å½“ / è§£æ”¾ (ãƒ—ãƒ­ã‚­ã‚·å†ç”Ÿæˆã§è‡ªå‹•çš„ã«å†å‰²å½“ã•ã‚Œã‚‹)
 	int  AllocateSlot(const class UPrimitiveComponent* Component,
 		const FPrimitiveSceneProxy* Proxy);
 	void FreeSlot(unsigned int SlotIndex);
 
-	// ƒJ[ƒhƒXƒƒbƒg -> ƒAƒgƒ‰ƒXƒ^ƒCƒ‹‚Ì UV ƒXƒP[ƒ‹ / ƒoƒCƒAƒX
+	// ã‚«ãƒ¼ãƒ‰ã‚¹ãƒ­ãƒƒãƒˆ -> ã‚¢ãƒˆãƒ©ã‚¹ã‚¿ã‚¤ãƒ«ã® UV ã‚¹ã‚±ãƒ¼ãƒ« / ãƒã‚¤ã‚¢ã‚¹
 	static XMFLOAT4 GetAtlasUVScaleBias(unsigned int GlobalCardIndex);
 
-	// ƒpƒXƒpƒ‰ƒ[ƒ^‚ğ‘‚«‚İA‚»‚Ì GPU ƒAƒhƒŒƒX‚ğ•Ô‚·
+	// ãƒ‘ã‚¹ãƒ‘ãƒ©ãƒ¡ãƒ¼ã‚¿ã‚’æ›¸ãè¾¼ã¿ã€ãã® GPU ã‚¢ãƒ‰ãƒ¬ã‚¹ã‚’è¿”ã™
 	D3D12_GPU_VIRTUAL_ADDRESS WritePassParams(unsigned int SlotIndex,
 		const FLumenPassParams& Params);
 
-	// ‹¤’ÊƒpƒXƒpƒ‰ƒ[ƒ^‚Ì‰ğŒˆ (ƒtƒŒ[ƒ€“ü—Í + Lumen ó‘Ô)
+	// å…±é€šãƒ‘ã‚¹ãƒ‘ãƒ©ãƒ¡ãƒ¼ã‚¿ã®è§£æ±º (ãƒ•ãƒ¬ãƒ¼ãƒ å…¥åŠ› + Lumen çŠ¶æ…‹)
 	FLumenPassParams MakeBasePassParams(const FLumenFrameInputs& Inputs) const;
 
-	// ƒRƒ“ƒsƒ…[ƒgƒeƒNƒXƒ`ƒƒ‚Ìó‘Ô‘JˆÚ (READ = PIXEL|NON_PIXEL)
+	// ã‚³ãƒ³ãƒ”ãƒ¥ãƒ¼ãƒˆãƒ†ã‚¯ã‚¹ãƒãƒ£ã®çŠ¶æ…‹é·ç§» (READ = PIXEL|NON_PIXEL)
 	void TransitionComputeTexture(FLumenComputeTexture& Texture, bool bToRead);
 
-	// ‹¤’Ê SRV/UAV ƒe[ƒuƒ‹‚ÌƒoƒCƒ“ƒh (t0..t14 / u0..u3) + TLAS
+	// å…±é€š SRV/UAV ãƒ†ãƒ¼ãƒ–ãƒ«ã®ãƒã‚¤ãƒ³ãƒ‰ (t0..t18, t25 / u0..u3ã€‚t11 ã¯ãƒã‚¤ãƒ³ãƒ‰ã®ã¿ã§ç¾çŠ¶æœªã‚µãƒ³ãƒ—ãƒ«) + TLAS
 	void BindCommonComputeState(const FLumenFrameInputs& Inputs);
 
-	// TLAS \’z (HWRTBUpdateLumenScene “à‚©‚çŒÄ‚Î‚ê‚é)
+	// TLAS æ§‹ç¯‰ (HWRTã€‚UpdateLumenScene å†…ã‹ã‚‰å‘¼ã°ã‚Œã‚‹)
 	void UpdateTLAS();
 
-	// Global Distance Field ƒNƒŠƒbƒvƒ}ƒbƒvÄ\’z
+	// Global Distance Field ã‚¯ãƒªãƒƒãƒ—ãƒãƒƒãƒ—å†æ§‹ç¯‰
 	void UpdateGlobalDistanceField(const FLumenFrameInputs& Inputs);
 
-	// Radiance Cache XV (ƒgƒŒ[ƒX + SH ‰»)
+	// Radiance Cache æ›´æ–° (ãƒˆãƒ¬ãƒ¼ã‚¹ + SH åŒ–)
 	void UpdateRadianceCache(const FLumenFrameInputs& Inputs);
 
-	// Radiosity ‚ğƒJ[ƒh”ÍˆÍ [Start, Start+Count) ‚É‘Î‚µ‚Ä‹L˜^‚·‚é
+	// Radiosity ã‚’ã‚«ãƒ¼ãƒ‰ç¯„å›² [Start, Start+Count) ã«å¯¾ã—ã¦è¨˜éŒ²ã™ã‚‹
 	void DispatchRadiosityRange(unsigned int StartCard, unsigned int NumCards,
 		unsigned int ParamSlot, const FLumenPassParams& BaseParams);
 
-	// HWRT ‚ª—LŒø‚È‚ç‚»‚ÌƒtƒŒ[ƒ€‚ÌƒgƒŒ[ƒX PSO ‚ğ•Ô‚·
+	// HWRT ãŒæœ‰åŠ¹ãªã‚‰ãã®ãƒ•ãƒ¬ãƒ¼ãƒ ã®ãƒˆãƒ¬ãƒ¼ã‚¹ PSO ã‚’è¿”ã™
 	ID3D12PipelineState* SelectTracePSO(
 		ID3D12PipelineState* SWRT, ID3D12PipelineState* HWRT) const;
 
@@ -500,35 +504,43 @@ public:
 
 	void Init();
 
-	// –ˆƒtƒŒ[ƒ€: FScene ‚ÌƒvƒƒLƒV—ñ‚©‚çƒIƒuƒWƒFƒNƒg / ƒJ[ƒhƒoƒbƒtƒ@‚ğ
-	// ‹l‚ß’¼‚µAV‹KƒvƒƒLƒV‚ÌƒLƒƒƒvƒ`ƒƒ‚ğ—\–ñ‚·‚éBHWRT —LŒø‚Í
-	// TLAS ‚àÄ\’z‚·‚é (BeginUpdateLumenSceneTasks ‘Š“–)B
+	// ---- ãƒ¬ãƒ³ãƒ€ãƒ¼è§£åƒåº¦ã®ã‚¹ã‚¯ãƒªãƒ¼ãƒ³ãƒ†ã‚¯ã‚¹ãƒãƒ£ (è§£åƒåº¦å¤‰æ›´: FSceneRenderer::ResizeRenderTargets) ----
+	// CreateScreenTextures : Width x Height (= R) ã§ãƒ—ãƒ­ãƒ¼ãƒ– / ãƒ—ãƒ­ãƒ¼ãƒ– SH / DiffuseIndirect /
+	//                        åå°„ã‚’ä½œã‚‹ã€‚ä¸­èº«ã¯æœªå®šç¾©ãªã®ã§ç›´å¾Œã®ãƒ•ãƒ¬ãƒ¼ãƒ ã¯ bHistoryValid = false ã§
+	//                        ä½¿ã†ã“ã¨ (å‘¼ã³å‡ºã—å´ã® ViewRectSize è¦å‰‡)ã€‚ãƒ—ãƒ­ãƒ¼ãƒ–ã‚¸ãƒƒã‚¿ã®ä½ç›¸ã¯ä¿æŒã™ã‚‹
+	// ReleaseScreenTextures: ä¸Šè¨˜ã‚’é…å»¶å‰Šé™¤ã‚­ãƒ¥ãƒ¼ã¸è¿”ã™ (Global SDF / RC / ã‚¢ãƒˆãƒ©ã‚¹ã¯ä¿æŒ)
+	void CreateScreenTextures(unsigned int Width, unsigned int Height);
+	void ReleaseScreenTextures();
+
+	// æ¯ãƒ•ãƒ¬ãƒ¼ãƒ : FScene ã®ãƒ—ãƒ­ã‚­ã‚·åˆ—ã‹ã‚‰ã‚ªãƒ–ã‚¸ã‚§ã‚¯ãƒˆ / ã‚«ãƒ¼ãƒ‰ãƒãƒƒãƒ•ã‚¡ã‚’
+	// è©°ã‚ç›´ã—ã€æ–°è¦ãƒ—ãƒ­ã‚­ã‚·ã®ã‚­ãƒ£ãƒ—ãƒãƒ£ã‚’äºˆç´„ã™ã‚‹ã€‚HWRT æœ‰åŠ¹æ™‚ã¯
+	// TLAS ã‚‚å†æ§‹ç¯‰ã™ã‚‹ (BeginUpdateLumenSceneTasks ç›¸å½“)ã€‚
 	void UpdateLumenScene(FScene* Scene);
 
-	// ƒJ[ƒhƒLƒƒƒvƒ`ƒƒƒpƒX (ƒtƒŒ[ƒ€—\Z§)Bb0/b1 ‚ğã‘‚«‚·‚é‚½‚ß
-	// ƒVƒƒƒhƒE[“xƒpƒX‚ÌŒã / RenderLighting ‚Ì‘O‚ÉŒÄ‚Ô‚±‚ÆB
+	// ã‚«ãƒ¼ãƒ‰ã‚­ãƒ£ãƒ—ãƒãƒ£ãƒ‘ã‚¹ (ãƒ•ãƒ¬ãƒ¼ãƒ äºˆç®—åˆ¶)ã€‚b0/b1 ã‚’ä¸Šæ›¸ãã™ã‚‹ãŸã‚
+	// ã‚·ãƒ£ãƒ‰ã‚¦æ·±åº¦ãƒ‘ã‚¹ã®å¾Œ / RenderLighting ã®å‰ã«å‘¼ã¶ã“ã¨ã€‚
 	void RenderCardCaptures();
 
-	// Surface Cache ƒ‰ƒCƒeƒBƒ“ƒO + Global SDF + Radiance Cache:
-	//   GDF Ä\’z -> Direct -> Radiosity -> Combine -> RC XV
+	// Surface Cache ãƒ©ã‚¤ãƒ†ã‚£ãƒ³ã‚° + Global SDF + Radiance Cache:
+	//   GDF å†æ§‹ç¯‰ -> Direct -> Radiosity -> Combine -> RC æ›´æ–°
 	void RenderLumenSceneLighting(const FLumenFrameInputs& Inputs);
 
-	// ƒXƒNƒŠ[ƒ“ GI (Screen Probe Gather + Reflections)B
-	// RenderLighting “à‚Ì LinearDepth ƒpƒXŒã / ƒfƒtƒ@[ƒhƒhƒ[‘O‚É
-	// ŒÄ‚Ô‚±‚Æ (G-Buffer / [“x / LinearDepth ‚ª“Ç‚İæ‚èó‘Ô‚ÅA
-	// Surface Cache ‚Ì FinalLighting ‚ªŠm’èÏ‚İ‚Å‚ ‚é‚±‚Æ)B
+	// ã‚¹ã‚¯ãƒªãƒ¼ãƒ³ GI (Screen Probe Gather + Reflections)ã€‚
+	// RenderLighting å†…ã® LinearDepth ãƒ‘ã‚¹å¾Œ / ãƒ‡ãƒ•ã‚¡ãƒ¼ãƒ‰ãƒ‰ãƒ­ãƒ¼å‰ã«
+	// å‘¼ã¶ã“ã¨ (G-Buffer / æ·±åº¦ / LinearDepth ãŒèª­ã¿å–ã‚ŠçŠ¶æ…‹ã§ã€
+	// Surface Cache ã® FinalLighting ãŒç¢ºå®šæ¸ˆã¿ã§ã‚ã‚‹ã“ã¨)ã€‚
 	void RenderLumenScreenGI(const FLumenFrameInputs& Inputs);
 
-	// ƒfƒtƒ@[ƒhƒ‰ƒCƒeƒBƒ“ƒO’¼‘O‚ÉŒÄ‚Ô: t24-t32 ‚ğƒoƒCƒ“ƒh
+	// ãƒ‡ãƒ•ã‚¡ãƒ¼ãƒ‰ãƒ©ã‚¤ãƒ†ã‚£ãƒ³ã‚°ç›´å‰ã«å‘¼ã¶: t24-t32 ã‚’ãƒã‚¤ãƒ³ãƒ‰
 	void BindLumenResources();
 
-	// ƒgƒ‰ƒ“ƒXƒ‹[ƒZƒ“ƒV[ƒpƒX’¼‘O‚ÉŒÄ‚Ô: t30-t32 (Radiance Cache)
+	// ãƒˆãƒ©ãƒ³ã‚¹ãƒ«ãƒ¼ã‚»ãƒ³ã‚·ãƒ¼ãƒ‘ã‚¹ç›´å‰ã«å‘¼ã¶: t30-t32 (Radiance Cache)
 	void BindTranslucencyResources();
 
-	// b6 (LUMEN_CONSTANT) ‚ğƒpƒ‰ƒ[ƒ^‚©‚ç‰ğŒˆ‚·‚é
+	// b6 (LUMEN_CONSTANT) ã‚’ãƒ‘ãƒ©ãƒ¡ãƒ¼ã‚¿ã‹ã‚‰è§£æ±ºã™ã‚‹
 	void FillLumenConstant(LUMEN_CONSTANT& Out) const;
 
-	// ---- ƒAƒNƒZƒT ----
+	// ---- ã‚¢ã‚¯ã‚»ã‚µ ----
 	Params& GetParams() { return m_Params; }
 	const Params& GetParams() const { return m_Params; }
 	const Stats& GetStats() const { return m_Stats; }
@@ -537,7 +549,7 @@ public:
 	unsigned int GetNumObjects() const { return m_NumObjects; }
 	bool IsHardwareRayTracingSupported() const;
 
-	// ---- ImGui ƒvƒŒƒrƒ…[—p SRV ƒnƒ“ƒhƒ‹ ----
+	// ---- ImGui ãƒ—ãƒ¬ãƒ“ãƒ¥ãƒ¼ç”¨ SRV ãƒãƒ³ãƒ‰ãƒ« ----
 	D3D12_GPU_DESCRIPTOR_HANDLE GetAlbedoAtlasSRVHandle() const { return m_AlbedoAtlas ? m_AlbedoAtlas->SRVHandle : D3D12_GPU_DESCRIPTOR_HANDLE{}; }
 	D3D12_GPU_DESCRIPTOR_HANDLE GetNormalAtlasSRVHandle() const { return m_NormalAtlas ? m_NormalAtlas->SRVHandle : D3D12_GPU_DESCRIPTOR_HANDLE{}; }
 	D3D12_GPU_DESCRIPTOR_HANDLE GetEmissiveAtlasSRVHandle() const { return m_EmissiveAtlas ? m_EmissiveAtlas->SRVHandle : D3D12_GPU_DESCRIPTOR_HANDLE{}; }

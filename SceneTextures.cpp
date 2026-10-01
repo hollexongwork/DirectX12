@@ -3,10 +3,17 @@
 #include "SceneTextures.h"
 #include "D3DX12.h"
 
-void FSceneTextures::Init(RenderManager* RHI)
+void FSceneTextures::Init(RenderManager* RHI, unsigned int Width, unsigned int Height)
 {
-	const int width = RHI->GetBackBufferWidth();
-	const int height = RHI->GetBackBufferHeight();
+	// 再確保は必ず Release の後 (SRV 枠の二重確保 / 旧ターゲットの取り違えを防ぐ)
+	assert(Extent.x == 0 && Extent.y == 0 && "FSceneTextures::Init: Release first");
+	assert(Width > 0 && Height > 0);
+	// 深度 SRV は RenderManager の深度バッファへ張る (同じサイズで作成済みであること)
+	assert(RHI->GetDepthBufferWidth() == Width && RHI->GetDepthBufferHeight() == Height);
+
+	const unsigned int width = Width;
+	const unsigned int height = Height;
+	Extent = { width, height };
 
 	// G-Buffer の各レンダーターゲット生成 
 	GBufferC = RHI->CreateRenderTarget(width, height, DXGI_FORMAT_R16G16B16A16_FLOAT);
@@ -48,6 +55,14 @@ void FSceneTextures::Init(RenderManager* RHI)
 	PrevLinearDepth = RHI->CreateRenderTarget(width, height, DXGI_FORMAT_R32G32_FLOAT);
 	PrevLinearDepth->Resource->SetName(L"PrevLinearDepthBuffer");
 
+	// シーンベロシティ (R16G16_UNORM。最適化クリア値 (0,0,0,1) = RG 0 = 未書き込み)
+	Velocity = RHI->CreateRenderTarget(width, height, DXGI_FORMAT_R16G16_UNORM);
+	Velocity->Resource->SetName(L"SceneVelocity");
+
+	// Responsive AA マスク (R8_UNORM。書き手は RenderResponsiveAAMask)
+	ResponsiveAAMask = RHI->CreateRenderTarget(width, height, DXGI_FORMAT_R8_UNORM);
+	ResponsiveAAMask->Resource->SetName(L"ResponsiveAAMask");
+
 	// MRT 順 = RT0..RT4 (ベースパス出力 / RenderManager の gbuffer[] と 1:1)
 	GBuffers =
 	{
@@ -72,42 +87,35 @@ void FSceneTextures::Init(RenderManager* RHI)
 		srvDesc.Texture2D.MostDetailedMip = 0;
 
 		RHI->GetDevice()->CreateShaderResourceView(RHI->GetDepthBufferResource(), &srvDesc, srvHandle);
-
-		DepthSRVHandle = RHI->GetGPUDescriptorHandle(DepthSRVIndex);
 	}
 
 	// ---- 常在読み取り状態を (PIXEL | NON_PIXEL) へ引き上げる ----
-	// G-Buffer / LinearDepth / PrevSceneColor は Lumen のコンピュート
+	// G-Buffer / LinearDepth / PrevSceneColor / PrevLinearDepth は Lumen のコンピュート
 	// パス (スクリーンプローブ / 反射) からも読まれるため、
 	// 「読み取り状態」を PIXEL 単独から (PIXEL | NON_PIXEL) に統一する。
+	// Velocity / ResponsiveAAMask も TAA (コンピュート) が読むので同じ常在状態 (§4.11)。
 	// (CreateRenderTarget の初期状態は PIXEL のみ。以降の全遷移は
 	//  SceneRenderer.cpp 側がこの複合状態を before/after に使う)
 	{
 		const D3D12_RESOURCE_STATES readState =
 			D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
 
-		D3D12_RESOURCE_BARRIER barriers[8] = {
-			CD3DX12_RESOURCE_BARRIER::Transition(GBufferC->Resource.Get(),
-				D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, readState),
-			CD3DX12_RESOURCE_BARRIER::Transition(GBufferA->Resource.Get(),
-				D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, readState),
-			CD3DX12_RESOURCE_BARRIER::Transition(GBufferB->Resource.Get(),
-				D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, readState),
-			CD3DX12_RESOURCE_BARRIER::Transition(SubstrateMaterial0->Resource.Get(),
-				D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, readState),
-			CD3DX12_RESOURCE_BARRIER::Transition(SubstrateMaterial1->Resource.Get(),
-				D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, readState),
-			CD3DX12_RESOURCE_BARRIER::Transition(LinearDepth->Resource.Get(),
-				D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, readState),
-			CD3DX12_RESOURCE_BARRIER::Transition(PrevSceneColor->Resource.Get(),
-				D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, readState),
-			CD3DX12_RESOURCE_BARRIER::Transition(PrevLinearDepth->Resource.Get(),
-				D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, readState),
+		RENDER_TARGET* const readTargets[] = {
+			GBufferC.get(), GBufferA.get(), GBufferB.get(),
+			SubstrateMaterial0.get(), SubstrateMaterial1.get(),
+			LinearDepth.get(), PrevSceneColor.get(), PrevLinearDepth.get(),
+			Velocity.get(), ResponsiveAAMask.get(),
 		};
+		D3D12_RESOURCE_BARRIER barriers[_countof(readTargets)];
+		for (UINT i = 0; i < _countof(readTargets); ++i)
+		{
+			barriers[i] = CD3DX12_RESOURCE_BARRIER::Transition(readTargets[i]->Resource.Get(),
+				D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, readState);
+		}
 		RHI->GetGraphicsCommandList()->ResourceBarrier(_countof(barriers), barriers);
 	}
 
-	// ImGui 表示用の線形深度 SRV (R チャンネルをグレースケール表示)
+	// ImGui 表示用の線形深度 SRV (G チャンネルをグレースケール表示)
 	{
 		unsigned int dispIndex = RHI->AllocateDescriptor();
 
@@ -127,6 +135,45 @@ void FSceneTextures::Init(RenderManager* RHI)
 
 		RHI->GetDevice()->CreateShaderResourceView(LinearDepth->Resource.Get(), &srvDesc, cpuHandle);
 
+		LinearDepthDisplaySRVIndex = dispIndex;
 		LinearDepthDisplaySRVHandle = RHI->GetGPUDescriptorHandle(dispIndex);
 	}
+}
+
+
+// ============================================================
+//  Release
+//  全ターゲットを ~RENDER_TARGET (リソース + SRV / RTV 枠の遅延解放) で、
+//  深度 SRV / 表示用 SRV を ReleaseShaderResourceView で遅延削除キューへ返す。
+//  フェンス値は現在値なので、呼び出し側の WaitGPU で実解放される (§5.2)。
+// ============================================================
+void FSceneTextures::Release(RenderManager* RHI)
+{
+	if (Extent.x == 0 && Extent.y == 0)
+	{
+		return;	// 未確保
+	}
+
+	GBuffers.clear();
+
+	GBufferC.reset();
+	GBufferA.reset();
+	GBufferB.reset();
+	SubstrateMaterial0.reset();
+	SubstrateMaterial1.reset();
+	SceneColor.reset();
+	SceneColorCopy.reset();
+	PrevSceneColor.reset();
+	PrevLinearDepth.reset();
+	LinearDepth.reset();
+	Velocity.reset();
+	ResponsiveAAMask.reset();
+
+	RHI->ReleaseShaderResourceView(DepthSRVIndex);
+	RHI->ReleaseShaderResourceView(LinearDepthDisplaySRVIndex);
+	DepthSRVIndex = 0;
+	LinearDepthDisplaySRVIndex = 0;
+	LinearDepthDisplaySRVHandle = {};
+
+	Extent = { 0u, 0u };
 }

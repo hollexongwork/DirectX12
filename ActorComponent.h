@@ -2,7 +2,7 @@
 
 // ============================================================
 //  UActorComponent
-// の UActorComponent に相当する最小実装。
+//  UActorComponent に相当する最小実装。
 //  AActor が所有し、UWorld への登録 (Register) を通じて
 //  BeginPlay / TickComponent / EndPlay のライフサイクルを受け取る。
 // ============================================================

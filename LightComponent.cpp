@@ -138,10 +138,9 @@ XMFLOAT3 ULightComponent::ColorTemperatureToRGB(float TemperatureKelvin)
 
 FLightSceneProxy* UDirectionalLightComponent::CreateLightSceneProxy() const
 {
-	// 共通スナップショット (種別 / 色 x lux 強度 / トランスフォーム / CastShadows)
+	// 共通スナップショット (種別 / 色 x lux 強度 / トランスフォーム / CastShadows / シャドウバイアス)
 	// + CSM パラメータを流し込む
 	FLightSceneProxy* proxy = new FLightSceneProxy(this);
-	proxy->SetShadowParameters(m_ShadowBias, m_ShadowSlopeBias);
 	proxy->SetDirectionalShadowParameters(
 		m_DynamicShadowDistance, m_DynamicShadowCascades,
 		m_CascadeDistributionExponent, m_ShadowDistanceFadeoutFraction);
@@ -151,35 +150,42 @@ FLightSceneProxy* UDirectionalLightComponent::CreateLightSceneProxy() const
 }
 
 // ============================================================
+//  ULocalLightComponent
+// ============================================================
+
+float ULocalLightComponent::ConvertIntensityUnitsToCandelas(float LumensSolidAngle) const
+{
+	float LightBrightness = m_Intensity;
+
+	switch (m_IntensityUnits)
+	{
+	case ELightUnits::Candelas:
+		// cd はそのまま (1000 cd = 1m で 1000 lux)
+		break;
+	case ELightUnits::Lumens:
+		// 光の立体角 (LumensSolidAngle) で除して cd 化
+		LightBrightness *= 1.0f / LumensSolidAngle;
+		break;
+	case ELightUnits::EV:
+		LightBrightness = powf(2.0f, m_Intensity);
+		break;
+	default:	// Unitless
+		// legacy 係数 16 / 10000 (cm^2 -> m^2 換算込み) = 1/625
+		LightBrightness *= 1.0f / 625.0f;
+		break;
+	}
+	return LightBrightness;
+}
+
+// ============================================================
 //  UPointLightComponent
 // ============================================================
 
 float UPointLightComponent::ComputeLightBrightness() const
 {
 	// UPointLightComponent::ComputeLightBrightness のメートル世界版。
-	float LightBrightness = m_Intensity;
-
-	if (m_bUseInverseSquaredFalloff)
-	{
-		switch (m_IntensityUnits)
-		{
-		case ELightUnits::Candelas:
-			// cd はそのまま (1000 cd = 1m で 1000 lux)
-			break;
-		case ELightUnits::Lumens:
-			// 全球 4π sr で除して cd 化
-			LightBrightness *= 1.0f / (4.0f * XM_PI);
-			break;
-		case ELightUnits::EV:
-			LightBrightness = powf(2.0f, m_Intensity);
-			break;
-		default:	// Unitless
-			// legacy 係数 16 / 10000 (cm^2 -> m^2 換算込み) = 1/625
-			LightBrightness *= 1.0f / 625.0f;
-			break;
-		}
-	}
-	return LightBrightness;
+	// Lumens は全球 4π sr で除して cd 化
+	return m_bUseInverseSquaredFalloff ? ConvertIntensityUnitsToCandelas(4.0f * XM_PI) : m_Intensity;
 }
 
 FLightSceneProxy* UPointLightComponent::CreateLightSceneProxy() const
@@ -190,7 +196,6 @@ FLightSceneProxy* UPointLightComponent::CreateLightSceneProxy() const
 		m_LightFalloffExponent,
 		m_bUseInverseSquaredFalloff);
 	proxy->SetSourceShape(m_SourceRadius, m_SoftSourceRadius, m_SourceLength);
-	proxy->SetShadowParameters(m_ShadowBias, m_ShadowSlopeBias);
 	return proxy;
 }
 
@@ -212,46 +217,24 @@ float USpotLightComponent::GetCosHalfConeAngle() const
 
 float USpotLightComponent::ComputeLightBrightness() const
 {
-	float LightBrightness = m_Intensity;
-
-	if (m_bUseInverseSquaredFalloff)
-	{
-		switch (m_IntensityUnits)
-		{
-		case ELightUnits::Candelas:
-			break;
-		case ELightUnits::Lumens:
-			// コーン立体角 2π(1 - cosθ) で除して cd 化
-			LightBrightness *= 1.0f / (2.0f * XM_PI * (1.0f - GetCosHalfConeAngle()));
-			break;
-		case ELightUnits::EV:
-			LightBrightness = powf(2.0f, m_Intensity);
-			break;
-		default:	// Unitless
-			LightBrightness *= 1.0f / 625.0f;
-			break;
-		}
-	}
-	return LightBrightness;
+	// Lumens はコーン立体角 2π(1 - cosθ) で除して cd 化
+	return m_bUseInverseSquaredFalloff
+		? ConvertIntensityUnitsToCandelas(2.0f * XM_PI * (1.0f - GetCosHalfConeAngle()))
+		: m_Intensity;
 }
 
 FLightSceneProxy* USpotLightComponent::CreateLightSceneProxy() const
 {
-	FLightSceneProxy* proxy = new FLightSceneProxy(this);
-	proxy->SetRadialParameters(
-		1.0f / fmaxf(m_AttenuationRadius, 0.0001f),
-		m_LightFalloffExponent,
-		m_bUseInverseSquaredFalloff);
-	proxy->SetSourceShape(m_SourceRadius, m_SoftSourceRadius, m_SourceLength);
+	// 減衰 / 球光源形状 / シャドウは UPointLightComponent と共通
+	FLightSceneProxy* proxy = UPointLightComponent::CreateLightSceneProxy();
 
 	// SpotAngles: x = cos(Outer), y = 1 / (cos(Inner) - cos(Outer))
 	// (FSpotLightSceneProxy と同じ詰め方。Inner は Outer 以下にクランプ)
 	const float clampedOuterDeg = fmaxf(fminf(m_OuterConeAngle, 80.0f), 1.0f);
 	const float clampedInnerDeg = fmaxf(fminf(m_InnerConeAngle, clampedOuterDeg), 0.0f);
-	const float cosOuter = cosf(XMConvertToRadians(clampedOuterDeg));
+	const float cosOuter = GetCosHalfConeAngle();
 	const float cosInner = cosf(XMConvertToRadians(clampedInnerDeg));
 	proxy->SetSpotAngles(cosOuter, 1.0f / fmaxf(cosInner - cosOuter, 0.0001f));
-	proxy->SetShadowParameters(m_ShadowBias, m_ShadowSlopeBias);
 	return proxy;
 }
 
@@ -261,25 +244,9 @@ FLightSceneProxy* USpotLightComponent::CreateLightSceneProxy() const
 
 float URectLightComponent::ComputeLightBrightness() const
 {
-	// レクトライトは常に逆二乗 
-	float LightBrightness = m_Intensity;
-
-	switch (m_IntensityUnits)
-	{
-	case ELightUnits::Candelas:
-		break;
-	case ELightUnits::Lumens:
-		// 半球コサイン分布の実効立体角 π で除して cd 化
-		LightBrightness *= 1.0f / XM_PI;
-		break;
-	case ELightUnits::EV:
-		LightBrightness = powf(2.0f, m_Intensity);
-		break;
-	default:	// Unitless
-		LightBrightness *= 1.0f / 625.0f;
-		break;
-	}
-	return LightBrightness;
+	// レクトライトは常に逆二乗
+	// Lumens は半球コサイン分布の実効立体角 π で除して cd 化
+	return ConvertIntensityUnitsToCandelas(XM_PI);
 }
 
 FLightSceneProxy* URectLightComponent::CreateLightSceneProxy() const
@@ -296,6 +263,5 @@ FLightSceneProxy* URectLightComponent::CreateLightSceneProxy() const
 	// バーンドア (88 度以上 ≒ 全開はシェーダ側で早期スキップされる)
 	const float clampedBarnDeg = fmaxf(fminf(m_BarnDoorAngle, 88.0f), 0.0f);
 	proxy->SetRectBarnDoor(cosf(XMConvertToRadians(clampedBarnDeg)), fmaxf(m_BarnDoorLength, 0.0f));
-	proxy->SetShadowParameters(m_ShadowBias, m_ShadowSlopeBias);
 	return proxy;
 }

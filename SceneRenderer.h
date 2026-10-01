@@ -1,15 +1,47 @@
 #pragma once
+#include <string>
+#include <vector>
 #include "RenderManager.h"
+#include "PostProcessSettings.h"
 #include "SceneTextures.h"
 #include "ConvexVolume.h"
+#include "AntiAliasingSettings.h"
+#include "ScreenPercentage.h"
+#include "SceneViewState.h"
 
 class FScene;
 class FShadowSceneRenderer;
 class FLightSceneProxy;
 class FLumenSceneData;
 class FFogSceneRenderer;
+class FScreenshotCapture;
+class FDefaultTemporalUpscaler;
+class FPrimitiveSceneProxy;
 struct FLumenFrameInputs;
 struct FSceneView;
+
+// ============================================================
+//  FTemporalAAStats
+//  アンチエイリアシング / スクリーンパーセンテージの毎フレーム統計
+//  (ImGui "Anti-Aliasing" ウィンドウとテストドライバのログが読む)。
+//  各フィールドは書き手のパスが今フレームの値で上書きする。
+// ============================================================
+struct FTemporalAAStats
+{
+	int              NumVelocityDraws = 0;           // RenderVelocities の描画数
+	int              NumResizes = 0;                 // ResizeRenderTargets の累計実行数
+	bool             bTAARanThisFrame = false;       // TAA パスを実行した
+	bool             bHistoryValidThisFrame = false; // TAA が前フレーム履歴を読んだ
+	DirectX::XMUINT2 HistoryExtent{};                // 今フレーム書いた TAA 履歴の実寸
+	DXGI_FORMAT      HistoryFormat = DXGI_FORMAT_UNKNOWN;
+	DirectX::XMUINT2 PostExtent{};                   // 後段 (AutoExposure / Bloom / Tonemap) が実際に処理した入力の実寸
+	bool             bUpscaleMerged = false;         // トーンマップとアップスケールを統合した
+	const char*      UpscalePipeline = nullptr;      // 一次空間アップスケールパスの PSO 名 (走らなかった / 統合時は nullptr)
+	bool             bFallbackMissingPSO = false;    // TAA の PSO 欠落で AA 無しへフォールバックした
+	bool             bLumenHistoryValid = false;     // RenderLumenScene が Lumen へ渡した bHistoryValid
+	bool             bFogHistoryValid = false;       // RenderLighting が Volumetric Fog へ渡した bHistoryValid
+	int              LastSelfTestFailures = -1;      // 直近の自己テストの失敗数 (-1 = 未実行)
+};
 
 // ============================================================
 //  FSceneRenderer
@@ -17,18 +49,33 @@ struct FSceneView;
 //  オーケストレータ。RHI 層 (RenderManager) の上に乗り、
 //  FScene を巡回して 1 フレームを以下のパス列で描画する:
 //
-//    BeginFrame            : RHI フレーム準備 + G-Buffer オープン
-//    RenderBasePass        : ビュー/環境定数 + ComputeViewVisibility
-//                            (フラスタム/距離カリング) + 可視プリミティブ -> G-Buffer
+//    BeginFrame            : (先頭) 有効フラグのリセット / スクリーンショット書き出し /
+//                            自己テスト要求の実行 / ビューファミリ決定 (PrepareViewRectsForRendering:
+//                            レンダー / ポスト解像度が変われば ResizeRenderTargets で再確保)
+//                            -> RHI フレーム準備 + G-Buffer オープン
+//    RenderBasePass        : ビュー状態 (PrepareViewStateForVisibility: カメラカット /
+//                            前フレームのスナップショット / b0 行列) + ビュー/環境定数
+//                            + ComputeViewVisibility (ジッタ無し行列でフラスタム/距離カリング)
+//                            + 可視プリミティブ -> G-Buffer
+//    RenderVelocities      : 前フレームから動いたプリミティブのベロシティ -> Velocity
+//                            (TAA 有効時 / ベロシティを読むデバッグ表示時のみ。VelocityRendering.cpp)
 //    RenderShadowDepths    : CSM + ローカルシャドウ深度 -> シャドウマップ
+//    RenderLumenScene      : Lumen カードキャプチャ + Surface Cache ライティング
 //    RenderLighting        : ライトグリッド構築 (タイルドライトカリング)
 //                            + Volumetric Fog (froxel 積分) + LinearDepth
+//                            + Lumen スクリーン GI
 //                            + デファードライティング -> SceneColor
 //                            + Exponential Height Fog パス (SceneColor へ合成)
 //    RenderTranslucency    : Translucent / Additive プリミティブを
 //                            後→前ソートで SceneColor へフォワード合成
 //                            (フォグはサーフェス位置で直接評価)
-//    RenderPostProcessing  : DOF -> AutoExposure -> Bloom -> LUT -> Tonemap
+//                            + Responsive AA マスク (TAA 有効時, bEnableResponsiveAA の半透明のみ)
+//    RenderPostProcessing  : SceneColor 履歴 (Lumen) -> DOF (R) -> Temporal AA (R -> H, TemporalAA.h)
+//                            -> AutoExposure -> Bloom -> LUT
+//                            -> Tonemap (ポスト解像度 P) [-> 一次空間アップスケール P -> O、
+//                            またはトーンマップ統合 (バイリニア)] [-> 入出力分割表示 / Temporal AA デバッグ表示]
+//                            (+ 要求時はスクリーンショットのコピー。書き出しは次の BeginFrame 先頭)
+//                            -> CommitViewState (前フレーム情報の確定。フレームの最後)
 //    EndFrame              : ImGui 描画 + Present
 //
 //  ポストプロセス設定はゲーム側 (UWorld::CalcSceneView) が
@@ -54,7 +101,8 @@ private:
 	std::unique_ptr<VERTEX_BUFFER> m_ScreenQuad;
 
 	// ---- 定数バッファ (3 分割) ----
-	// VIEW (b0)          : カメラ + 代表ディレクショナルライト。
+	// VIEW (b0)          : カメラ + 代表ディレクショナルライト + Temporal AA
+	//                      (ジッタ / 前フレーム VP / ClipToPrevClip / ミップバイアス, 448 B)。
 	// FORWARD_LIGHT (b3) : ローカルライト有効数。
 	// POST_PROCESS (b4)  : 解決済み PP 設定。パス内のテクセルサイズ
 	//                      切替時はこれだけを再アップロードする。
@@ -64,20 +112,26 @@ private:
 	// ボリュームから毎フレーム解決した実効設定 (レンダラ専有コピー)。
 	PP_SETTINGS m_FinalSettings{};
 
-	// ---- Bloom mip chain (half-res down to BLOOM_MIPS) ----
+	// ---- Bloom mip chain (出力解像度 O の半分から BLOOM_MIPS 段) ----
+	// O/2 固定 (ハローの画面上の大きさをスクリーンパーセンテージ不変に保つ)。再確保しない
 	static const int BLOOM_MIPS = 5;
 	std::unique_ptr<RENDER_TARGET> m_BloomMip[BLOOM_MIPS]; // ping/down chain
 	std::unique_ptr<RENDER_TARGET> m_BloomUp[BLOOM_MIPS];  // upsample accumulators
 	int  m_BloomMipW[BLOOM_MIPS]{};
 	int  m_BloomMipH[BLOOM_MIPS]{};
 
-	// ---- Depth of Field (Gaussian, half-res) ----
+	// ---- トーンマップ出力 (一次空間アップスケールの入力。RGBA8, 実際のポスト入力サイズ) ----
+	// ポスト解像度 P != 出力 O かつ統合しないフレームだけ使う。EnsureTonemapOutput がサイズ
+	// 不一致時に作り直し (遅延解放)、P の変更時は ResizeRenderTargets が破棄する。常駐 PSR
+	std::unique_ptr<RENDER_TARGET> m_TonemapOutput;
+
+	// ---- Depth of Field (Gaussian, half-res。レンダー解像度 R 基準) ----
+	// R が変わると ResizeRenderTargets が InitDOF(R) で作り直す
 	// m_DOFPrep : CoC(A) + premultiplied color(RGB) at half res
-	// m_DOFPing / m_DOFPong : separable Gaussian ping-pong buffers
+	// m_DOFPing : separable Gaussian の水平ブラー出力 (垂直ブラーは m_DOFBlur へ書く)
 	// m_DOFBlur : final half-res blur (bound as t12 in the composite)
 	std::unique_ptr<RENDER_TARGET> m_DOFPrep;
 	std::unique_ptr<RENDER_TARGET> m_DOFPing;
-	std::unique_ptr<RENDER_TARGET> m_DOFPong;
 	std::unique_ptr<RENDER_TARGET> m_DOFBlur;
 	// Temp full-res copy of SceneColor so the composite can read the
 	// sharp scene while writing the composited result back to SceneColor.
@@ -86,7 +140,6 @@ private:
 	int m_DOFHeight = 0;
 
 	// IBL
-	std::unique_ptr<TEXTURE> m_EnvironmentTexture;
 	std::unique_ptr<class IBLBaker> m_IBLBaker;
 
 	// Color grading LUT baker (compute, re-bakes only on change).
@@ -132,21 +185,94 @@ private:
 	// バインドしてサーフェス位置で直接評価する。
 	std::unique_ptr<FFogSceneRenderer> m_FogRenderer;
 
-	// ---- Lumen スクリーンスペーストレース用の履歴 ----
-	// CopySceneColorHistory (RenderPostProcessing 先頭) が毎フレーム
-	// 確定する: PrevSceneColor (ライティング + 半透明後の線形 HDR) と
-	// そのフレームのビュー行列 / カメラ位置。Lumen のスクリーンプローブ /
-	// 反射が前フレームリプロジェクションで採光する。
-	XMFLOAT4X4 m_PrevViewProjectionT{};	// 前フレームの View x Projection (転置済み)
-	XMFLOAT4X4 m_PrevInvViewProjectionT{};	// 前フレームの InvViewProjection (転置済み)
-	XMFLOAT4   m_PrevViewOrigin = { 0.0f, 0.0f, 0.0f, 0.0f };
-	bool       m_bHistoryValid = false;
+	// ---- スクリーンショット (FScreenshotCapture, ScreenshotCapture.h) ----
+	// RequestScreenshot で要求 -> RenderPostProcessing 末尾で UI 描画前の
+	// バックバッファを READBACK へコピー -> 次フレームの BeginFrame 先頭
+	// (または FlushScreenshots) で BMP を書き出す。
+	// テストドライバ (-taatest) と F9 キーが使う。
+	std::unique_ptr<FScreenshotCapture> m_Screenshot;
 
-	// SceneColor -> PrevSceneColor コピー + 前フレーム行列の確定
+	// F9 (パス指定なし) 用の自動パス: Saved/Screenshots/<YYYYMMDD_HHMMSS>_<frame>_<SP>_<method>_<pass>_Q<q>.bmp
+	std::string MakeAutoScreenshotPath() const;
+
+	// ---- アンチエイリアシング / スクリーンパーセンテージ / ビュー状態 (UE FViewInfo / FSceneViewState) ----
+	// m_AAParams      : 永続化設定 (SettingsManager の [AntiAliasing])。ImGui / テストドライバが書く
+	// m_TAADebug      : 非永続のデバッグ設定 (ワンショット要求を含む)
+	// m_ViewFamily    : BeginFrame 先頭 (PrepareViewRectsForRendering) で決まる今フレームの解像度 / AA 構成
+	// m_ViewInfo      : RenderBasePass 先頭 (PrepareViewStateForVisibility) で毎フレーム再構築するビュー。
+	//                   PrevViewInfo は前フレームのスナップショット (フレーム中不変) で、
+	//                   Lumen / Volumetric Fog の前フレーム行列はここだけから読む
+	// m_ViewState     : フレームを跨いで永続する状態。CommitViewState (RenderPostProcessing の最後) で確定
+	// 前フレーム行列は PrevViewInfo からのみ読む (同フレーム内で新旧を取り違えないため)
+	FAntiAliasingParams      m_AAParams;
+	FTemporalAADebugSettings m_TAADebug;
+	FViewFamilyInfo          m_ViewFamily;
+	FViewInfo                m_ViewInfo;
+	FSceneViewState          m_ViewState;
+	FTemporalAAStats         m_TAAStats;
+
+	// フレーム毎の有効フラグ。BeginFrame の最初の文でどちらも false に戻し、
+	// 今フレームにクリア + 書き込みを行ったパスだけが true にする
+	// (書き手は RenderVelocities / RenderResponsiveAAMask)。
+	// 再確保直後の未クリアのテクスチャが有効として読まれることはない
+	bool m_bVelocityValid = false;
+	bool m_bResponsiveMaskValid = false;
+
+	// 1 回だけ出すログの済みフラグ (FDefaultTemporalUpscaler::m_LoggedMissingPSOMask と同じ形)
+	mutable uint32_t m_UpscaleFallbackLoggedMask = 0;	// SelectPrimaryUpscalePipeline (PostProcessUpscale.cpp) のフォールバック
+	bool m_bLoggedMissingVisualizePSO = false;			// AddVisualizeTemporalAAPass の PSO 欠落
+
+	// ---- Temporal AA / TAAU (UE FDefaultTemporalUpscaler, TemporalAA.h) ----
+	// RenderPostProcessing の DOF の後で AddPasses を呼ぶ。PSO (.cso) が揃っていなければ
+	// PrepareViewRectsForRendering が AA 無しの構成へフォールバックする (IsReady)。
+	// そのダミー (1x1 RGBA16F (0,0,0,1), RD 常駐) は可視化パスの t35 / t36 の代替にも使う
+	std::unique_ptr<FDefaultTemporalUpscaler> m_TemporalUpscaler;
+
+	// 自己テスト (RunTemporalAASelfTests) の出力行。テストドライバがログへ移す
+	std::vector<std::string> m_SelfTestLog;
+
+	// ---- 確保済みの解像度 (§5.1: 確保済みと今フレームの値を比べる遅延再確保) ----
+	// m_AllocatedRenderExtent : レンダー解像度 R のターゲット群 (シーンテクスチャ / 深度 / DOF /
+	//                           Lumen スクリーンテクスチャ / Volumetric Fog ボリューム) の寸法
+	// m_AllocatedPostExtent   : ポスト解像度 P (P の変更で一次アップスケール用のトーンマップ出力を破棄する)
+	// コンストラクタはどちらもバックバッファ解像度 (R = P = O) で確保する
+	XMUINT2 m_AllocatedRenderExtent{ 0u, 0u };
+	XMUINT2 m_AllocatedPostExtent{ 0u, 0u };
+
+	// BeginFrame 先頭: FViewFamilyInfo (解像度 / AA 構成) を決め (TAA の PSO が欠落していれば
+	// AA 無しの構成へフォールバック)、確保済みの R / P と異なれば (または bRequestReallocate)
+	// ResizeRenderTargets で作り直し、ライトグリッドの今フレームの次元と RHI の既定ビューポート (= R) を設定する
+	void PrepareViewRectsForRendering();
+	// レンダー / ポスト解像度のターゲットを作り直す (§5.2。順序が規範):
+	//   (0) FlushAndResetCommandList (記録済み未実行のコマンドを実行して GPU をアイドルに)
+	//   (1) 旧リソースを遅延削除キューへ  (2) WaitGPU (実解放 = VRAM ピーク抑制)  (3) 新サイズで生成
+	// Lumen / Volumetric Fog の履歴は PrevFrameViewInfo.ViewRectSize = 0 で 1 フレーム無効化する。
+	// m_TAADebug.bRequestReallocate (ワンショット) は同一サイズでも再確保する (同一サイズ再確保 / リーク検査用)
+	void ResizeRenderTargets(const FViewFamilyInfo& F);
+	// RenderBasePass 先頭: FViewInfo を再構築し (カメラカット / TAA ジッタ / 大移動 /
+	// 前フレームのスナップショット / ClipToPrevClip / ミップバイアス)、VIEW 定数 (b0) の
+	// 光源以外の全フィールドを書く
+	void PrepareViewStateForVisibility(const FSceneView& View);
+	// RenderPostProcessing の最後: 今フレームのビュー情報 (+ TAA 履歴) を
+	// m_ViewState.PrevFrameViewInfo へ確定し、StateFrameIndex を進める
+	void CommitViewState(const FTemporalAAHistory& OutputHistory);
+	// 既定ビューポート (= レンダー解像度 R。PrepareViewRectsForRendering が毎フレーム設定) を
+	// 現在のコマンドリストへ即時適用する (RenderTranslucency 先頭など)
+	void ApplyRenderViewport();
+	// Lumen / Volumetric Fog のスクリーン履歴 (レンダー解像度) を今フレーム使えるか (§4.9)
+	// = 前フレーム情報が有効 && 大移動リセット無し && 前フレームの ViewRectSize == R
+	bool IsScreenHistoryValid() const;
+	// TAA より前の段階を置き換えるデバッグ表示 (Lumen / LightGrid の DebugMode) が有効か。
+	// 有効な間は TAA の履歴を使わない (CB bCameraCut = 1 のみ。ビュー状態はカット扱いしない)
+	bool IsPreTAADebugViewActive() const;
+
+	// SceneColor -> PrevSceneColor / LinearDepth -> PrevLinearDepth コピー (テクスチャのみ)。
+	// 前フレーム行列の確定は CommitViewState が行う
 	void CopySceneColorHistory();
 
 	// Lumen へ渡すフレーム入力 (ビュー / ライト / シーンテクスチャ SRV)
-	// を今フレームの解決済み状態から構築する
+	// を今フレームの解決済み状態から構築する。前フレーム行列は
+	// m_ViewInfo.PrevViewInfo (ジッタ込み) から取る
 	FLumenFrameInputs MakeLumenFrameInputs() const;
 
 	// ---- ビュー可視性 (ComputeViewVisibility / FrustumCull 相当) ----
@@ -166,9 +292,11 @@ private:
 	// ---- 初期化 ----
 	void InitScreenQuad();
 	void InitIBL();
-	void InitPostProcess();
-	void InitBloom();
-	void InitDOF();
+	void InitPostProcess();		// ColorGradingLUT / AutoExposure (Bloom / DOF は解像度付きで別に作る)
+	// Bloom チェーン: mip0 = (max(1, OutputWidth/2), max(1, OutputHeight/2))、以降半分ずつ (切り捨て, >= 1)
+	void InitBloom(unsigned int OutputWidth, unsigned int OutputHeight);
+	// DOF: ハーフ解像度 ((W+1)/2, (H+1)/2) の Prep/Ping/Blur + フル解像度 W x H の Sharp
+	void InitDOF(unsigned int Width, unsigned int Height);
 	void InitLightBuffer();
 
 	// ---- パス内部 ----
@@ -191,13 +319,56 @@ private:
 	// フルスクリーンクアッドを 1 枚描く (DrawScreenPass)
 	void DrawScreenPass();
 
+	// デファード / トランスルーセンシー共通のフォワードライティング入力
+	// (IBL t6-t8 / ローカルライト t13 / ライトグリッド t19-t20 / シャドウ)
+	void BindForwardLightingResources();
+	// LUMEN 定数 (b6) の解決 + アップロード (m_LumenScene 非 null 前提)
+	void UploadLumenConstant();
+
 	// Gaussian Depth of Field. Reads SceneColor + linear depth,
 	// produces the half-res blur in m_DOFBlur then composites the
 	// sharp+blurred result back into SceneColor.
+	// レンダー解像度 R で走る。ボケ半径 (ハーフ解像度テクセル単位) は MaxBlurSize x R.x/O.x で
+	// 出力画素換算を一定に保つ (スクリーンパーセンテージ不変)
 	void RenderDOF();
 
 	// Bloom pass (bright-pass + down/up chain) writing m_BloomUp[0].
-	void RenderBloom();
+	// Input (PSR) を UV で読む (チェーンは O/2 固定。しきい値パスの 4 タップボックスが入力を前置フィルタする)。
+	// 最後にビューポート / テクセルサイズを RestoreExtent (実際のポスト入力サイズ) へ戻す
+	void RenderBloom(RENDER_TARGET* Input, XMUINT2 RestoreExtent);
+
+	// ---- トーンマップ / 一次空間アップスケール (§4.7, §6.7) ----
+	// 既存のトーンマップ描画 (PSO PostProcessTonemap, t0 = Input, t9 Bloom, t10 LUT, t11 露出)。
+	// レンダーターゲット / ビューポートは呼び出し側が設定する
+	void DrawTonemap(RENDER_TARGET* Input);
+	// m_TonemapOutput を Extent (RGBA8) で用意する (null かサイズ違いの時だけ作り直す。状態 PSR)
+	void EnsureTonemapOutput(XMUINT2 Extent);
+	// r.Upscale.Quality の PSO 名。欠落時は Bilinear、それも無ければ nullptr (統合経路へ)。
+	// フォールバックは 1 回だけログ (PostProcessUpscale.cpp)
+	const char* SelectPrimaryUpscalePipeline() const;
+	// UE AddUpscalePass: In (PSR, InExtent) -> 現在の RTV (バックバッファ) へ出力ビューポートで描く
+	// (PostProcessUpscale.cpp)
+	void AddPrimaryUpscalePass(RENDER_TARGET* In, XMUINT2 InExtent, XMUINT2 OutputExtent, const char* PipelineName);
+	// バックバッファの状態遷移 (1 行のラッパ)
+	void TransitionBackBuffer(ID3D12GraphicsCommandList* CommandList, D3D12_RESOURCE_STATES Before, D3D12_RESOURCE_STATES After);
+
+	// ---- Temporal AA デバッグ表示 (§6.8, VisualizeTemporalAAPS) ----
+	// 現在バインド中のバックバッファ RTV へ出力ビューポート O で上書きする (RenderPostProcessing の
+	// トーンマップ / アップスケール / 入出力分割の後、スクリーンショットの前)。PSO "VisualizeTemporalAA" は
+	// オプション (欠落時はログ 1 回でスキップ)。
+	// t35 = m_bVelocityValid ? Velocity : ダミー。t36 = TAA DebugOutput (モード 5..13。TAA が今フレーム
+	// 走らなかったら描かない) / PostInput = 後段の入力 (TAA 出力, モード 4 TemporalUpscalerIO) / ダミー
+	void AddVisualizeTemporalAAPass(RENDER_TARGET* PostInput, bool bTAARan);
+
+	// ---- Responsive AA マスク (§4.6。RenderTranslucency の最後、最終バリアの前) ----
+	// UE の STENCIL_TEMPORAL_RESPONSIVE_AA (ステンシル bit 3) の代わりに、レンダー解像度の
+	// R8_UNORM マスク (FSceneTextures::ResponsiveAAMask) へ bEnableResponsiveAA の Translucent /
+	// Additive サブセット (m_TAADebug.bForceResponsiveAA なら全半透明) を 1 で描く [PORT]。
+	// 半透明深度プリパスの深度を DSV にバインドしたまま LESS_EQUAL (書き込み無し) で描くので、
+	// 最前面の Translucent 層 + その手前の Additive だけが残る。描いたフレームだけ
+	// m_bResponsiveMaskValid = true (TAA は無効なら t5 にダミーを束縛しフラグを立てない)。
+	// SortedTranslucent は RenderTranslucency の後→前ソート順の可視半透明プロキシ
+	void RenderResponsiveAAMask(const std::vector<const FPrimitiveSceneProxy*>& SortedTranslucent);
 
 public:
 	FSceneRenderer(RenderManager* RHI);
@@ -209,6 +380,11 @@ public:
 	// ビュー定数を更新せず、CSM もスキップする (従来挙動と同じ)。
 	void BeginFrame();
 	void RenderBasePass(FScene* Scene, const FSceneView& View);
+	// ベロシティパス (UE RenderVelocities, VelocityRendering.cpp)。RenderBasePass の直後に呼ぶこと
+	// (ベースパス深度 = DEPTH_WRITE をテストに使い、可視性マップ / b0 を再利用する)。
+	// 必要な時 (TAA 有効 / ベロシティを読むデバッグ表示 / bForceVelocityPass) だけ Velocity をクリアして
+	// 前フレームから動いたプリミティブを描き、m_bVelocityValid = true にする
+	void RenderVelocities(FScene* Scene);
 	// シャドウ深度パス (RenderShadowDepthMaps)。RenderBasePass の後、
 	// RenderLighting の前に呼ぶこと (SetupLightConstants の結果を使う)。
 	void RenderShadowDepths(FScene* Scene, const FSceneView& View);
@@ -221,7 +397,7 @@ public:
 	// トランスルーセンシーパス (RenderTranslucency 相当)。
 	// RenderLighting の後 (SceneColor 確定後)、RenderPostProcessing の
 	// 前に呼ぶこと。可視トランスルーセントプリミティブを
-	// TranslucentSortPolicy::SortByDistance (境界原点のカメラ距離) で
+	// TranslucencySortPriority + m_TranslucencyParams.SortPolicy (ETranslucentSortPolicy。既定 SortByDistance) で
 	// 後→前にソートし、SceneColor へフォワードシェーディングで合成する。
 	void RenderTranslucency(FScene* Scene);
 	void RenderPostProcessing();
@@ -230,7 +406,10 @@ public:
 	// ---- アクセサ ----
 	FSceneTextures* GetSceneTextures() { return &m_SceneTextures; }
 
-	// Color grading LUT baker (for ImGui to flag a re-bake on edits).
+	// RHI (ImGui の統計表示: 空きデスクリプタ数 / 遅延解放キュー長 / VRAM 使用量)
+	RenderManager* GetRHI() const { return m_RHI; }
+
+	// Color grading LUT baker (ImGui / SettingsManager からの Artist LUT 読込 / 解除 / Weight 操作・INI 保存用)
 	class ColorGradingLUTBaker* GetColorGradingLUTBaker() { return m_ColorGradingLUTBaker.get(); }
 
 	// Auto exposure system (for ImGui parameter control).
@@ -247,6 +426,32 @@ public:
 
 	// Exponential Height Fog / Volumetric Fog (ImGui の Details / SettingsManager 用)
 	FFogSceneRenderer* GetFogRenderer() { return m_FogRenderer.get(); }
+
+	// ---- スクリーンショット ----
+	// 次の RenderPostProcessing でバックバッファ (UI 無し) を 24bit BMP に保存する。
+	// Path が空なら自動パス (Saved/Screenshots/...)。F9 / テストドライバから呼ぶ。
+	void RequestScreenshot(const std::string& Path);
+	// 記録済み・未書き出しのキャプチャを WaitGPU して書き出す (テストドライバの終了前)
+	void FlushScreenshots();
+	// 書き出し件数 / 失敗件数の参照 (テストドライバの終了コード判定用)
+	const FScreenshotCapture* GetScreenshotCapture() const { return m_Screenshot.get(); }
+
+	// ---- アンチエイリアシング / スクリーンパーセンテージ (ImGui / SettingsManager / テストドライバ) ----
+	FAntiAliasingParams&      GetAntiAliasingParams() { return m_AAParams; }
+	const FAntiAliasingParams& GetAntiAliasingParams() const { return m_AAParams; }
+	FTemporalAADebugSettings& GetTemporalAADebugSettings() { return m_TAADebug; }
+	const FViewFamilyInfo&    GetViewFamily() const { return m_ViewFamily; }
+	const FViewInfo&          GetViewInfo() const { return m_ViewInfo; }
+	const FSceneViewState&    GetViewState() const { return m_ViewState; }
+	const FTemporalAAStats&   GetTemporalAAStats() const { return m_TAAStats; }
+	// Temporal AA 本体 (自己テストの GPU パリティ / ImGui の履歴サムネイル / R11G11B10 対応表示用)
+	FDefaultTemporalUpscaler* GetTemporalUpscaler() { return m_TemporalUpscaler.get(); }
+	// Responsive AA マスクを今フレーム描いたか (RenderResponsiveAAMask。ImGui のサムネイル表示用)
+	bool IsResponsiveAAMaskValid() const { return m_bResponsiveMaskValid; }
+
+	// ---- 自己テストの出力 (RunTemporalAASelfTests が書き、テストドライバがログへ移す) ----
+	void AddSelfTestLogLine(const std::string& Line) { m_SelfTestLog.push_back(Line); }
+	std::vector<std::string> TakeSelfTestLog() { std::vector<std::string> out; out.swap(m_SelfTestLog); return out; }
 
 	// ---- フラスタムカリング制御 (ImGui デバッグ用) ----
 	struct FCullingParams

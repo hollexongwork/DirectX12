@@ -37,6 +37,10 @@ public:
 		m_VertexBuffer[1] = VertexBuffer1;
 	}
 
+	// TODO: 未完成。このプロキシは PSO を設定しておらず、前提の "Unlit" PSO
+	//       (UnlitVS/PS) も存在しない。スポーンする前に専用の PSO / シェーダーを
+	//       用意してここで設定すること。また現状はベースパスの途中で VIEW 定数 (b0) を
+	//       正射影で上書きするため、以降の描画に影響する (専用パス化などで回避が必要)。
 	void DrawPrimitive(RenderManager* RM) const override
 	{
 		// Matrix Setting (2D オーバーレイなので常に単位行列)
@@ -44,6 +48,7 @@ public:
 			XMMATRIX localToWorld = XMMatrixIdentity();
 			PRIMITIVE_CONSTANT constant{};
 			XMStoreFloat4x4(&constant.LocalToWorld, XMMatrixTranspose(localToWorld));
+			XMStoreFloat4x4(&constant.PreviousLocalToWorld, XMMatrixTranspose(localToWorld));	// 前フレーム行列も単位行列
 			RM->SetConstant(RenderManager::CONSTANT_TYPE::PRIMITIVE, &constant, sizeof(constant));
 		}
 

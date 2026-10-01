@@ -5,6 +5,7 @@
 #include "ShadowFilteringCommon.hlsl"
 #include "LightGridCommon.hlsl"
 #include "HeightFogCommon.hlsl"
+#include "BasePassCommon.hlsl"
 
 // =============================================================
 //  TranslucentPS
@@ -54,19 +55,6 @@
 //    なので参照可 (屈折の深度棄却に使用)。SceneColorCopy (t21) と
 //    b4 (PostProcess: SceneTexelSize) はこのパス直前に確定する。
 // =============================================================
-
-// GeometryPS と同一の TBN 行列生成 (Gram-Schmidt 直交化)
-float3x3 BuildTBN(float3 N, float3 tangentWS)
-{
-    float3 T = normalize(tangentWS - N * dot(N, tangentWS));
-    if (any(isnan(T)) || dot(T, T) < 1e-8)
-    {
-        float3 up = abs(N.y) < 0.999 ? float3(0, 1, 0) : float3(1, 0, 0);
-        T = normalize(cross(up, N));
-    }
-    float3 B = cross(N, T);
-    return float3x3(T, B, N);
-}
 
 // -------------------------------------------------------------
 //  屈折面色の計算 (BLEND_Translucent + RefractionMethod != NONE)
@@ -188,7 +176,8 @@ PS_OUTPUT main(PS_INPUT input, bool bIsFrontFace : SV_IsFrontFace)
     PS_OUTPUT output;
 
     // ---- BaseColor + Opacity ----
-    float4 baseColor = TextureBaseColor.Sample(Sampler, input.TexCoord) * input.Color;
+    // Automatic View Mip Bias (b0 MaterialTextureMipBias。TemporalUpscale 時のみ非 0、それ以外は 0 で Sample と同値)
+    float4 baseColor = TextureBaseColor.SampleBias(Sampler, input.TexCoord, MaterialTextureMipBias) * input.Color;
     float opacity = saturate(baseColor.a * Material.Opacity);
 
     // 屈折を自前合成するか (BLEND_Translucent のみ。Additive は対象外)
@@ -239,12 +228,12 @@ PS_OUTPUT main(PS_INPUT input, bool bIsFrontFace : SV_IsFrontFace)
     }
 
     float3x3 TBN = BuildTBN(vertexNormal, input.Tangent);
-    float3 normalSample = TextureNormal.Sample(Sampler, input.TexCoord).xyz * 2.0f - 1.0f;
+    float3 normalSample = TextureNormal.SampleBias(Sampler, input.TexCoord, MaterialTextureMipBias).xyz * 2.0f - 1.0f;
     float3 mappedNormal = normalize(mul(normalSample, TBN));
     float3 normal = normalize(lerp(vertexNormal, mappedNormal, Material.NormalWeight));
 
     // ---- ARM (GeometryPS と同じフォールバック規約) ----
-    float4 ARM = TextureMSRA.Sample(Sampler, input.TexCoord);
+    float4 ARM = TextureMSRA.SampleBias(Sampler, input.TexCoord, MaterialTextureMipBias);
     float occlusion = (ARM.r == 0.0f) ? 1.0f : ARM.r;
     float roughness = (ARM.g == 0.0f) ? Material.Roughness : ARM.g;
     float metallic = (ARM.b == 0.0f) ? Material.Metallic : ARM.b;
@@ -269,52 +258,11 @@ PS_OUTPUT main(PS_INPUT input, bool bIsFrontFace : SV_IsFrontFace)
     {
         // ============================================================
         //  Substrate Slab 経路 (フォワード)
-        //  GeometryPS と同じ手順で Slab を構築し、デファードと同じ
-        //  数式 (SubstrateEvaluation.hlsl) で直接評価する。
+        //  GeometryPS と共通のヘルパ (BasePassCommon.hlsl) で Slab を
+        //  構築し、デファードと同じ数式 (SubstrateEvaluation.hlsl) で
+        //  直接評価する。
         // ============================================================
-        // Slab 厚の下限 (パック/評価のクランプ床と一致)
-        const float SlabThicknessCm = max(Material.SubstrateThickness, SUBSTRATE_MIN_THICKNESS_CM);
-
-        // MFP は固定参照厚 1cm で導出する (意図的乖離。サンプルどおり
-        // Thickness で導出すると SSS 評価厚 = SSSMFPScale ピンの同値と
-        // 相殺して Thickness が無効化されるため。Constant.hlsl 参照)。
-        // τ = Thickness x (-log T) / 1cm -> Thickness = 1cm で
-        // Transmittance Color が厳密に実現され、厚いほど濃くなる。
-        float3 SSSMFP = TransmittanceToMeanFreePath(
-            Material.SubstrateTransmittanceColor.rgb,
-            SUBSTRATE_TRANSMITTANCE_REFERENCE_CM * CENTIMETER_TO_METER);
-
-        FSubstrateBSDF SlabBSDF = GetSubstrateSlabBSDF(
-            GetSubstratePixelFootprint(),
-            /*Normal*/                           normal,
-            /*DiffuseAlbedo*/                    Material.SubstrateDiffuseAlbedo.rgb * baseColor.rgb,
-            /*F0*/                               Material.SubstrateF0.rgb,
-            /*F90*/                              Material.SubstrateF90.rgb,
-            /*Roughness*/                        roughness,
-            /*Anisotropy*/                       Material.SubstrateAnisotropy,
-            /*SSSProfileId*/                     0.0f,
-            /*bSupportDefaultSSSProfile*/        false,
-            /*SSSMFP*/                           SSSMFP,
-            /*SSSMFPScale*/                      SlabThicknessCm,
-            /*SSSPhaseAniso*/                    Material.SubstrateSSSPhaseAnisotropy,
-            /*SSSType*/                          (float) Material.SubstrateSSSType,
-            /*EmissiveColor*/                    Material.EmissionColor.rgb,
-            /*SecondRoughness*/                  Material.SubstrateSecondRoughness,
-            /*SecondRoughnessWeight*/            Material.SubstrateSecondRoughnessWeight,
-            /*SecondRoughnessAsSimpleClearCoat*/ 0.0f,
-            /*ClearCoatUseSecondNormal*/         0.0f,
-            /*ClearCoatBottomNormal*/            normal,
-            /*FuzzAmount*/                       Material.SubstrateFuzzColor.w,
-            /*FuzzColor*/                        Material.SubstrateFuzzColor.rgb,
-            /*FuzzRoughness*/                    Material.SubstrateFuzzRoughness,
-            /*GlintValue*/                       1.0f,
-            /*GlintUV*/                          float2(0.0f, 0.0f),
-            /*SpecularProfileId*/                0.0f,
-            /*Thickness*/                        SUBSTRATE_LAYER_DEFAULT_THICKNESS_CM,
-            /*IsThin*/                           Material.SubstrateIsThin,
-            /*IsAtBottom*/                       true,
-            /*LocalBasisIndex*/                  SHAREDLOCALBASIS_INDEX_0,
-            /*SharedLocalBasesTypes*/            0u);
+        FSubstrateBSDF SlabBSDF = GetMaterialSubstrateSlabBSDF(normal, baseColor.rgb, roughness);
 
         // ---- ディレクショナルライト ----
         float3 light = SubstrateEvaluateSlabDirect(

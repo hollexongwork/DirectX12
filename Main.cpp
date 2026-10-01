@@ -40,7 +40,6 @@ int APIENTRY wWinMain(  _In_ HINSTANCE hInstance,
 {
 
     UNREFERENCED_PARAMETER(hPrevInstance);
-    UNREFERENCED_PARAMETER(lpCmdLine);
 
 
     g_Instance = hInstance;
@@ -81,16 +80,33 @@ int APIENTRY wWinMain(  _In_ HINSTANCE hInstance,
         g_WindowWidth = rc.right - rc.left;
         g_WindowHeight = rc.bottom - rc.top;
 
-        g_Window = CreateWindow(CLASS_NAME, APP_NAME, WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
-            rc.right - rc.left, rc.bottom - rc.top, nullptr, nullptr, g_Instance, nullptr);
+        if (FTemporalAATestDriver::IsTestCommandLine(lpCmdLine))
+        {
+            // テストドライバ (-taatest): バックバッファ (= クライアント領域, 出力解像度 O) を
+            // 1920x1080 に固定する。WS_OVERLAPPEDWINDOW は画面 (DPI 仮想化後の論理サイズ) の
+            // 最大トラッキングサイズへ切り詰められ、環境によってクライアントが 1920x1080 に
+            // ならないため、枠無しのポップアップで作る (キャプチャはバックバッファから読むので
+            // 画面外にはみ出しても結果は変わらない)
+            g_Window = CreateWindow(CLASS_NAME, APP_NAME, WS_POPUP, 0, 0,
+                FTemporalAATestDriver::kOutputWidth, FTemporalAATestDriver::kOutputHeight,
+                nullptr, nullptr, g_Instance, nullptr);
+        }
+        else
+        {
+            g_Window = CreateWindow(CLASS_NAME, APP_NAME, WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
+                rc.right - rc.left, rc.bottom - rc.top, nullptr, nullptr, g_Instance, nullptr);
+        }
     }
 
 
 
 
 
+    // テストドライバ (-taatest) の終了コード。GameManager のスコープ終了前に退避する
+    int exitCode = 0;
+
     {
-        GameManager gameManager(g_Window);
+        GameManager gameManager(g_Window, lpCmdLine);
 
 
         ShowWindow(g_Window, SW_SHOW);
@@ -106,6 +122,11 @@ int APIENTRY wWinMain(  _In_ HINSTANCE hInstance,
 
         while (true)
         {
+            // テストドライバの終了要求 (最終フレーム後 / コマンドライン不正)
+            if (gameManager.ShouldExit())
+            {
+                break;
+            }
 
             MSG msg;
 
@@ -140,11 +161,13 @@ int APIENTRY wWinMain(  _In_ HINSTANCE hInstance,
 
             }
         }
+
+        exitCode = gameManager.GetExitCode();
     }
 
 
 
-    return 0;
+    return exitCode;
 }
 
 
@@ -181,10 +204,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         PostQuitMessage(0);
         break;
 
-    case WM_ACTIVATEAPP:
-        Mouse_ProcessMessage(message, wParam, lParam);
-        break;
-
     case WM_KEYDOWN:
         switch (wParam)
         {
@@ -202,6 +221,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     case WM_KEYUP:
     case WM_SYSKEYUP:
         break;
+    case WM_ACTIVATEAPP:
     case WM_INPUT:
     case WM_MOUSEMOVE:
     case WM_LBUTTONDOWN:

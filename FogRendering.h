@@ -87,8 +87,8 @@ public:
 
 	void Init();
 
-	// キューブマップ (IBL prefilter) の SRV / ミップ数を登録する
-	// (InitIBL の後に 1 回)。未登録なら ExponentialFogParameters3.z = 0 に落とす。
+	// キューブマップ (IBL prefilter) の SRV / ミップ数を登録する (InitIBL の後に 1 回)。
+	// 未登録の間は t33 に Volumetric Fog の SRV がダミーとして入るだけなので、必ず登録すること。
 	void SetInscatteringColorCubemap(unsigned int SRVIndex, unsigned int NumMips);
 
 	// ---- 毎フレーム: FScene のフォグ + ビュー -> FOG 定数 (InitFogConstants) ----

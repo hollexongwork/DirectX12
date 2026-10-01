@@ -14,10 +14,6 @@ IBLBaker::IBLBaker(RenderManager* owner)
 {
 }
 
-IBLBaker::~IBLBaker()
-{
-}
-
 ID3D12Device* IBLBaker::Device()
 {
 	return m_Owner->GetDevice();
@@ -156,7 +152,7 @@ ComPtr<ID3D12PipelineState> IBLBaker::CreateComputePipeline(const char* csoFile)
 }
 
 // ============================================================
-//  InitIBL : compute ルートシグネチャ・PSO・リソース生成
+//  Init : compute ルートシグネチャ・PSO・リソース生成
 // ============================================================
 void IBLBaker::Init()
 {
@@ -299,8 +295,8 @@ struct IBL_BAKE_PARAMS
 };
 
 // ============================================================
-//  BakeIBL : 起動時に一度だけ全ベイクを実行
-//  ※ Init() 内で呼ばれ、開いている m_GraphicsCommandList に
+//  Bake : 起動時に一度だけ全ベイクを実行
+//  ※ FSceneRenderer::InitIBL から呼ばれ、開いている m_GraphicsCommandList に
 //    積んだ後 Close/Execute/Wait して即時完了させる
 // ============================================================
 void IBLBaker::Bake(ID3D12Resource* EquirectResource, unsigned int equirectSRVIndex)
@@ -320,38 +316,35 @@ void IBLBaker::Bake(ID3D12Resource* EquirectResource, unsigned int equirectSRVIn
 			cl->ResourceBarrier(1, &b);
 		};
 
-	// ベイク用定数バッファ（小さなUPLOADを一つ確保し、各dispatchで詰め直す）
-	// 簡便のため毎dispatchで別領域を使い回す: m_ConstantBuffer をそのまま利用
+	// dispatch ごとに専用の 256B UPLOAD バッファを確保 (記録中の上書き衝突回避)。ベイク完了 (flush) 後に解放。
+	std::vector<ComPtr<ID3D12Resource>> bakeCBs; // FlushAndResetCommandList (GPU 完了) まで生存させる
 	auto setBakeParams = [&](unsigned int faceSize, unsigned int mip, float rough)
 		{
 			IBL_BAKE_PARAMS p{ faceSize, mip, rough, 0.0f };
-			// 専用に小さなUPLOADバッファを作って毎回入れる（衝突回避）
-			static ComPtr<ID3D12Resource> s_cb[64];
-			static int s_cbIndex = 0;
-			int idx = s_cbIndex++ % 64;
 
-			if (!s_cb[idx])
-			{
-				D3D12_HEAP_PROPERTIES prop{};
-				prop.Type = D3D12_HEAP_TYPE_UPLOAD;
-				D3D12_RESOURCE_DESC d{};
-				d.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-				d.Width = 256;
-				d.Height = 1;
-				d.DepthOrArraySize = 1;
-				d.MipLevels = 1;
-				d.Format = DXGI_FORMAT_UNKNOWN;
-				d.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-				d.SampleDesc.Count = 1;
-				Device()->CreateCommittedResource(&prop, D3D12_HEAP_FLAG_NONE, &d,
-					D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&s_cb[idx]));
-			}
+			D3D12_HEAP_PROPERTIES prop{};
+			prop.Type = D3D12_HEAP_TYPE_UPLOAD;
+			D3D12_RESOURCE_DESC d{};
+			d.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+			d.Width = 256;
+			d.Height = 1;
+			d.DepthOrArraySize = 1;
+			d.MipLevels = 1;
+			d.Format = DXGI_FORMAT_UNKNOWN;
+			d.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+			d.SampleDesc.Count = 1;
+			ComPtr<ID3D12Resource> cb;
+			HRESULT hr = Device()->CreateCommittedResource(&prop, D3D12_HEAP_FLAG_NONE, &d,
+				D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&cb));
+			assert(SUCCEEDED(hr));
+
 			void* ptr = nullptr;
-			s_cb[idx]->Map(0, nullptr, &ptr);
+			cb->Map(0, nullptr, &ptr);
 			memcpy(ptr, &p, sizeof(p));
-			s_cb[idx]->Unmap(0, nullptr);
+			cb->Unmap(0, nullptr);
 
-			cl->SetComputeRootConstantBufferView(0, s_cb[idx]->GetGPUVirtualAddress());
+			cl->SetComputeRootConstantBufferView(0, cb->GetGPUVirtualAddress());
+			bakeCBs.push_back(std::move(cb));
 		};
 
 	const unsigned int GROUP = 8;
@@ -371,7 +364,7 @@ void IBLBaker::Bake(ID3D12Resource* EquirectResource, unsigned int equirectSRVIn
 		D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE));
 
 	{
-		// 入力: equirect SRV (m_EnvironmentTexture->SRVIndex)
+		// 入力: equirect SRV (equirectSRVIndex。呼び出し側 FSceneRenderer::InitIBL がロード)
 		// 出力: EnvCube mip0 UAV
 		unsigned int srcSRV = equirectSRVIndex;
 		unsigned int dstUAV = CreateCubeUAV(m_EnvCube.Resource.Get(), 0);
@@ -512,7 +505,7 @@ void IBLBaker::Bake(ID3D12Resource* EquirectResource, unsigned int equirectSRVIn
 		D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
 		D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
 
-	// equirect を元の PIXEL_SHADER_RESOURCE に戻す（Deferred の t6 で使用）
+	// equirect を LoadTexture 直後と同じ PIXEL_SHADER_RESOURCE に戻す (ベイク後は呼び出し側が解放する)
 	cl->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
 		EquirectResource,
 		D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
@@ -525,11 +518,10 @@ void IBLBaker::Bake(ID3D12Resource* EquirectResource, unsigned int equirectSRVIn
 	// 実行完了後に一時ディスクリプタを解放
 	for (unsigned int d : tempDescriptors)
 		m_Owner->ReleaseShaderResourceView(d);
-	tempDescriptors.clear();
 }
 
 // ============================================================
-//  Deferred パスで IBL precomputed テクスチャを t7,t8,t9 にバインド
+//  Deferred パスで IBL precomputed テクスチャを t6,t7,t8 にバインド
 // ============================================================
 void IBLBaker::BindTextures()
 {

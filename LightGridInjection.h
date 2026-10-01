@@ -52,7 +52,7 @@ public:
 	};
 
 private:
-	// HLSL 側 (LightGridInjection_CS.hlsl / LightGridCompact_CS.hlsl) の
+	// HLSL 側 (LightGridInjectionCommon.hlsl。Pass 1/2 共通) の
 	// cbuffer FLightGridParams (b0) と 1:1 ミラー必須。
 	struct FLightGridParams
 	{
@@ -82,7 +82,18 @@ private:
 	RenderManager* m_Owner = nullptr;
 	Params         m_Params;
 
-	// ---- グリッド次元 (Init でバックバッファサイズから確定) ----
+	// ---- 容量 (Init で確定。全バッファはこのセル数で一度だけ確保する) ----
+	// レンダー解像度 R はスクリーンパーセンテージで変わるが、容量 (2 x 出力解像度) で
+	// 確保しておけば SetViewSize で次元を変えるだけで済み、再確保の経路が要らない (§5.3)
+	unsigned int m_CapacityGridX = 1;
+	unsigned int m_CapacityGridY = 1;
+	unsigned int m_CapacityCells = 0;
+
+	// ---- 今フレームのグリッド次元 (SetViewSize で毎フレーム確定) ----
+	// シェーダはセルを b0 / b3 の CulledGridSizeX/Y で引くので、容量確保のバッファの
+	// 先頭 m_NumCells 分だけを使う
+	unsigned int m_ViewWidth = 1;
+	unsigned int m_ViewHeight = 1;
 	unsigned int m_GridSizeX = 1;
 	unsigned int m_GridSizeY = 1;
 	unsigned int m_GridSizeZ = LIGHT_GRID_SIZE_Z;
@@ -138,7 +149,15 @@ public:
 	explicit FLightGridInjection(RenderManager* owner);
 	~FLightGridInjection();
 
-	void Init(); // グリッド次元 / RS / PSO / バッファ / UAV / SRV
+	// 容量 (CapacityWidth x CapacityHeight のスクリーン) / RS / PSO / バッファ / UAV / SRV。
+	// FSceneRenderer は (2 x 出力解像度) で呼ぶ (スクリーンパーセンテージ上限 200 %)。
+	// 次元は SetViewSize で別途設定すること
+	void Init(unsigned int CapacityWidth, unsigned int CapacityHeight);
+
+	// 今フレームのレンダー解像度 (R) からグリッド次元 / ScreenWidth/Height /
+	// MaxCulledLightLinks を決める。毎フレーム BeginFrame 先頭 (FillForwardLightData /
+	// Dispatch より前) に呼ぶ。容量を超える場合は容量へ丸める (assert)
+	void SetViewSize(unsigned int Width, unsigned int Height);
 
 	// b3 (FORWARD_LIGHT_CONSTANT) のグリッドフィールドを埋める。
 	// NumLocalLights は呼び出し側 (SetupLightConstants) が設定する。

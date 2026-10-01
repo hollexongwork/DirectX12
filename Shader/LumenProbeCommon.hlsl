@@ -3,21 +3,17 @@
 
 // =============================================================
 //  LumenProbeCommon
-//  Screen Probe Gather / Radiance Cache ‹¤’Ê‚Ìƒvƒ[ƒuƒwƒ‹ƒp:
-//    - octahedral / hemi-octahedral •ûŒüƒ}ƒbƒsƒ“ƒO
-//    - SH L1 (2 ƒoƒ“ƒh) ‚ÌË‰e / •]‰¿
-//    - ƒXƒNƒŠ[ƒ“ƒXƒy[ƒXƒgƒŒ[ƒX (‘OƒtƒŒ[ƒ€ SceneColor ÌŒõ)
-//    - ƒnƒbƒVƒ… / ƒWƒbƒ^
-//  LumenSceneLightingCommon.hlsl ‚ÌŒã‚ÉƒCƒ“ƒNƒ‹[ƒh‚·‚é‚±‚Æ
-//  (b0 ƒpƒXƒpƒ‰ƒ[ƒ^ / ƒXƒNƒŠ[ƒ“ŒnƒŠƒ\[ƒX t15-t18 ‚ğQÆ‚·‚é)B
+//  Screen Probe Gather / Radiance Cache å…±é€šã®ãƒ—ãƒ­ãƒ¼ãƒ–ãƒ˜ãƒ«ãƒ‘:
+//    - octahedral / hemi-octahedral æ–¹å‘ãƒãƒƒãƒ”ãƒ³ã‚°
+//    - SH L1 (2 ãƒãƒ³ãƒ‰) ã®å°„å½± / è©•ä¾¡
+//    - ã‚¹ã‚¯ãƒªãƒ¼ãƒ³ã‚¹ãƒšãƒ¼ã‚¹ãƒˆãƒ¬ãƒ¼ã‚¹ (å‰ãƒ•ãƒ¬ãƒ¼ãƒ  SceneColor æ¡å…‰)
+//    - ãƒãƒƒã‚·ãƒ¥ / ã‚¸ãƒƒã‚¿
+//  LumenSceneLightingCommon.hlsl ã®å¾Œã«ã‚¤ãƒ³ã‚¯ãƒ«ãƒ¼ãƒ‰ã™ã‚‹ã“ã¨
+//  (b0 ãƒ‘ã‚¹ãƒ‘ãƒ©ãƒ¡ãƒ¼ã‚¿ / ã‚¹ã‚¯ãƒªãƒ¼ãƒ³ç³»ãƒªã‚½ãƒ¼ã‚¹ t15-t18, t25 ã‚’å‚ç…§ã™ã‚‹)ã€‚
 // =============================================================
 
-#ifndef LUMEN_PI
-#define LUMEN_PI 3.14159265358979323846f
-#endif
-
 // -------------------------------------------------------------
-//  ƒnƒbƒVƒ… / ƒWƒbƒ^
+//  ãƒãƒƒã‚·ãƒ¥ / ã‚¸ãƒƒã‚¿
 // -------------------------------------------------------------
 uint LumenHashUint(uint seed)
 {
@@ -34,7 +30,7 @@ float LumenHashToFloat01(uint hash)
     return (float) (hash & 0xFFFFu) / 65536.0f;
 }
 
-// R2 ”—ñ‚É‚æ‚éƒtƒŒ[ƒ€ƒWƒbƒ^ (octa ƒeƒNƒZƒ‹“àƒTƒuƒTƒ“ƒvƒ‹)
+// R2 æ•°åˆ—ã«ã‚ˆã‚‹ãƒ•ãƒ¬ãƒ¼ãƒ ã‚¸ãƒƒã‚¿ (octa ãƒ†ã‚¯ã‚»ãƒ«å†…ã‚µãƒ–ã‚µãƒ³ãƒ—ãƒ«)
 float2 LumenGetFrameJitter(uint FrameNumber, uint ProbeSeed)
 {
     float2 r2 = frac(float2(0.75487767f, 0.56984029f) * (float) (FrameNumber & 1023u));
@@ -45,13 +41,13 @@ float2 LumenGetFrameJitter(uint FrameNumber, uint ProbeSeed)
 }
 
 // -------------------------------------------------------------
-//  ƒXƒNƒŠ[ƒ“ƒvƒ[ƒu‚ÌƒAƒ“ƒJ[ƒsƒNƒZƒ‹
-//  ƒvƒ[ƒu i ‚ÌƒAƒ“ƒJ[ = i * downsample + ƒWƒbƒ^ (PassProbeJitter.xy)B
-//  ƒWƒbƒ^‚Í 16 ƒtƒŒ[ƒ€üŠú‚Ì Halton(2,3) ‚ÅƒZƒ‹“à‚ğ„‰ñ‚·‚é
-//  (ScreenProbeGather ”z’uƒWƒbƒ^‘Š“–)BŒÅ’èŠiq‚¾‚ÆƒJƒƒ‰ˆÚ“®‚Å
-//  ƒvƒ[ƒu‚ª–Ê‚Ìã‚ğŠŠ‚èA16px •âŠÔ‚ÌˆÊ‘Š‚ª‚¤‚Ë‚è‚Æ‚µ‚ÄŒ©‚¦‚é
-//  (= —h‚ç‚¬)BƒWƒbƒ^‚Å‚»‚ê‚ğƒtƒŒ[ƒ€ŠÔƒmƒCƒY‚É•Ï‚¦Aƒvƒ[ƒu SH ‚Æ
-//  ƒtƒ‹‰ğ‘œ“x‚Ìƒeƒ“ƒ|ƒ‰ƒ‹’~Ï‚ª•½‹Ï‚µ‚Äƒ[ƒ‹ƒhŒÅ’è‚Ì’l‚Éû‘©‚³‚¹‚éB
+//  ã‚¹ã‚¯ãƒªãƒ¼ãƒ³ãƒ—ãƒ­ãƒ¼ãƒ–ã®ã‚¢ãƒ³ã‚«ãƒ¼ãƒ”ã‚¯ã‚»ãƒ«
+//  ãƒ—ãƒ­ãƒ¼ãƒ– i ã®ã‚¢ãƒ³ã‚«ãƒ¼ = i * downsample + ã‚¸ãƒƒã‚¿ (PassProbeJitter.xy)ã€‚
+//  ã‚¸ãƒƒã‚¿ã¯ 16 ãƒ•ãƒ¬ãƒ¼ãƒ å‘¨æœŸã® Halton(2,3) ã§ã‚»ãƒ«å†…ã‚’å·¡å›ã™ã‚‹
+//  (ScreenProbeGather é…ç½®ã‚¸ãƒƒã‚¿ç›¸å½“)ã€‚å›ºå®šæ ¼å­ã ã¨ã‚«ãƒ¡ãƒ©ç§»å‹•ã§
+//  ãƒ—ãƒ­ãƒ¼ãƒ–ãŒé¢ã®ä¸Šã‚’æ»‘ã‚Šã€16px è£œé–“ã®ä½ç›¸ãŒã†ã­ã‚Šã¨ã—ã¦è¦‹ãˆã‚‹
+//  (= æºã‚‰ã)ã€‚ã‚¸ãƒƒã‚¿ã§ãã‚Œã‚’ãƒ•ãƒ¬ãƒ¼ãƒ é–“ãƒã‚¤ã‚ºã«å¤‰ãˆã€ãƒ—ãƒ­ãƒ¼ãƒ– SH ã¨
+//  ãƒ•ãƒ«è§£åƒåº¦ã®ãƒ†ãƒ³ãƒãƒ©ãƒ«è“„ç©ãŒå¹³å‡ã—ã¦ãƒ¯ãƒ¼ãƒ«ãƒ‰å›ºå®šã®å€¤ã«åæŸã•ã›ã‚‹ã€‚
 // -------------------------------------------------------------
 uint2 LumenGetProbeAnchor(uint2 Probe)
 {
@@ -68,14 +64,14 @@ uint2 LumenGetPrevProbeAnchor(uint2 Probe)
 }
 
 // -------------------------------------------------------------
-//  Ú‹óŠÔŠî’ê
+//  æ¥ç©ºé–“åŸºåº•
 // -------------------------------------------------------------
-// Duff et al. "Building an Orthonormal Basis, Revisited" ‚Ì•ªŠò‚È‚µ\¬B
-// –@ü‚©‚çˆêˆÓE˜A‘±‚ÉŠî’ê‚ğì‚é (N.z = -1 ‚Ì 1 •ûŒü‚ğœ‚­)B
-// ‘f–p‚È up ƒxƒNƒgƒ‹•û®‚¾‚Æ |N.y| ~ 1 (°/“Vˆä) ‚Ì•ªŠò‹«ŠE‚ÅŠî’ê‚ª
-// 90 “x”ò‚Ô‚½‚ßAƒm[ƒ}ƒ‹ƒ}ƒbƒv‚³‚ê‚½°‚Å—×Úƒvƒ[ƒu“¯m‚Ì octahedral
-// ƒeƒNƒZƒ‹‚ª•Ê•ûŒü‚ğw‚µA‹óŠÔƒtƒBƒ‹ƒ^ (LumenScreenProbeFilter_CS) ‚ª
-// ˆÙ‚È‚é•ûŒü‚Ì•úË‹P“x‚ğ¬‚º‚Ä‚µ‚Ü‚¤B
+// Duff et al. "Building an Orthonormal Basis, Revisited" ã®åˆ†å²ãªã—æ§‹æˆã€‚
+// æ³•ç·šã‹ã‚‰ä¸€æ„ãƒ»é€£ç¶šã«åŸºåº•ã‚’ä½œã‚‹ (N.z = -1 ã® 1 æ–¹å‘ã‚’é™¤ã)ã€‚
+// ç´ æœ´ãª up ãƒ™ã‚¯ãƒˆãƒ«æ–¹å¼ã ã¨ |N.y| ~ 1 (åºŠ/å¤©äº•) ã®åˆ†å²å¢ƒç•Œã§åŸºåº•ãŒ
+// 90 åº¦é£›ã¶ãŸã‚ã€ãƒãƒ¼ãƒãƒ«ãƒãƒƒãƒ—ã•ã‚ŒãŸåºŠã§éš£æ¥ãƒ—ãƒ­ãƒ¼ãƒ–åŒå£«ã® octahedral
+// ãƒ†ã‚¯ã‚»ãƒ«ãŒåˆ¥æ–¹å‘ã‚’æŒ‡ã—ã€ç©ºé–“ãƒ•ã‚£ãƒ«ã‚¿ (LumenScreenProbeFilter_CS) ãŒ
+// ç•°ãªã‚‹æ–¹å‘ã®æ”¾å°„è¼åº¦ã‚’æ··ãœã¦ã—ã¾ã†ã€‚
 void LumenBuildTangentBasis(float3 Normal, out float3 Tangent, out float3 Bitangent)
 {
     float s = (Normal.z >= 0.0f) ? 1.0f : -1.0f;
@@ -86,7 +82,7 @@ void LumenBuildTangentBasis(float3 Normal, out float3 Tangent, out float3 Bitang
 }
 
 // -------------------------------------------------------------
-//  Hemi-octahedral ƒ}ƒbƒsƒ“ƒO (Ú‹óŠÔ z >= 0 ”¼‹… <-> [0,1]^2)
+//  Hemi-octahedral ãƒãƒƒãƒ”ãƒ³ã‚° (æ¥ç©ºé–“ z >= 0 åŠçƒ <-> [0,1]^2)
 // -------------------------------------------------------------
 float3 LumenHemiOctahedronToDirection(float2 UV)
 {
@@ -98,7 +94,7 @@ float3 LumenHemiOctahedronToDirection(float2 UV)
 }
 
 // -------------------------------------------------------------
-//  Octahedral ƒ}ƒbƒsƒ“ƒO (‘S‹… <-> [0,1]^2, Radiance Cache —p)
+//  Octahedral ãƒãƒƒãƒ”ãƒ³ã‚° (å…¨çƒ <-> [0,1]^2, Radiance Cache ç”¨)
 // -------------------------------------------------------------
 float3 LumenOctahedronToDirection(float2 UV)
 {
@@ -114,8 +110,8 @@ float3 LumenOctahedronToDirection(float2 UV)
     return normalize(dir);
 }
 
-// ‘S‹…•ûŒü -> octahedral [0,1]^2 (LumenOctahedronToDirection ‚Ì‹tB
-// ƒvƒ[ƒu Aux ‚Ì zw ‚É–@ü‚ğ•Û‘¶‚µAƒeƒ“ƒ|ƒ‰ƒ‹—š—ğ‚Ì–Êˆê’vŒŸØ‚Ég‚¤)
+// å…¨çƒæ–¹å‘ -> octahedral [0,1]^2 (LumenOctahedronToDirection ã®é€†ã€‚
+// ãƒ—ãƒ­ãƒ¼ãƒ– Aux ã® zw ã«æ³•ç·šã‚’ä¿å­˜ã—ã€ãƒ†ãƒ³ãƒãƒ©ãƒ«å±¥æ­´ã®é¢ä¸€è‡´æ¤œè¨¼ã«ä½¿ã†)
 float2 LumenDirectionToOctahedron(float3 Dir)
 {
     float3 n = Dir / max(abs(Dir.x) + abs(Dir.y) + abs(Dir.z), 1e-6f);
@@ -131,15 +127,15 @@ float2 LumenDirectionToOctahedron(float3 Dir)
 }
 
 // -------------------------------------------------------------
-//  SH L1 (2 ƒoƒ“ƒh)
-//  ŒW”ƒŒƒCƒAƒEƒg:(c0, c1 = y, c2 = z, c3 = x) - RGBA ‚Æ 1:1
+//  SH L1 (2 ãƒãƒ³ãƒ‰)
+//  ä¿‚æ•°ãƒ¬ã‚¤ã‚¢ã‚¦ãƒˆ:(c0, c1 = y, c2 = z, c3 = x) - RGBA ã¨ 1:1
 // -------------------------------------------------------------
 float4 LumenSH1Basis(float3 Dir)
 {
     return float4(0.282095f, 0.488603f * Dir.y, 0.488603f * Dir.z, 0.488603f * Dir.x);
 }
 
-// •úË‹P“x L ‚ğ•ûŒü Dir / —§‘ÌŠpd‚İ Weight ‚ÅË‰e‚µ‚½ŒW”
+// æ”¾å°„è¼åº¦ L ã‚’æ–¹å‘ Dir / ç«‹ä½“è§’é‡ã¿ Weight ã§å°„å½±ã—ãŸä¿‚æ•°
 void LumenSH1Project(float3 Radiance, float3 Dir, float Weight,
     inout float4 SHR, inout float4 SHG, inout float4 SHB)
 {
@@ -149,12 +145,11 @@ void LumenSH1Project(float3 Radiance, float3 Dir, float Weight,
     SHB += Radiance.b * basis;
 }
 
-// –@ü N ‚Ì”¼‹…ƒRƒTƒCƒ“ô‚İ‚İ -> •½‹Ï“üËƒ‰ƒfƒBƒAƒ“ƒX
+// æ³•ç·š N ã®åŠçƒã‚³ã‚µã‚¤ãƒ³ç•³ã¿è¾¼ã¿ -> å¹³å‡å…¥å°„ãƒ©ãƒ‡ã‚£ã‚¢ãƒ³ã‚¹
 //   E(n) = pi*A0*c0 + (2pi/3)*A1*(c1..c3)  ->  Lmean = E / pi
 float3 LumenSH1EvaluateMeanRadiance(float4 SHR, float4 SHG, float4 SHB, float3 N)
 {
-    float4 eval = float4(0.282095f,
-        0.488603f * N.y, 0.488603f * N.z, 0.488603f * N.x);
+    float4 eval = LumenSH1Basis(N);
     eval.yzw *= (2.0f / 3.0f);
 
     return max(float3(dot(SHR, eval), dot(SHG, eval), dot(SHB, eval)),
@@ -162,10 +157,10 @@ float3 LumenSH1EvaluateMeanRadiance(float4 SHR, float4 SHG, float4 SHB, float3 N
 }
 
 // -------------------------------------------------------------
-//  ƒXƒNƒŠ[ƒ“ƒXƒy[ƒXƒgƒŒ[ƒX
-//  Œ»ƒtƒŒ[ƒ€‚Ì LinearDepth ‚É‘Î‚µ‚ÄƒŒƒCƒ}[ƒ`‚µAƒqƒbƒg‚ğ
-//  ‘OƒtƒŒ[ƒ€ SceneColor (ƒŠƒvƒƒWƒFƒNƒVƒ‡ƒ“) ‚ÅÌŒõ‚·‚éB
-//  –ß‚è’l: 0 = ƒ~ƒX (SDF ‚ÖƒtƒH[ƒ‹ƒoƒbƒN), 1 = ƒqƒbƒg
+//  ã‚¹ã‚¯ãƒªãƒ¼ãƒ³ã‚¹ãƒšãƒ¼ã‚¹ãƒˆãƒ¬ãƒ¼ã‚¹
+//  ç¾ãƒ•ãƒ¬ãƒ¼ãƒ ã® LinearDepth ã«å¯¾ã—ã¦ãƒ¬ã‚¤ãƒãƒ¼ãƒã—ã€ãƒ’ãƒƒãƒˆã‚’
+//  å‰ãƒ•ãƒ¬ãƒ¼ãƒ  SceneColor (ãƒªãƒ—ãƒ­ã‚¸ã‚§ã‚¯ã‚·ãƒ§ãƒ³) ã§æ¡å…‰ã™ã‚‹ã€‚
+//  æˆ»ã‚Šå€¤: 0 = ãƒŸã‚¹ (SDF ã¸ãƒ•ã‚©ãƒ¼ãƒ«ãƒãƒƒã‚¯), 1 = ãƒ’ãƒƒãƒˆ
 // -------------------------------------------------------------
 #define LUMEN_SCREEN_TRACE_STEPS 12
 
@@ -174,8 +169,8 @@ bool LumenScreenSpaceTrace(float3 RayStart, float3 RayDir, float MaxT,
 {
     OutRadiance = float3(0.0f, 0.0f, 0.0f);
 
-    // —š—ğ‚ª–³‚¢ / ƒXƒNƒŠ[ƒ“ƒgƒŒ[ƒX–³Œø‚ÌƒtƒŒ[ƒ€‚Í•s‰Â
-    // (PassProbeParams1.w = —š—ğ—LŒø, PassReflectionParams.w = —LŒøƒtƒ‰ƒO)
+    // å±¥æ­´ãŒç„¡ã„ / ã‚¹ã‚¯ãƒªãƒ¼ãƒ³ãƒˆãƒ¬ãƒ¼ã‚¹ç„¡åŠ¹ã®ãƒ•ãƒ¬ãƒ¼ãƒ ã¯ä¸å¯
+    // (PassProbeParams1.w = å±¥æ­´æœ‰åŠ¹, PassReflectionParams.w = æœ‰åŠ¹ãƒ•ãƒ©ã‚°)
     if (PassProbeParams1.w < 0.5f || PassReflectionParams.w < 0.5f)
     {
         return false;
@@ -183,9 +178,7 @@ bool LumenScreenSpaceTrace(float3 RayStart, float3 RayDir, float MaxT,
 
     const float thickness = max(PassPrevCameraOrigin.w, 0.05f);
 
-    // w”“IƒXƒeƒbƒv (‹ß‹——£‚ğ–§‚É)
-    float prevT = StartOffset;
-
+    // æŒ‡æ•°çš„ã‚¹ãƒ†ãƒƒãƒ— (è¿‘è·é›¢ã‚’å¯†ã«)
     [loop]
     for (uint stepIndex = 0; stepIndex < LUMEN_SCREEN_TRACE_STEPS; ++stepIndex)
     {
@@ -197,36 +190,36 @@ bool LumenScreenSpaceTrace(float3 RayStart, float3 RayDir, float MaxT,
         float4 clipPos = mul(float4(p, 1.0f), PassViewProjection);
         if (clipPos.w <= 0.01f)
         {
-            return false; // ƒJƒƒ‰”wŒã
+            return false; // ã‚«ãƒ¡ãƒ©èƒŒå¾Œ
         }
 
         float2 ndc = clipPos.xy / clipPos.w;
         if (abs(ndc.x) > 1.0f || abs(ndc.y) > 1.0f)
         {
-            return false; // ‰æ–ÊŠO‚Öo‚½
+            return false; // ç”»é¢å¤–ã¸å‡ºãŸ
         }
 
         float2 uv = float2(ndc.x * 0.5f + 0.5f, 0.5f - ndc.y * 0.5f);
-        // [“x‚Í“_ƒTƒ“ƒvƒ‹ (ƒoƒCƒŠƒjƒA‚¾‚ÆƒVƒ‹ƒGƒbƒg‚Å‘OŒã‚Ì[“x‚ª¬‚´‚èA
-        // Àİ‚µ‚È‚¢’†ŠÔ[“x‚Éuƒqƒbƒgv‚µ‚ÄƒGƒbƒW‚ªƒJƒƒ‰ˆÚ“®‚Å–¾–Å‚·‚é)
+        // æ·±åº¦ã¯ç‚¹ã‚µãƒ³ãƒ—ãƒ« (ãƒã‚¤ãƒªãƒ‹ã‚¢ã ã¨ã‚·ãƒ«ã‚¨ãƒƒãƒˆã§å‰å¾Œã®æ·±åº¦ãŒæ··ã–ã‚Šã€
+        // å®Ÿåœ¨ã—ãªã„ä¸­é–“æ·±åº¦ã«ã€Œãƒ’ãƒƒãƒˆã€ã—ã¦ã‚¨ãƒƒã‚¸ãŒã‚«ãƒ¡ãƒ©ç§»å‹•ã§æ˜æ»…ã™ã‚‹)
         int2 depthPixel = clamp((int2) (uv * PassProbeParams1.xy),
             int2(0, 0), (int2) PassProbeParams1.xy - 1);
         float sceneDist = LumenLinearDepth.Load(int3(depthPixel, 0)).r;
 
         if (sceneDist <= 0.0f)
         {
-            continue; // [“x‚È‚µ (ƒXƒJƒC)
+            continue; // æ·±åº¦ãªã— (ã‚¹ã‚«ã‚¤)
         }
 
-        // LinearDepth.r ‚Í•½–Êƒrƒ…[[“x (view Z)BƒŒƒC‘¤‚à“¯‚¶‹——£Ú“x‚Å
-        // ”äŠr‚·‚é (clip.w = view ZB•úË‹——£‚¾‚Æ‰æ–Êü•Ó‚ÅŒn“Œë·‚ªo‚é)
+        // LinearDepth.r ã¯å¹³é¢ãƒ“ãƒ¥ãƒ¼æ·±åº¦ (view Z)ã€‚ãƒ¬ã‚¤å´ã‚‚åŒã˜è·é›¢å°ºåº¦ã§
+        // æ¯”è¼ƒã™ã‚‹ (clip.w = view Zã€‚æ”¾å°„è·é›¢ã ã¨ç”»é¢å‘¨è¾ºã§ç³»çµ±èª¤å·®ãŒå‡ºã‚‹)
         float rayDist = clipPos.w;
 
         if (rayDist > sceneDist + 0.02f)
         {
             if (rayDist < sceneDist + thickness)
             {
-                // ƒqƒbƒg: ‘OƒtƒŒ[ƒ€ SceneColor ‚ğƒŠƒvƒƒWƒFƒNƒVƒ‡ƒ“‚ÅÌŒõ
+                // ãƒ’ãƒƒãƒˆ: å‰ãƒ•ãƒ¬ãƒ¼ãƒ  SceneColor ã‚’ãƒªãƒ—ãƒ­ã‚¸ã‚§ã‚¯ã‚·ãƒ§ãƒ³ã§æ¡å…‰
                 float4 prevClip = mul(float4(p, 1.0f), PassPrevViewProjection);
                 if (prevClip.w > 0.01f)
                 {
@@ -235,17 +228,17 @@ bool LumenScreenSpaceTrace(float3 RayStart, float3 RayDir, float MaxT,
                     {
                         float2 prevUV = float2(prevNDC.x * 0.5f + 0.5f, 0.5f - prevNDC.y * 0.5f);
 
-                        // —š—ğ[“xŒŸØ: ÌŒõ“_‚ª‘OƒtƒŒ[ƒ€‚Å‚à“¯‚¶[“x‚ÅŒ©‚¦‚Ä‚¢‚½
-                        // ‚Æ‚«‚¾‚¯Ì—p‚·‚éBƒJƒƒ‰ˆÚ“®‚Å‘OƒtƒŒ[ƒ€‚É‚Í•Ê‚Ì–Ê
-                        // (è‘O‚Ì•¨‘Ì / ƒXƒJƒC) ‚ªÊ‚Á‚Ä‚¢‚½ˆÊ’u‚ğE‚¤‚ÆA
-                        // ‚»‚ÌF‚ª¡ƒtƒŒ[ƒ€‚Ì–Ê‚Ì•úË‹P“x‚Æ‚µ‚Ä¬“ü‚µ–¾–Å‚·‚é
+                        // å±¥æ­´æ·±åº¦æ¤œè¨¼: æ¡å…‰ç‚¹ãŒå‰ãƒ•ãƒ¬ãƒ¼ãƒ ã§ã‚‚åŒã˜æ·±åº¦ã§è¦‹ãˆã¦ã„ãŸ
+                        // ã¨ãã ã‘æ¡ç”¨ã™ã‚‹ã€‚ã‚«ãƒ¡ãƒ©ç§»å‹•ã§å‰ãƒ•ãƒ¬ãƒ¼ãƒ ã«ã¯åˆ¥ã®é¢
+                        // (æ‰‹å‰ã®ç‰©ä½“ / ã‚¹ã‚«ã‚¤) ãŒå†™ã£ã¦ã„ãŸä½ç½®ã‚’æ‹¾ã†ã¨ã€
+                        // ãã®è‰²ãŒä»Šãƒ•ãƒ¬ãƒ¼ãƒ ã®é¢ã®æ”¾å°„è¼åº¦ã¨ã—ã¦æ··å…¥ã—æ˜æ»…ã™ã‚‹
                         int2 prevPixel = clamp((int2) (prevUV * PassProbeParams1.xy),
                             int2(0, 0), (int2) PassProbeParams1.xy - 1);
                         float prevSceneDist = LumenPrevLinearDepth.Load(int3(prevPixel, 0)).r;
                         if (prevSceneDist <= 0.0f ||
                             abs(prevClip.w - prevSceneDist) > thickness)
                         {
-                            return false; // ƒfƒBƒXƒIƒNƒ‹[ƒWƒ‡ƒ“ -> SDF / HWRT ‚Ö
+                            return false; // ãƒ‡ã‚£ã‚¹ã‚ªã‚¯ãƒ«ãƒ¼ã‚¸ãƒ§ãƒ³ -> SDF / HWRT ã¸
                         }
 
                         OutRadiance = LumenPrevSceneColor.SampleLevel(
@@ -255,18 +248,16 @@ bool LumenScreenSpaceTrace(float3 RayStart, float3 RayDir, float MaxT,
                 }
             }
 
-            // Œú‚İ‚ğ’´‚¦‚Äö‚Á‚½ / —š—ğ‚ª–³‚¢: •sŠm’è -> SDF ‚ÖƒtƒH[ƒ‹ƒoƒbƒN
+            // åšã¿ã‚’è¶…ãˆã¦æ½œã£ãŸ / å±¥æ­´ãŒç„¡ã„: ä¸ç¢ºå®š -> SDF ã¸ãƒ•ã‚©ãƒ¼ãƒ«ãƒãƒƒã‚¯
             return false;
         }
-
-        prevT = t;
     }
 
     return false;
 }
 
 // -------------------------------------------------------------
-//  ƒXƒNƒŠ[ƒ“ƒsƒNƒZƒ‹‚Ìƒ[ƒ‹ƒhÄ\’z (ƒfƒoƒCƒX[“x + InvViewProjection)
+//  ã‚¹ã‚¯ãƒªãƒ¼ãƒ³ãƒ”ã‚¯ã‚»ãƒ«ã®ãƒ¯ãƒ¼ãƒ«ãƒ‰å†æ§‹ç¯‰ (ãƒ‡ãƒã‚¤ã‚¹æ·±åº¦ + InvViewProjection)
 // -------------------------------------------------------------
 float3 LumenReconstructWorldPosition(uint2 Pixel, float DeviceDepth)
 {
@@ -280,14 +271,21 @@ float3 LumenReconstructWorldPosition(uint2 Pixel, float DeviceDepth)
     return worldPos.xyz / worldPos.w;
 }
 
+// ãƒ—ãƒ­ãƒ¼ãƒ–ã®ãƒ¯ãƒ¼ãƒ«ãƒ‰ä½ç½® (ã‚¢ãƒ³ã‚«ãƒ¼ãƒ”ã‚¯ã‚»ãƒ«ã‹ã‚‰å†æ§‹ç¯‰ã€‚Trace / Filter / SH / Integrate å…±é€š)
+float3 LumenGetProbeWorldPosition(uint2 Probe)
+{
+    uint2 anchor = LumenGetProbeAnchor(Probe);
+    return LumenReconstructWorldPosition(anchor, LumenSceneDepth.Load(int3(anchor, 0)));
+}
+
 // -------------------------------------------------------------
-//  Radiance Cache: ƒeƒNƒXƒ`ƒƒ (ƒgƒƒCƒ_ƒ‹) ƒCƒ“ƒfƒbƒNƒX•ÏŠ·
-//    C0     = Œ»ƒ{ƒŠƒ…[ƒ€Å¬ƒR[ƒi[‚Ìƒ[ƒ‹ƒhƒZƒ‹
-//    TexIdx = ƒ[ƒ‹ƒhƒZƒ‹ mod N
+//  Radiance Cache: ãƒ†ã‚¯ã‚¹ãƒãƒ£ (ãƒˆãƒ­ã‚¤ãƒ€ãƒ«) ã‚¤ãƒ³ãƒ‡ãƒƒã‚¯ã‚¹å¤‰æ›
+//    C0     = ç¾ãƒœãƒªãƒ¥ãƒ¼ãƒ æœ€å°ã‚³ãƒ¼ãƒŠãƒ¼ã®ãƒ¯ãƒ¼ãƒ«ãƒ‰ã‚»ãƒ«
+//    TexIdx = ãƒ¯ãƒ¼ãƒ«ãƒ‰ã‚»ãƒ« mod N
 // -------------------------------------------------------------
 int3 LumenRCWorldCellFromTexIndex(int3 TexIndex, int3 MinWorldCell, int N)
 {
-    // MinWorldCell ˆÈã‚Å TexIndex ‚Æ mod N ‚ªˆê’v‚·‚éˆêˆÓ‚ÌƒZƒ‹
+    // MinWorldCell ä»¥ä¸Šã§ TexIndex ã¨ mod N ãŒä¸€è‡´ã™ã‚‹ä¸€æ„ã®ã‚»ãƒ«
     int3 rel = ((TexIndex - MinWorldCell) % N + N) % N;
     return MinWorldCell + rel;
 }

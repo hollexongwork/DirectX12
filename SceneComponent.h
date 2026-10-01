@@ -92,11 +92,13 @@ public:
 	// ローカル境界をワールドへ変換して返す (USceneComponent::CalcBounds)。
 	// 既定はトランスフォーム原点の点境界 (半径 0)。描画されるコンポーネントは
 	// 各自オーバーライドすること (UStaticMeshComponent はメッシュ AABB、
+	// UFieldQuadComponent は手組みクアッドの AABB、
 	// UPolygon2DComponent は「無限」境界 = 常に可視)。
 	virtual FBoxSphereBounds CalcBounds(const XMMATRIX& LocalToWorld) const;
 
 	// m_Bounds = CalcBounds(GetComponentToWorld()) (UpdateBounds)。
-	// UPrimitiveComponent::SendRenderTransform が毎フレーム呼ぶ。
+	// UPrimitiveComponent::SendRenderTransform が呼ぶ (トランスフォーム / レンダーステートが
+	// ダーティになったフレームのみ。FScene::UpdateAllPrimitiveSceneInfos 経由のプッシュ型)。
 	void UpdateBounds();
 
 	const FBoxSphereBounds& GetBounds() const { return m_Bounds; }

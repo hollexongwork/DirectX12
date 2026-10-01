@@ -1,6 +1,6 @@
 ﻿#include "Main.h"
 #include "GameManager.h"
-#include "ImGUI/imgui.h"
+#include "Input.h"
 
 #include "Camera.h"
 #include "Sky.h"
@@ -16,13 +16,12 @@
 
 GameManager* GameManager::m_Instance = nullptr;
 
-GameManager::GameManager(HWND hWnd)
+GameManager::GameManager(HWND hWnd, const wchar_t* CmdLine)
 	: m_SelfInit(this)
 	, m_SceneRenderer(&m_RenderManager)
 	, m_InputManager(hWnd)
+	, m_TestDriver(CmdLine)
 {
-	m_Instance = this;
-
 	// ---- レベルロード相当: 初期アクターのスポーン ----
 	// (スポーン順 = FScene への登録順 = ベースパスの描画順)
 	m_World.SpawnActor<APostProcessVolume>();	// グローバルポスプロ (bUnbound)
@@ -30,7 +29,7 @@ GameManager::GameManager(HWND hWnd)
 	// ---- ライト (ALight アクター + ULightComponent) ----
 	{
 		// ディレクショナル: 旧 FScene 既定値 (方向 (3,5,-3) / 強度 3) と同じ見た目。
-		// 既定は 10 lux , Lights パネルで調整できる
+		// 既定は 10 lux , Details の Light セクションで調整できる
 		ADirectionalLight* sun = m_World.SpawnActor<ADirectionalLight>();
 		sun->SetActorRotation(ULightComponentBase::DirectionToRotator({ -3.0f, -5.0f, 3.0f }));	// 発光方向 = 旧 LightDirection の逆
 		sun->GetLightComponent()->SetIntensity(3.0f);	// lux
@@ -185,7 +184,12 @@ GameManager::GameManager(HWND hWnd)
 GameManager::~GameManager()
 {
 	// 終了時に ImGui で編集したパラメータを自動保存 (CPU 値のみ)。
+	// テストドライバ実行中は SetSaveEnabled(false) で何も書かない。
 	m_SettingsManager.SaveCurrent();
+
+	// 記録済み (最後の Present で実行済み) で未書き出しの F9 / ボタンのキャプチャを書き出す
+	// (無ければ何もしない。テストドライバは Finish で書き出し済み)
+	m_SceneRenderer.FlushScreenshots();
 
 	m_RenderManager.WaitGPU();
 }
@@ -199,6 +203,10 @@ void GameManager::Begin()
 	// Lumen Params と ImGui のレイアウト (ウィンドウ表示フラグ) もここで復元。
 	m_SettingsManager.Initialize(&m_World, &m_SceneRenderer, &m_ImGuiManager);
 
+	// テストドライバ (-taatest): INI 適用後に設定を上書きし、INI 保存停止 /
+	// 固定 dt / カメラ入力停止 / ログ作成を行う (通常起動では何もしない)
+	m_TestDriver.OnBegin(m_World, m_SceneRenderer, m_SettingsManager);
+
 	m_ImGuiManager.Start();
 }
 
@@ -206,6 +214,18 @@ void GameManager::Update()
 {
 	m_Time.Update();
 	m_InputManager.Update();
+
+	// F9: スクリーンショット (UI 無しのバックバッファ -> Saved/Screenshots/*.bmp)。
+	// ImGui のテキスト入力 / アクティブ項目 (WantCaptureKeyboard) 中は無視。
+	// テストドライバ実行中はキャプチャをドライバが管理するので無効。
+	if (!m_TestDriver.IsActive() && !m_InputManager.IsKeyboardCapturedByUI() && Input::GetKeyTrigger(VK_F9))
+	{
+		m_SceneRenderer.RequestScreenshot("");
+	}
+
+	// テストドライバ: シナリオのカメラ / アクタートランスフォームとキャプチャ要求。
+	// World.Tick より前に適用する (ASky::Tick がこのフレームのカメラ位置を追従するため)
+	m_TestDriver.PreWorldTick(m_SceneRenderer);
 
 	// APostProcessVolume はワールド内アクターになったので、
 	// grain / EV 更新は World.Tick 内の Tick() で行われる。
@@ -233,11 +253,18 @@ void GameManager::Draw()
 	// FDeferredShadingSceneRenderer::Render に相当するパス列。
 	m_SceneRenderer.BeginFrame();                                     // RHI 準備 + G-Buffer オープン + ImGui NewFrame
 	m_SceneRenderer.RenderBasePass(m_World.GetScene(), sceneView);    // ビュー/環境定数 + プリミティブ -> G-Buffer
+	m_SceneRenderer.RenderVelocities(m_World.GetScene());             // 動いたプリミティブのベロシティ -> Velocity (TAA / 可視化で必要な時のみ)
 	m_SceneRenderer.RenderShadowDepths(m_World.GetScene(), sceneView);// CSM + ローカルシャドウ深度 -> シャドウマップ
 	m_SceneRenderer.RenderLumenScene(m_World.GetScene());             // Lumen: カードキャプチャ + Surface Cache ライティング (Emissive 光源化)
 	m_SceneRenderer.RenderLighting();                                 // LinearDepth + デファード -> SceneColor
 	m_SceneRenderer.RenderTranslucency(m_World.GetScene());           // Translucent/Additive -> SceneColor (後→前フォワード合成)
-	m_SceneRenderer.RenderPostProcessing();                           // DOF -> AutoExposure -> Bloom -> LUT -> Tonemap
-	m_ImGuiManager.Draw();                                            // UI 構築 (描画は EndFrame 内)
+	m_SceneRenderer.RenderPostProcessing();                           // SceneColor 履歴 (Lumen) -> DOF -> Temporal AA -> AutoExposure -> Bloom -> LUT -> Tonemap (+ スクリーンショットのコピー)
+	if (!m_TestDriver.IsActive())
+	{
+		m_ImGuiManager.Draw();                                        // UI 構築 (描画は EndFrame 内)。テストドライバ実行中は構築しない
+	}
 	m_SceneRenderer.EndFrame();                                       // ImGui 描画 + Present
+
+	// テストドライバ: ログ 1 行 / 最終フレームならキャプチャを書き出して終了要求
+	m_TestDriver.PostFrame(m_SceneRenderer, m_RenderManager);
 }

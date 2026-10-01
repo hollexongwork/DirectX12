@@ -3,15 +3,15 @@
 
 // =============================================================
 //  LumenScreenProbeSH_CS
-//  ƒtƒBƒ‹ƒ^Ï‚İƒgƒŒ[ƒXƒ‰ƒfƒBƒAƒ“ƒX‚ğƒvƒ[ƒu‚²‚Æ‚É SH L1 ‚Ö
-//  Ë‰e‚µA‘OƒtƒŒ[ƒ€‚Ìƒvƒ[ƒu SH ‚ğƒŠƒvƒƒWƒFƒNƒVƒ‡ƒ“‚µ‚Ä
-//  ƒeƒ“ƒ|ƒ‰ƒ‹’~Ï‚·‚é (ScreenProbeTemporalAccumulation ‚Ì SH ”Å)B
+//  ãƒ•ã‚£ãƒ«ã‚¿æ¸ˆã¿ãƒˆãƒ¬ãƒ¼ã‚¹ãƒ©ãƒ‡ã‚£ã‚¢ãƒ³ã‚¹ã‚’ãƒ—ãƒ­ãƒ¼ãƒ–ã”ã¨ã« SH L1 ã¸
+//  å°„å½±ã—ã€å‰ãƒ•ãƒ¬ãƒ¼ãƒ ã®ãƒ—ãƒ­ãƒ¼ãƒ– SH ã‚’ãƒªãƒ—ãƒ­ã‚¸ã‚§ã‚¯ã‚·ãƒ§ãƒ³ã—ã¦
+//  ãƒ†ãƒ³ãƒãƒ©ãƒ«è“„ç©ã™ã‚‹ (ScreenProbeTemporalAccumulation ã® SH ç‰ˆ)ã€‚
 //    t19 = ProbeGeo / t20 = FilteredRadiance
-//    t21..t23 = ‘OƒtƒŒ[ƒ€ SHR/SHG/SHB / t24 = ‘OƒtƒŒ[ƒ€ Aux
-//    u4..u6   = SHR/SHG/SHB / u7 = Aux (x=ƒXƒJƒC‰Â‹—¦,
-//               y=Œ»ƒtƒŒ[ƒ€ƒJƒƒ‰‚©‚ç‚Ì‹——£, zw=–@ü octahedral
-//               (‚Ç‚¿‚ç‚àŸƒtƒŒ[ƒ€‚Ì—š—ğŒŸØ—p))
-//  Dispatch: (ceil(PW/8), ceil(PH/8), 1) - 1 ƒXƒŒƒbƒh = 1 ƒvƒ[ƒu
+//    t21..t23 = å‰ãƒ•ãƒ¬ãƒ¼ãƒ  SHR/SHG/SHB / t24 = å‰ãƒ•ãƒ¬ãƒ¼ãƒ  Aux
+//    u4..u6   = SHR/SHG/SHB / u7 = Aux (x=ã‚¹ã‚«ã‚¤å¯è¦–ç‡,
+//               y=ç¾ãƒ•ãƒ¬ãƒ¼ãƒ ã‚«ãƒ¡ãƒ©ã‹ã‚‰ã®è·é›¢, zw=æ³•ç·š octahedral
+//               (ã©ã¡ã‚‰ã‚‚æ¬¡ãƒ•ãƒ¬ãƒ¼ãƒ ã®å±¥æ­´æ¤œè¨¼ç”¨))
+//  Dispatch: (ceil(PW/8), ceil(PH/8), 1) - 1 ã‚¹ãƒ¬ãƒƒãƒ‰ = 1 ãƒ—ãƒ­ãƒ¼ãƒ–
 // =============================================================
 
 Texture2D<float4> ProbeGeoTexture : register(t19);
@@ -48,12 +48,8 @@ void main(uint3 DTid : SV_DispatchThreadID)
         return;
     }
 
-    // ---- ƒvƒ[ƒu‚Ìƒ[ƒ‹ƒhˆÊ’u / ƒŒƒC•ûŒü‚ğÄ\’z (Trace ‚Æ“¯ˆê) ----
-    const uint downsample = (uint) PassProbeParams0.z;
-    const uint2 screenSize = (uint2) PassProbeParams1.xy;
-    uint2 anchor = LumenGetProbeAnchor(probe);
-    float deviceDepth = LumenSceneDepth.Load(int3(anchor, 0));
-    float3 worldPos = LumenReconstructWorldPosition(anchor, deviceDepth);
+    // ---- ãƒ—ãƒ­ãƒ¼ãƒ–ã®ãƒ¯ãƒ¼ãƒ«ãƒ‰ä½ç½® / ãƒ¬ã‚¤æ–¹å‘ã‚’å†æ§‹ç¯‰ (Trace ã¨åŒä¸€) ----
+    float3 worldPos = LumenGetProbeWorldPosition(probe);
 
     const float3 probeNormal = probeGeo.xyz;
     float3 tangent, bitangent;
@@ -62,7 +58,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     uint probeSeed = probe.x | (probe.y << 16);
     float2 jitter = LumenGetFrameJitter((uint) PassAtlasParams.w, probeSeed);
 
-    // ---- SH L1 Ë‰e (”¼‹… = —§‘ÌŠp 2pi ‚ğ 64 ƒeƒNƒZƒ‹‚Å•ªŠ„) ----
+    // ---- SH L1 å°„å½± (åŠçƒ = ç«‹ä½“è§’ 2pi ã‚’ 64 ãƒ†ã‚¯ã‚»ãƒ«ã§åˆ†å‰²) ----
     float4 shR = float4(0.0f, 0.0f, 0.0f, 0.0f);
     float4 shG = float4(0.0f, 0.0f, 0.0f, 0.0f);
     float4 shB = float4(0.0f, 0.0f, 0.0f, 0.0f);
@@ -91,17 +87,17 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
     skyVisibility /= 64.0f;
 
-    // ---- ƒeƒ“ƒ|ƒ‰ƒ‹’~Ï (‘OƒtƒŒ[ƒ€ƒvƒ[ƒuƒOƒŠƒbƒh‚ÖƒŠƒvƒƒWƒFƒNƒVƒ‡ƒ“) ----
-    // —š—ğ‚Í 4 ƒ^ƒbƒv‚ğè“®‚ÅƒoƒCƒŠƒjƒA‚µAƒ^ƒbƒv‚²‚Æ‚Éu‘OƒtƒŒ[ƒ€‚Ì
-    // “¯‚¶–Ê‚©v‚ğŒŸØ‚µ‚Äd‚İ‚É“ü‚ê‚éBƒn[ƒhƒEƒFƒAƒoƒCƒŠƒjƒA‚Å
-    // Aux / SH ‚ğ¬‚º‚Ä‚©‚çŒŸØ‚·‚é‚ÆA[“xƒGƒbƒW‚Ìƒvƒ[ƒu‚Í—×‚Ì•Ê•¨‘Ì‚Ì
-    // ‹——£‚ª¬‚´‚Á‚Ä–ˆƒtƒŒ[ƒ€ŒŸØ‚É—‚¿ (alpha = 1)A64 ƒŒƒC‚Ì¶‚Ì„’è‚ª
-    // ‚»‚Ì‚Ü‚Üo‚Äƒvƒ‹ƒvƒ‹k‚¦‚éBƒ^ƒbƒv’PˆÊ‚È‚ç“¯‚¶–Ê‚Ìƒ^ƒbƒv‚¾‚¯‚Å
-    // —š—ğ‚ğì‚ê‚é‚Ì‚ÅAƒGƒbƒW‚Ìƒvƒ[ƒu‚à’~Ï‚ªŒø‚­B
+    // ---- ãƒ†ãƒ³ãƒãƒ©ãƒ«è“„ç© (å‰ãƒ•ãƒ¬ãƒ¼ãƒ ãƒ—ãƒ­ãƒ¼ãƒ–ã‚°ãƒªãƒƒãƒ‰ã¸ãƒªãƒ—ãƒ­ã‚¸ã‚§ã‚¯ã‚·ãƒ§ãƒ³) ----
+    // å±¥æ­´ã¯ 4 ã‚¿ãƒƒãƒ—ã‚’æ‰‹å‹•ã§ãƒã‚¤ãƒªãƒ‹ã‚¢ã—ã€ã‚¿ãƒƒãƒ—ã”ã¨ã«ã€Œå‰ãƒ•ãƒ¬ãƒ¼ãƒ ã®
+    // åŒã˜é¢ã‹ã€ã‚’æ¤œè¨¼ã—ã¦é‡ã¿ã«å…¥ã‚Œã‚‹ã€‚ãƒãƒ¼ãƒ‰ã‚¦ã‚§ã‚¢ãƒã‚¤ãƒªãƒ‹ã‚¢ã§
+    // Aux / SH ã‚’æ··ãœã¦ã‹ã‚‰æ¤œè¨¼ã™ã‚‹ã¨ã€æ·±åº¦ã‚¨ãƒƒã‚¸ã®ãƒ—ãƒ­ãƒ¼ãƒ–ã¯éš£ã®åˆ¥ç‰©ä½“ã®
+    // è·é›¢ãŒæ··ã–ã£ã¦æ¯ãƒ•ãƒ¬ãƒ¼ãƒ æ¤œè¨¼ã«è½ã¡ (alpha = 1)ã€64 ãƒ¬ã‚¤ã®ç”Ÿã®æ¨å®šãŒ
+    // ãã®ã¾ã¾å‡ºã¦ãƒ—ãƒ«ãƒ—ãƒ«éœ‡ãˆã‚‹ã€‚ã‚¿ãƒƒãƒ—å˜ä½ãªã‚‰åŒã˜é¢ã®ã‚¿ãƒƒãƒ—ã ã‘ã§
+    // å±¥æ­´ã‚’ä½œã‚Œã‚‹ã®ã§ã€ã‚¨ãƒƒã‚¸ã®ãƒ—ãƒ­ãƒ¼ãƒ–ã‚‚è“„ç©ãŒåŠ¹ãã€‚
     float alpha = 1.0f;
 
     [branch]
-    if (PassProbeParams1.w > 0.5f) // —š—ğ—LŒø
+    if (PassProbeParams1.w > 0.5f) // å±¥æ­´æœ‰åŠ¹
     {
         float4 prevClip = mul(float4(worldPos, 1.0f), PassPrevViewProjection);
         if (prevClip.w > 0.01f)
@@ -111,16 +107,16 @@ void main(uint3 DTid : SV_DispatchThreadID)
             {
                 float2 prevUV = float2(prevNDC.x * 0.5f + 0.5f, 0.5f - prevNDC.y * 0.5f);
 
-                // ƒXƒNƒŠ[ƒ“ UV -> ƒvƒ[ƒuÀ•W (˜A‘±’l)B
-                // ƒvƒ[ƒu i ‚ÌƒAƒ“ƒJ[ƒsƒNƒZƒ‹‚Í i * downsample + downsample/2 ‚ÅA
-                // ‚»‚Ì’†S‚Í + 0.5 ‚È‚Ì‚ÅAƒvƒ[ƒuƒeƒNƒXƒ`ƒƒ‚Í‰æ–Ê‚Ì’Pƒ‚È
-                // ‘Š—‚Å‚Í‚È‚¢ (‰æ–ÊƒTƒCƒY‚ª downsample ‚Ì”{”‚Å‚È‚¢‚Æ‚«A
-                // 1080 / 16 -> 68 ƒvƒ[ƒu = 1088px ‘Š“–‚Å‚¸‚ê‚é)B
-                // prevUV ‚Ì‚Ü‚Üg‚¤‚Æ‰æ–Ê‰º‘¤‚Ù‚Ç 1 ƒvƒ[ƒu‹ß‚­‚¸‚ê‚½—š—ğ‚ğ
-                // ˆø‚«Ac•ûŒü‚ÌƒS[ƒXƒg / ‚É‚¶‚İ‚É‚È‚éB
+                // ã‚¹ã‚¯ãƒªãƒ¼ãƒ³ UV -> ãƒ—ãƒ­ãƒ¼ãƒ–åº§æ¨™ (é€£ç¶šå€¤)ã€‚
+                // ãƒ—ãƒ­ãƒ¼ãƒ– i ã®ã‚¢ãƒ³ã‚«ãƒ¼ãƒ”ã‚¯ã‚»ãƒ«ã¯ i * downsample + ã‚¸ãƒƒã‚¿ (PassProbeJitterã€‚ã‚¸ãƒƒã‚¿ç„¡åŠ¹æ™‚ã¯ downsample/2) ã§ã€
+                // ãã®ä¸­å¿ƒã¯ + 0.5 ãªã®ã§ã€ãƒ—ãƒ­ãƒ¼ãƒ–ãƒ†ã‚¯ã‚¹ãƒãƒ£ã¯ç”»é¢ã®å˜ç´”ãª
+                // ç›¸ä¼¼ã§ã¯ãªã„ (ç”»é¢ã‚µã‚¤ã‚ºãŒ downsample ã®å€æ•°ã§ãªã„ã¨ãã€
+                // 1080 / 16 -> 68 ãƒ—ãƒ­ãƒ¼ãƒ– = 1088px ç›¸å½“ã§ãšã‚Œã‚‹)ã€‚
+                // prevUV ã®ã¾ã¾ä½¿ã†ã¨ç”»é¢ä¸‹å´ã»ã© 1 ãƒ—ãƒ­ãƒ¼ãƒ–è¿‘ããšã‚ŒãŸå±¥æ­´ã‚’
+                // å¼•ãã€ç¸¦æ–¹å‘ã®ã‚´ãƒ¼ã‚¹ãƒˆ / ã«ã˜ã¿ã«ãªã‚‹ã€‚
                 const float downsampleF = PassProbeParams0.z;
                 float2 prevPixel = prevUV * PassProbeParams1.xy;
-                // ‘OƒtƒŒ[ƒ€‚Ìƒvƒ[ƒu”z’uƒWƒbƒ^ (PassProbeJitter.zw) ‚Å–ß‚·
+                // å‰ãƒ•ãƒ¬ãƒ¼ãƒ ã®ãƒ—ãƒ­ãƒ¼ãƒ–é…ç½®ã‚¸ãƒƒã‚¿ (PassProbeJitter.zw) ã§æˆ»ã™
                 float2 prevProbe = (prevPixel - 0.5f - PassProbeJitter.zw) / downsampleF;
 
                 int2 prevBase = (int2) floor(prevProbe);
@@ -150,17 +146,17 @@ void main(uint3 DTid : SV_DispatchThreadID)
                         float4 prevAux = PrevAuxTexture.Load(int3(tap, 0));
                         if (prevAux.y <= 0.0f)
                         {
-                            continue; // –³Œøƒvƒ[ƒu (ƒXƒJƒC / Unlit)
+                            continue; // ç„¡åŠ¹ãƒ—ãƒ­ãƒ¼ãƒ– (ã‚¹ã‚«ã‚¤ / Unlit)
                         }
 
-                        // ‘OƒtƒŒ[ƒ€‚Ìƒvƒ[ƒuˆÊ’u‚ğÄ\’z:
-                        //   ‘OƒAƒ“ƒJ[ƒsƒNƒZƒ‹‚Ì‹ü•ûŒü (PrevInvViewProjection)
-                        //   x ‘OƒJƒƒ‰‚©‚ç‚Ì‹——£ (Aux.y)
-                        // ‹——£·‚¾‚¯‚ÅŒŸØ‚·‚é‚ÆAÎ‚ß‚©‚çŒ©‚½°‚Å‚Í—×‚Ìƒvƒ[ƒu
-                        // (16px) ‚Å‹‹——£‚ª 10% ˆÈã•Ï‚í‚é‚½‚ßAƒJƒƒ‰‚ğ“®‚©‚µ‚Ä
-                        // ƒŠƒvƒƒWƒFƒNƒVƒ‡ƒ“æ‚ªƒvƒ[ƒu‚Ì’†ŠÔ‚É—‚¿‚é‚½‚Ñ‚É—š—ğ‚ª
-                        // Šü‹p‚³‚ê (alpha = 1)A64 ƒŒƒC‚Ì¶„’è‚ªo‚ÄŒƒ‚µ‚­–¾–Å‚·‚éB
-                        // u‘Oƒvƒ[ƒu‚ÌÚ•½–Ê‚©‚ç‚Ì‹——£v‚È‚ç“¯ˆê–Ê‚Í“®‚¢‚Ä‚à 0B
+                        // å‰ãƒ•ãƒ¬ãƒ¼ãƒ ã®ãƒ—ãƒ­ãƒ¼ãƒ–ä½ç½®ã‚’å†æ§‹ç¯‰:
+                        //   å‰ã‚¢ãƒ³ã‚«ãƒ¼ãƒ”ã‚¯ã‚»ãƒ«ã®è¦–ç·šæ–¹å‘ (PrevInvViewProjection)
+                        //   x å‰ã‚«ãƒ¡ãƒ©ã‹ã‚‰ã®è·é›¢ (Aux.y)
+                        // è·é›¢å·®ã ã‘ã§æ¤œè¨¼ã™ã‚‹ã¨ã€æ–œã‚ã‹ã‚‰è¦‹ãŸåºŠã§ã¯éš£ã®ãƒ—ãƒ­ãƒ¼ãƒ–
+                        // (16px) ã§è¦–è·é›¢ãŒ 10% ä»¥ä¸Šå¤‰ã‚ã‚‹ãŸã‚ã€ã‚«ãƒ¡ãƒ©ã‚’å‹•ã‹ã—ã¦
+                        // ãƒªãƒ—ãƒ­ã‚¸ã‚§ã‚¯ã‚·ãƒ§ãƒ³å…ˆãŒãƒ—ãƒ­ãƒ¼ãƒ–ã®ä¸­é–“ã«è½ã¡ã‚‹ãŸã³ã«å±¥æ­´ãŒ
+                        // æ£„å´ã•ã‚Œ (alpha = 1)ã€64 ãƒ¬ã‚¤ã®ç”Ÿæ¨å®šãŒå‡ºã¦æ¿€ã—ãæ˜æ»…ã™ã‚‹ã€‚
+                        // ã€Œå‰ãƒ—ãƒ­ãƒ¼ãƒ–ã®æ¥å¹³é¢ã‹ã‚‰ã®è·é›¢ã€ãªã‚‰åŒä¸€é¢ã¯å‹•ã„ã¦ã‚‚ 0ã€‚
                         uint2 prevAnchor = LumenGetPrevProbeAnchor((uint2) tap);
                         float2 prevAnchorUV = ((float2) prevAnchor + 0.5f) / PassProbeParams1.xy;
                         float4 prevAnchorNDC = float4(
@@ -178,20 +174,20 @@ void main(uint3 DTid : SV_DispatchThreadID)
                             abs(dot(toCurrent, probeNormal)));
                         if (planeDist > max(0.05f * expectedPrevDist, 0.02f))
                         {
-                            continue; // •Ê•¨‘Ì (ƒfƒBƒXƒIƒNƒ‹[ƒWƒ‡ƒ“)
+                            continue; // åˆ¥ç‰©ä½“ (ãƒ‡ã‚£ã‚¹ã‚ªã‚¯ãƒ«ãƒ¼ã‚¸ãƒ§ãƒ³)
                         }
 
-                        // ‘e‚¢‹——£ŒŸØ (•½–Ê‚ª‹ô‘R‘µ‚¤‰“‚­‚Ì•Ê•¨‘Ì‚ğœŠO)
+                        // ç²—ã„è·é›¢æ¤œè¨¼ (å¹³é¢ãŒå¶ç„¶æƒã†é ãã®åˆ¥ç‰©ä½“ã‚’é™¤å¤–)
                         if (abs(prevAux.y - expectedPrevDist) > max(0.3f * expectedPrevDist, 0.1f))
                         {
                             continue;
                         }
 
-                        // ‘OƒtƒŒ[ƒ€‚Ìƒvƒ[ƒu–@ü‚Å–Êˆê’v‚ğŒŸØ
-                        // (•½–Ê‹——£‚ª‹ß‚¢‚¾‚¯‚Ì•Ê–Ê = Šp‚ÌŒü‚±‚¤‘¤‚ğ’e‚­)B
-                        // ‹È–Ê (’¤‘œ‚È‚Ç) ‚Å‚Í 16px ‚Å–@ü‚ª‘å‚«‚­‰ñ‚é‚½‚ß
-                        // 60 “x‚Ü‚Å‹–—e‚·‚é (Œµ‚µ‚·‚¬‚é‚Æ“®‚©‚µ‚½‚¾‚¯—š—ğ‚ª
-                        // —‚¿‚Ä‹È–Ê‚ª–¾–Å‚·‚éBc‚è‚Íƒtƒ‹‰ğ‘œ“x‘¤‚Ì’~Ï‚ª‹zû)
+                        // å‰ãƒ•ãƒ¬ãƒ¼ãƒ ã®ãƒ—ãƒ­ãƒ¼ãƒ–æ³•ç·šã§é¢ä¸€è‡´ã‚’æ¤œè¨¼
+                        // (å¹³é¢è·é›¢ãŒè¿‘ã„ã ã‘ã®åˆ¥é¢ = è§’ã®å‘ã“ã†å´ã‚’å¼¾ã)ã€‚
+                        // æ›²é¢ (å½«åƒãªã©) ã§ã¯ 16px ã§æ³•ç·šãŒå¤§ããå›ã‚‹ãŸã‚
+                        // 60 åº¦ã¾ã§è¨±å®¹ã™ã‚‹ (å³ã—ã™ãã‚‹ã¨å‹•ã‹ã—ãŸæ™‚ã ã‘å±¥æ­´ãŒ
+                        // è½ã¡ã¦æ›²é¢ãŒæ˜æ»…ã™ã‚‹ã€‚æ®‹ã‚Šã¯ãƒ•ãƒ«è§£åƒåº¦å´ã®è“„ç©ãŒå¸å)
                         if (dot(prevNormal, probeNormal) < 0.5f)
                         {
                             continue;
@@ -212,7 +208,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
                     }
                 }
 
-                // —LŒøƒ^ƒbƒv‚Ì‡Œvd‚İ‚ª¬‚³‚·‚¬‚é (‚Ù‚Ú•Ê•¨‘Ì) ê‡‚Í—š—ğ‚ğÌ‚Ä‚é
+                // æœ‰åŠ¹ã‚¿ãƒƒãƒ—ã®åˆè¨ˆé‡ã¿ãŒå°ã•ã™ãã‚‹ (ã»ã¼åˆ¥ç‰©ä½“) å ´åˆã¯å±¥æ­´ã‚’æ¨ã¦ã‚‹
                 if (histWeight > 0.05f)
                 {
                     float invHist = 1.0f / histWeight;
@@ -221,7 +217,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
                     histB *= invHist;
                     histSky *= invHist;
 
-                    alpha = PassProbeParams1.z; // ƒeƒ“ƒ|ƒ‰ƒ‹ƒuƒŒƒ“ƒh—¦
+                    alpha = PassProbeParams1.z; // ãƒ†ãƒ³ãƒãƒ©ãƒ«ãƒ–ãƒ¬ãƒ³ãƒ‰ç‡
 
                     shR = lerp(histR, shR, alpha);
                     shG = lerp(histG, shG, alpha);
@@ -236,7 +232,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     RWSHG[probe] = shG;
     RWSHB[probe] = shB;
 
-    // y  = Œ»ƒtƒŒ[ƒ€ƒJƒƒ‰‚©‚ç‚Ì‹——£ (ŸƒtƒŒ[ƒ€‚ÌƒŠƒvƒƒWƒFƒNƒVƒ‡ƒ“ŒŸØ—p)
-    // zw = ƒvƒ[ƒu–@ü (octahedral, ŸƒtƒŒ[ƒ€‚Ì–Êˆê’vŒŸØ—p)
+    // y  = ç¾ãƒ•ãƒ¬ãƒ¼ãƒ ã‚«ãƒ¡ãƒ©ã‹ã‚‰ã®è·é›¢ (æ¬¡ãƒ•ãƒ¬ãƒ¼ãƒ ã®ãƒªãƒ—ãƒ­ã‚¸ã‚§ã‚¯ã‚·ãƒ§ãƒ³æ¤œè¨¼ç”¨)
+    // zw = ãƒ—ãƒ­ãƒ¼ãƒ–æ³•ç·š (octahedral, æ¬¡ãƒ•ãƒ¬ãƒ¼ãƒ ã®é¢ä¸€è‡´æ¤œè¨¼ç”¨)
     RWAux[probe] = float4(skyVisibility, probeGeo.w, LumenDirectionToOctahedron(probeNormal));
 }

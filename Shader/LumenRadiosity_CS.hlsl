@@ -1,39 +1,29 @@
 #include "LumenSceneLightingCommon.hlsl"
+#include "LumenProbeCommon.hlsl"
 
 // =============================================================
 //  LumenRadiosity_CS
-//  LumenRadiosity.usf ‘Š“–BSurface Cache ‚ÌŠeƒJ[ƒhƒeƒNƒZƒ‹‚©‚ç
-//  ”¼‹…ƒRƒTƒCƒ“•ª•z‚ÌƒŒƒC‚ğ SDF ƒgƒŒ[ƒX‚µAƒqƒbƒgæ‚Ì
-//  FinalLighting (‘OƒtƒŒ[ƒ€) ‚ğÌŒõ‚µ‚ÄŠÔÚƒCƒ‰ƒfƒBƒAƒ“ƒX‚ğ
-//  IndirectLightingAtlas (u1) ‚Ö‘‚­B
+//  LumenRadiosity.usf ç›¸å½“ã€‚Surface Cache ã®å„ã‚«ãƒ¼ãƒ‰ãƒ†ã‚¯ã‚»ãƒ«ã‹ã‚‰
+//  åŠçƒã‚³ã‚µã‚¤ãƒ³åˆ†å¸ƒã®ãƒ¬ã‚¤ã‚’ SDF ãƒˆãƒ¬ãƒ¼ã‚¹ã—ã€ãƒ’ãƒƒãƒˆå…ˆã®
+//  FinalLighting (å‰ãƒ•ãƒ¬ãƒ¼ãƒ ) ã‚’æ¡å…‰ã—ã¦é–“æ¥ã‚¤ãƒ©ãƒ‡ã‚£ã‚¢ãƒ³ã‚¹ã‚’
+//  IndirectLightingAtlas (u1) ã¸æ›¸ãã€‚
 //
-//  FinalLighting ‚É‚Í Emissive ‚ª‡¬Ï‚İ‚Ì‚½‚ßA”­Œõ–Ê‚ÌŒõ‚Í
-//  ‚±‚±‚Å•Ç–Ê‚Ö‰ñ‚è‚Ş (= ƒGƒ~ƒbƒVƒu‚ÌŠÔÚÆ–¾)B‚³‚ç‚É
-//  FinalLighting ©‘Ì‚ª (’¼Ú + ŠÔÚ) ‚©‚çì‚ç‚ê‚é‚½‚ßAƒtƒŒ[ƒ€‚ğ
-//  Œ×‚¢‚¾ƒtƒB[ƒhƒoƒbƒN‚Å‘½ƒoƒEƒ“ƒX‚ª’~Ï‚³‚ê‚éB
-//  ƒ~ƒX‚ÍƒXƒJƒC (IBL irradiance) ‚ğÌŒõ‚·‚éB
+//  FinalLighting ã«ã¯ Emissive ãŒåˆæˆæ¸ˆã¿ã®ãŸã‚ã€ç™ºå…‰é¢ã®å…‰ã¯
+//  ã“ã“ã§å£é¢ã¸å›ã‚Šè¾¼ã‚€ (= ã‚¨ãƒŸãƒƒã‚·ãƒ–ã®é–“æ¥ç…§æ˜)ã€‚ã•ã‚‰ã«
+//  FinalLighting è‡ªä½“ãŒ (ç›´æ¥ + é–“æ¥) ã‹ã‚‰ä½œã‚‰ã‚Œã‚‹ãŸã‚ã€ãƒ•ãƒ¬ãƒ¼ãƒ ã‚’
+//  è·¨ã„ã ãƒ•ã‚£ãƒ¼ãƒ‰ãƒãƒƒã‚¯ã§å¤šãƒã‚¦ãƒ³ã‚¹ãŒè“„ç©ã•ã‚Œã‚‹ã€‚
+//  ãƒŸã‚¹æ™‚ã¯ã‚¹ã‚«ã‚¤ (prefilter ç’°å¢ƒã‚­ãƒ¥ãƒ¼ãƒ–, ãƒŸãƒƒãƒ— = PassRCParams1.w) ã‚’æ¡å…‰ã™ã‚‹ã€‚
 //
-//  XV‚ÍƒtƒŒ[ƒ€—\Z§ (CardStartIndex ‚©‚ç NumCardsToProcess –‡)B
+//  æ›´æ–°ã¯ãƒ•ãƒ¬ãƒ¼ãƒ äºˆç®—åˆ¶ (CardStartIndex ã‹ã‚‰ NumCardsToProcess æš)ã€‚
 //
-//  ƒeƒ“ƒ|ƒ‰ƒ‹’~Ï: 1 ƒeƒNƒZƒ‹‚ ‚½‚è”–{‚ÌƒŒƒC‚ğ ~6 ƒtƒŒ[ƒ€‚²‚Æ‚É
-//  ·‚µ‘Ö‚¦‚é‚¾‚¯‚¾‚ÆA”­Œõ–Ê‚Ì‹ß‚­‚Å‚ÍuƒŒƒC‚ª“–‚½‚Á‚½ / ŠO‚ê‚½v‚Å
-//  „’è‚ª‘å‚«‚­—h‚êAFinalLighting -> ƒXƒNƒŠ[ƒ“ƒvƒ[ƒuŒo—R‚Å‰æ–Ê‚Ì
-//  –¾•”‚ªƒvƒ‹ƒvƒ‹k‚¦‚éB‘O‰ñ‚Ì’l (u1 ‚Ì©•ª©g) ‚Æ
-//  PassRadiosityParams.x ‚ÅƒuƒŒƒ“ƒh‚µ‚Ä•ªU‚ğ—}‚¦‚é
-//  (Radiosity ƒeƒ“ƒ|ƒ‰ƒ‹’~Ï‘Š“–Ba = —š—ğ—LŒøƒ}[ƒJ[)B
+//  ãƒ†ãƒ³ãƒãƒ©ãƒ«è“„ç©: 1 ãƒ†ã‚¯ã‚»ãƒ«ã‚ãŸã‚Šæ•°æœ¬ã®ãƒ¬ã‚¤ã‚’ ~6 ãƒ•ãƒ¬ãƒ¼ãƒ ã”ã¨ã«
+//  å·®ã—æ›¿ãˆã‚‹ã ã‘ã ã¨ã€ç™ºå…‰é¢ã®è¿‘ãã§ã¯ã€Œãƒ¬ã‚¤ãŒå½“ãŸã£ãŸ / å¤–ã‚ŒãŸã€ã§
+//  æ¨å®šãŒå¤§ããæºã‚Œã€FinalLighting -> ã‚¹ã‚¯ãƒªãƒ¼ãƒ³ãƒ—ãƒ­ãƒ¼ãƒ–çµŒç”±ã§ç”»é¢ã®
+//  æ˜éƒ¨ãŒãƒ—ãƒ«ãƒ—ãƒ«éœ‡ãˆã‚‹ã€‚å‰å›ã®å€¤ (u1 ã®è‡ªåˆ†è‡ªèº«) ã¨
+//  PassRadiosityParams.x ã§ãƒ–ãƒ¬ãƒ³ãƒ‰ã—ã¦åˆ†æ•£ã‚’æŠ‘ãˆã‚‹
+//  (Radiosity ãƒ†ãƒ³ãƒãƒ©ãƒ«è“„ç©ç›¸å½“ã€‚a = å±¥æ­´æœ‰åŠ¹ãƒãƒ¼ã‚«ãƒ¼)ã€‚
 //  Dispatch: (CARD_RES/8, CARD_RES/8, NumCardsToProcess)
 // =============================================================
-
-// Wang ƒnƒbƒVƒ… (ƒeƒNƒZƒ‹ / ƒtƒŒ[ƒ€‚²‚Æ‚ÌƒŒƒC‰ñ“]—p)
-uint LumenWangHash(uint seed)
-{
-    seed = (seed ^ 61u) ^ (seed >> 16);
-    seed *= 9u;
-    seed = seed ^ (seed >> 4);
-    seed *= 0x27d4eb2du;
-    seed = seed ^ (seed >> 15);
-    return seed;
-}
 
 [numthreads(8, 8, 1)]
 void main(uint3 GroupID : SV_GroupID, uint3 GroupThreadID : SV_GroupThreadID)
@@ -45,8 +35,8 @@ void main(uint3 GroupID : SV_GroupID, uint3 GroupThreadID : SV_GroupThreadID)
 
     if (card.CardExtentAndValid.w < 0.5f)
     {
-        // –³ŒøƒJ[ƒh: ƒ^ƒCƒ‹‚ğƒ[ƒ‚ÅŠm’è‚³‚¹‚é (–¢‰Šú‰»’l‚Ì¬“ü–h~B
-        // a = 0 ‚Å—š—ğ‚à–³Œø‰» -> Ä—LŒø‰»‚Í’~Ï‚È‚µ‚Å‘‚«’¼‚·)
+        // ç„¡åŠ¹ã‚«ãƒ¼ãƒ‰: ã‚¿ã‚¤ãƒ«ã‚’ã‚¼ãƒ­ã§ç¢ºå®šã•ã›ã‚‹ (æœªåˆæœŸåŒ–å€¤ã®æ··å…¥é˜²æ­¢ã€‚
+        // a = 0 ã§å±¥æ­´ã‚‚ç„¡åŠ¹åŒ– -> å†æœ‰åŠ¹åŒ–æ™‚ã¯è“„ç©ãªã—ã§æ›¸ãç›´ã™)
         RWIndirectLighting[GetLumenCardTileOrigin(cardIndex) + texelInCard] =
             float4(0.0f, 0.0f, 0.0f, 0.0f);
         return;
@@ -64,15 +54,15 @@ void main(uint3 GroupID : SV_GroupID, uint3 GroupThreadID : SV_GroupThreadID)
     const float maxTrace = PassTraceParams.x;
     const float surfaceBias = PassTraceParams.y;
 
-    // ”¼‹…‚ğ numRays ŒÂ‚ÌƒR[ƒ“‚Å•ªŠ„‚µ‚½‚Æ‚«‚ÌƒR[ƒ“”¼Šp tan
-    // (—§‘ÌŠp 2pi/numRays -> cos = 1 - 1/numRays)
+    // åŠçƒã‚’ numRays å€‹ã®ã‚³ãƒ¼ãƒ³ã§åˆ†å‰²ã—ãŸã¨ãã®ã‚³ãƒ¼ãƒ³åŠè§’ tan
+    // (ç«‹ä½“è§’ 2pi/numRays -> cos = 1 - 1/numRays)
     const float coneCos = saturate(1.0f - 1.0f / (float) numRays);
     const float coneTan = sqrt(saturate(1.0f - coneCos * coneCos)) / max(coneCos, 0.1f);
 
-    // ƒeƒNƒZƒ‹ + ƒtƒŒ[ƒ€‚ÅƒŒƒC•ûˆÊ‚ğ‰ñ“] (ŠÔ•ûŒü‚ÌƒTƒ“ƒvƒ‹•ªU)
+    // ãƒ†ã‚¯ã‚»ãƒ« + ãƒ•ãƒ¬ãƒ¼ãƒ ã§ãƒ¬ã‚¤æ–¹ä½ã‚’å›è»¢ (æ™‚é–“æ–¹å‘ã®ã‚µãƒ³ãƒ—ãƒ«åˆ†æ•£)
     uint seed = texel.AtlasTexel.x | (texel.AtlasTexel.y << 16);
-    seed = LumenWangHash(seed + (uint) PassAtlasParams.w * 0x9E3779B9u);
-    const float randomRotation = (float) (seed & 0xFFFFu) / 65536.0f * (2.0f * LUMEN_PI);
+    seed = LumenHashUint(seed + (uint) PassAtlasParams.w * 0x9E3779B9u);
+    const float randomRotation = LumenHashToFloat01(seed) * (2.0f * LUMEN_PI);
 
     const float3 rayStart = texel.WorldPosition + texel.WorldNormal * surfaceBias;
 
@@ -83,28 +73,28 @@ void main(uint3 GroupID : SV_GroupID, uint3 GroupThreadID : SV_GroupThreadID)
     {
         float3 rayDir = GetLumenHemisphereRay(texel.WorldNormal, r, numRays, randomRotation);
 
-        // ƒnƒCƒuƒŠƒbƒh (‹ß‹——£: ƒƒbƒVƒ… SDF / ‰“‹——£: Global SDF) ‚Ü‚½‚Í
-        // HWRT (RayQuery)Bƒqƒbƒg = ‘OƒtƒŒ[ƒ€ FinalLighting (Emissive
-        // ‡¬Ï‚İ) ‚ÌÌŒõAƒ~ƒX = prefilter ŠÂ‹«ƒXƒJƒCB
+        // ãƒã‚¤ãƒ–ãƒªãƒƒãƒ‰ (è¿‘è·é›¢: ãƒ¡ãƒƒã‚·ãƒ¥ SDF / é è·é›¢: Global SDF) ã¾ãŸã¯
+        // HWRT (RayQuery)ã€‚ãƒ’ãƒƒãƒˆ = å‰ãƒ•ãƒ¬ãƒ¼ãƒ  FinalLighting (Emissive
+        // åˆæˆæ¸ˆã¿) ã®æ¡å…‰ã€ãƒŸã‚¹ = prefilter ç’°å¢ƒã‚¹ã‚«ã‚¤ã€‚
         FLumenTraceResult trace = TraceLumenRay(
             rayStart, rayDir, maxTrace, coneTan, PassNumLumenObjects);
 
         radianceSum += ResolveLumenRayRadiance(trace, rayStart, rayDir, PassRCParams1.w);
     }
 
-    // ƒRƒTƒCƒ“d“_ƒTƒ“ƒvƒ‹‚Ì irradiance „’è: E = pi * mean(L)
+    // ã‚³ã‚µã‚¤ãƒ³é‡ç‚¹ã‚µãƒ³ãƒ—ãƒ«ã® irradiance æ¨å®š: E = pi * mean(L)
     float3 indirectIrradiance = radianceSum * (LUMEN_PI / (float) numRays);
 
-    // ---- ƒeƒ“ƒ|ƒ‰ƒ‹’~Ï (‘O‰ñ‚Ì©•ª©g‚ÆƒuƒŒƒ“ƒh) ----
-    // alpha >= 1 (C++ ‘¤‚ÅŒ^•t‚« UAV ƒ[ƒh”ñ‘Î‰ or ’~Ï OFF) ‚Ì‚Æ‚«‚Í
-    // UAV ‚ğ“Ç‚Ü‚¸‚É’u‚«Š·‚¦‚é‚¾‚¯
+    // ---- ãƒ†ãƒ³ãƒãƒ©ãƒ«è“„ç© (å‰å›ã®è‡ªåˆ†è‡ªèº«ã¨ãƒ–ãƒ¬ãƒ³ãƒ‰) ----
+    // alpha >= 1 (C++ å´ã§å‹ä»˜ã UAV ãƒ­ãƒ¼ãƒ‰éå¯¾å¿œ or è“„ç© OFF) ã®ã¨ãã¯
+    // UAV ã‚’èª­ã¾ãšã«ç½®ãæ›ãˆã‚‹ã ã‘
     const float temporalAlpha = PassRadiosityParams.x;
 
     [branch]
     if (temporalAlpha < 1.0f)
     {
         float4 prev = RWIndirectLighting[texel.AtlasTexel];
-        if (prev.a > 0.5f) // —š—ğ—LŒø (–³ŒøƒJ[ƒh / ‹N“®’¼Œã‚Ì 0 ‚Í’~Ï‚µ‚È‚¢)
+        if (prev.a > 0.5f) // å±¥æ­´æœ‰åŠ¹ (ç„¡åŠ¹ã‚«ãƒ¼ãƒ‰ / èµ·å‹•ç›´å¾Œã® 0 ã¯è“„ç©ã—ãªã„)
         {
             indirectIrradiance = lerp(prev.rgb, indirectIrradiance, temporalAlpha);
         }

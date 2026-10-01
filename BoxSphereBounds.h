@@ -12,7 +12,7 @@ using namespace DirectX;
 //
 //  データフロー (一方向):
 //    USceneComponent::CalcBounds (ローカル境界 -> ワールド変換)
-//      -> UPrimitiveComponent::UpdateBounds (m_Bounds 更新)
+//      -> USceneComponent::UpdateBounds (m_Bounds 更新)
 //      -> SendRenderTransform (FPrimitiveSceneProxy::SetTransform)
 //      -> FSceneRenderer::ComputeViewVisibility (フラスタム判定)
 // ============================================================

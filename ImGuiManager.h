@@ -15,12 +15,14 @@ public:
 		// バー非表示中でも各ウィンドウの表示状態 (bShow*) は保持される。
 		bool  bShowMainMenuBar = true;
 
-		// Edit  : シーン編集用パネル (Outliner + Details を 1 ウィンドウに統合)
-		// Debug : レンダラのデバッグ表示 (G-Buffer / Light Grid / Lumen / Culling)
+		// Edit     : シーン編集用パネル (Outliner + Details を 1 ウィンドウに統合)
+		// Settings : Lumen / Anti-Aliasing
+		// Debug    : レンダラのデバッグ表示 (G-Buffer / Light Grid / Culling。Show/Hide All は Lumen / Anti-Aliasing も含む)
 		bool  bShowOutliner = true;
 		bool  bShowGBuffer = true;
 		bool  bShowLightGrid = true;
 		bool  bShowLumen = true;
+		bool  bShowAntiAliasing = false;
 		bool  bShowCulling = true;
 
 		// ウィンドウ内容領域に対する Outliner ペインの高さ比 (0..1)
@@ -31,7 +33,6 @@ private:
 	class FSceneRenderer* m_SceneRenderer = nullptr;
 
 	class UWorld* m_World = nullptr;
-	class APostProcessVolume* m_PostProcess = nullptr;
 	class ColorGradingLUTBaker* m_LUTBaker = nullptr;
 	class AutoExposure* m_AutoExposure = nullptr;
 	class SettingsManager* m_Settings = nullptr;
@@ -53,7 +54,19 @@ private:
 	void BufferWindow();
 	void LightGridWindow();
 	void LumenWindow();
+	void AntiAliasingWindow();           // Settings > Anti-Aliasing (r.AntiAliasingMethod / r.ScreenPercentage / r.TemporalAA.* ...)
 	void CullingWindow();
+
+	// ---- Anti-Aliasing ウィンドウの状態 ----
+	// Screen Percentage / History Screen Percentage はローカルコピーを編集し、
+	// ドラッグ終了 (IsItemDeactivatedAfterEdit) で確定する (1 回のドラッグで再確保 1 回)
+	float  m_EditScreenPercentage = 100.0f;
+	bool   m_bEditingScreenPercentage = false;
+	float  m_EditHistoryScreenPercentage = 100.0f;
+	bool   m_bEditingHistoryScreenPercentage = false;
+	// VRAM 使用量 (QueryVideoMemoryInfo) は 1 秒に 1 回だけ問い合わせる
+	double m_LastVRAMQueryTime = -1.0;
+	unsigned long long m_LastVRAMUsage = 0;
 	// ---- Outliner / Details 統合ウィンドウ ----
 	// 上段 = Outliner (アクター一覧)、下段 = Details (選択アクターのプロパティ)。
 	// 中央のスプリッタをドラッグして上下の比率を変更できる (m_Layout.OutlinerSplitRatio)。
@@ -77,7 +90,7 @@ private:
 	void DrawPostProcessVolumeSection(class APostProcessVolume* Volume);
 	void DrawViewportControlsSection(class ACameraActor* Camera);
 
-	// ライト共通プロパティ (Lights ウィンドウと Details で共用)
+	// ライト共通プロパティ (Details の "Light" セクション)
 	void DrawLightComponentSection(class ULightComponent* Light);
 
 	// Exponential Height Fog (UExponentialHeightFogComponent の全プロパティ +
@@ -90,9 +103,6 @@ private:
 	bool DrawMaterialEditor(class Material& Mat);
 
 public:
-	ImGuiManager();
-	~ImGuiManager() = default;
-
 	void Start();
 	void Draw();
 

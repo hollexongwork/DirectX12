@@ -53,20 +53,21 @@ private:
 
 public:
 	explicit IBLBaker(RenderManager* owner);
-	~IBLBaker();
 
 	void Init();                          // ルートシグネチャ・PSO・リソース生成
 	void Bake(ID3D12Resource* EquirectResource, unsigned int equirectSRVIndex); // 起動時に一度だけ全ベイク
 	void BindTextures();                  // Deferred パスで t6,t7,t8 をバインド
 
-	// Lumen Radiosity のスカイ項用 (irradiance キューブの SRV インデックス)
+	// irradiance キューブの SRV インデックス。ボリューメトリックフォグのスカイ項用。
+	// Lumen にも t11 (LumenSkyIrradiance) としてバインドするが、現状どの Lumen シェーダーも
+	// サンプルしていない (将来のスカイライティング用に予約)。
 	unsigned int GetIrradianceSRVIndex() const { return m_IrradianceCube.SRVIndex; }
 
 	// Lumen のスカイラディアンス / 反射ミス用 (prefilter キューブ。
 	// ミップ = roughness * PREFILTER_MAX_MIP で IBL と同一の写像)
 	unsigned int GetPrefilterSRVIndex() const { return m_PrefilterCube.SRVIndex; }
 
-	// 設定値（HLSL の PREFILTER_MAX_MIP と整合させること）
+	// 設定値（HLSL の PREFILTER_MAX_MIP (PBR_Utility.hlsl) / PREFILTER_MAX_MIP_F (LumenReflections_CS.hlsl) と整合させること）
 	static const unsigned int ENV_CUBE_SIZE = 512;
 	static const unsigned int IRRADIANCE_SIZE = 32;
 	static const unsigned int PREFILTER_SIZE = 128;

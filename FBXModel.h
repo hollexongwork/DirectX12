@@ -1,10 +1,8 @@
 #pragma once
 
 #include "assimp/Importer.hpp"
-#include "assimp/cimport.h"
 #include "assimp/scene.h"
 #include "assimp/postprocess.h"
-#include "assimp/matrix4x4.h"
 #pragma comment (lib, "assimp-vc143-mt.lib")
 
 #include <string>
@@ -57,7 +55,6 @@ private:
 
 	// ---- DXR BLAS ----
 	ComPtr<ID3D12Resource> m_BLAS;
-	bool                   m_bBLASBuilt = false;
 
 public:
 	FBXModel() = default;
@@ -83,7 +80,7 @@ public:
 	// Load 末尾で一度だけ構築される (DXR 非対応環境では何もしない)。
 	// Lumen の HWRT トレースが TLAS のインスタンスとして参照する
 	// (LumenHardwareRayTracing.h)。
-	bool HasBLAS() const { return m_bBLASBuilt; }
+	bool HasBLAS() const { return m_BLAS != nullptr; }
 	D3D12_GPU_VIRTUAL_ADDRESS GetBLASAddress() const
 	{
 		return m_BLAS ? m_BLAS->GetGPUVirtualAddress() : 0;

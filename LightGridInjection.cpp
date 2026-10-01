@@ -95,19 +95,49 @@ void FLightGridInjection::FillForwardLightData(FORWARD_LIGHT_CONSTANT& Out, floa
 	Out.bUseLightGrid = m_Params.bUseLightGrid ? 1u : 0u;
 }
 
-void FLightGridInjection::Init()
+void FLightGridInjection::SetViewSize(unsigned int Width, unsigned int Height)
 {
-	// ------------------------------------------------------------
-	//  グリッド次元 (バックバッファサイズから確定)
-	// ------------------------------------------------------------
-	unsigned int width = (unsigned int)m_Owner->GetBackBufferWidth();
-	unsigned int height = (unsigned int)m_Owner->GetBackBufferHeight();
-	m_GridSizeX = (width + LIGHT_GRID_PIXEL_SIZE - 1) / LIGHT_GRID_PIXEL_SIZE;
-	m_GridSizeY = (height + LIGHT_GRID_PIXEL_SIZE - 1) / LIGHT_GRID_PIXEL_SIZE;
+	Width = (Width < 1u) ? 1u : Width;
+	Height = (Height < 1u) ? 1u : Height;
+
+	unsigned int gridX = (Width + LIGHT_GRID_PIXEL_SIZE - 1) / LIGHT_GRID_PIXEL_SIZE;
+	unsigned int gridY = (Height + LIGHT_GRID_PIXEL_SIZE - 1) / LIGHT_GRID_PIXEL_SIZE;
+
+	// 容量超過は設計上起きない (R <= 2 x O)。Release では容量へ丸めて範囲外書き込みを防ぐ
+	assert(gridX <= m_CapacityGridX && gridY <= m_CapacityGridY && "FLightGridInjection::SetViewSize exceeds capacity");
+	if (gridX > m_CapacityGridX || gridY > m_CapacityGridY)
+	{
+		OutputDebugStringA("[LightGrid] SetViewSize exceeds the allocated capacity; clamped\n");
+		gridX = (gridX > m_CapacityGridX) ? m_CapacityGridX : gridX;
+		gridY = (gridY > m_CapacityGridY) ? m_CapacityGridY : gridY;
+	}
+
+	m_ViewWidth = Width;
+	m_ViewHeight = Height;
+	m_GridSizeX = gridX;
+	m_GridSizeY = gridY;
 	m_GridSizeZ = LIGHT_GRID_SIZE_Z;
 	m_NumCells = m_GridSizeX * m_GridSizeY * m_GridSizeZ;
+}
 
-	const unsigned int maxLinks = m_NumCells * MAX_CULLED_LIGHTS_PER_CELL;
+void FLightGridInjection::Init(unsigned int CapacityWidth, unsigned int CapacityHeight)
+{
+	// ------------------------------------------------------------
+	//  容量 (CapacityWidth x CapacityHeight のスクリーン分のセル)。
+	//  全バッファはこの容量で一度だけ確保し、フレーム毎の次元は SetViewSize が決める
+	//  (1080p 出力 x 2 = 3840x2160 -> 60 x 34 x 32 = 65280 セル)
+	// ------------------------------------------------------------
+	CapacityWidth = (CapacityWidth < 1u) ? 1u : CapacityWidth;
+	CapacityHeight = (CapacityHeight < 1u) ? 1u : CapacityHeight;
+	m_CapacityGridX = (CapacityWidth + LIGHT_GRID_PIXEL_SIZE - 1) / LIGHT_GRID_PIXEL_SIZE;
+	m_CapacityGridY = (CapacityHeight + LIGHT_GRID_PIXEL_SIZE - 1) / LIGHT_GRID_PIXEL_SIZE;
+	m_CapacityCells = m_CapacityGridX * m_CapacityGridY * LIGHT_GRID_SIZE_Z;
+
+	// 次元の既定値は容量いっぱい (呼び出し側が直後に SetViewSize で今フレームの値を入れる)
+	SetViewSize(CapacityWidth, CapacityHeight);
+
+	const unsigned int capacityCells = m_CapacityCells;
+	const unsigned int maxLinks = capacityCells * MAX_CULLED_LIGHTS_PER_CELL;
 
 	// ------------------------------------------------------------
 	//  コンピュートルートシグネチャ (グラフィックス RS から独立):
@@ -233,34 +263,35 @@ void FLightGridInjection::Init()
 	// ------------------------------------------------------------
 	//  中間バッファ (常時 UNORDERED_ACCESS)
 	// ------------------------------------------------------------
-	m_StartOffsetGrid = createUAVBuffer((UINT64)m_NumCells * sizeof(unsigned int), L"LightGridStartOffset");
-	m_StartOffsetUAVIndex = createStructuredUAV(m_StartOffsetGrid.Get(), m_NumCells, sizeof(unsigned int));
+	m_StartOffsetGrid = createUAVBuffer((UINT64)capacityCells * sizeof(unsigned int), L"LightGridStartOffset");
+	m_StartOffsetUAVIndex = createStructuredUAV(m_StartOffsetGrid.Get(), capacityCells, sizeof(unsigned int));
 
 	m_CulledLightLinks = createUAVBuffer((UINT64)maxLinks * 8, L"LightGridCulledLightLinks");
 	m_LinksUAVIndex = createStructuredUAV(m_CulledLightLinks.Get(), maxLinks, 8); // uint2
 
 	m_Allocator = createUAVBuffer(2 * sizeof(unsigned int), L"LightGridAllocator");
-	{
-		// Raw (ByteAddress) UAV。InterlockedAdd で 2 つのカウンタを回す
-		m_AllocatorUAVIndex = m_Owner->AllocateDescriptor();
-		D3D12_UNORDERED_ACCESS_VIEW_DESC uav{};
-		uav.Format = DXGI_FORMAT_R32_TYPELESS;
-		uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
-		uav.Buffer.FirstElement = 0;
-		uav.Buffer.NumElements = 2;
-		uav.Buffer.StructureByteStride = 0;
-		uav.Buffer.CounterOffsetInBytes = 0;
-		uav.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
-		Device()->CreateUnorderedAccessView(m_Allocator.Get(), nullptr, &uav,
-			m_Owner->GetCPUDescriptorHandle(m_AllocatorUAVIndex));
-	}
+
+	// Raw (ByteAddress) UAV。InterlockedAdd で 2 つのカウンタを回す
+	// (shader-visible 側と下の CPU 専用クリアヒープ側の 2 つのビューを、この同じ desc から作る)
+	D3D12_UNORDERED_ACCESS_VIEW_DESC allocatorUAVDesc{};
+	allocatorUAVDesc.Format = DXGI_FORMAT_R32_TYPELESS;
+	allocatorUAVDesc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+	allocatorUAVDesc.Buffer.FirstElement = 0;
+	allocatorUAVDesc.Buffer.NumElements = 2;
+	allocatorUAVDesc.Buffer.StructureByteStride = 0;
+	allocatorUAVDesc.Buffer.CounterOffsetInBytes = 0;
+	allocatorUAVDesc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+
+	m_AllocatorUAVIndex = m_Owner->AllocateDescriptor();
+	Device()->CreateUnorderedAccessView(m_Allocator.Get(), nullptr, &allocatorUAVDesc,
+		m_Owner->GetCPUDescriptorHandle(m_AllocatorUAVIndex));
 
 	// ------------------------------------------------------------
 	//  出力バッファ (デファードパスが t19/t20 で読む)
 	// ------------------------------------------------------------
-	m_NumCulledLightsGrid = createUAVBuffer((UINT64)m_NumCells * 2 * sizeof(unsigned int), L"LightGridNumCulledLights");
-	m_NumCulledUAVIndex = createStructuredUAV(m_NumCulledLightsGrid.Get(), m_NumCells * 2, sizeof(unsigned int));
-	m_NumCulledSRVIndex = createStructuredSRV(m_NumCulledLightsGrid.Get(), m_NumCells * 2, sizeof(unsigned int));
+	m_NumCulledLightsGrid = createUAVBuffer((UINT64)capacityCells * 2 * sizeof(unsigned int), L"LightGridNumCulledLights");
+	m_NumCulledUAVIndex = createStructuredUAV(m_NumCulledLightsGrid.Get(), capacityCells * 2, sizeof(unsigned int));
+	m_NumCulledSRVIndex = createStructuredSRV(m_NumCulledLightsGrid.Get(), capacityCells * 2, sizeof(unsigned int));
 
 	m_CulledLightDataGrid = createUAVBuffer((UINT64)maxLinks * sizeof(unsigned int), L"LightGridCulledLightData");
 	m_DataGridUAVIndex = createStructuredUAV(m_CulledLightDataGrid.Get(), maxLinks, sizeof(unsigned int));
@@ -277,14 +308,7 @@ void FLightGridInjection::Init()
 		HRESULT hr = Device()->CreateDescriptorHeap(&hd, IID_PPV_ARGS(&m_ClearHeap));
 		assert(SUCCEEDED(hr));
 
-		D3D12_UNORDERED_ACCESS_VIEW_DESC uav{};
-		uav.Format = DXGI_FORMAT_R32_TYPELESS;
-		uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
-		uav.Buffer.FirstElement = 0;
-		uav.Buffer.NumElements = 2;
-		uav.Buffer.StructureByteStride = 0;
-		uav.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
-		Device()->CreateUnorderedAccessView(m_Allocator.Get(), nullptr, &uav,
+		Device()->CreateUnorderedAccessView(m_Allocator.Get(), nullptr, &allocatorUAVDesc,
 			m_ClearHeap->GetCPUDescriptorHandleForHeapStart());
 	}
 
@@ -354,9 +378,11 @@ void FLightGridInjection::Dispatch(const VIEW_CONSTANT& ViewConstant,
 	// 対称透視射影の対角成分は転置の影響を受けない
 	p.InvProjScaleX = 1.0f / ViewConstant.Projection._11;
 	p.InvProjScaleY = 1.0f / ViewConstant.Projection._22;
-	p.ScreenWidth = (float)m_Owner->GetBackBufferWidth();
-	p.ScreenHeight = (float)m_Owner->GetBackBufferHeight();
+	// 今フレームのレンダー解像度 (SetViewSize)。バックバッファではない
+	p.ScreenWidth = (float)m_ViewWidth;
+	p.ScreenHeight = (float)m_ViewHeight;
 	p.MaxCulledLightsPerCell = MAX_CULLED_LIGHTS_PER_CELL;
+	// リンク / データの上限は今フレームのセル数で決める (容量確保でも従来と同値)
 	p.MaxCulledLightLinks = m_NumCells * MAX_CULLED_LIGHTS_PER_CELL;
 	p.CulledLightDataCapacity = m_NumCells * MAX_CULLED_LIGHTS_PER_CELL;
 	p.NearPlane = ViewConstant.NearFar.x;

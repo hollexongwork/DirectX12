@@ -60,11 +60,11 @@ struct FPrimitiveViewRelevance
 class FPrimitiveSceneProxy
 {
 protected:
-	// コンポーネントのワールド行列 (転置前)。SendRenderTransform が毎フレーム更新する。
+	// コンポーネントのワールド行列 (転置前)。ダーティ時に SendRenderTransform が更新する (プッシュ型)。
 	XMFLOAT4X4 m_LocalToWorld;
 
 	// ワールド境界 (FPrimitiveSceneProxy が FPrimitiveSceneInfo 経由で
-	// 保持する Bounds に相当)。SendRenderTransform が毎フレーム更新する。
+	// 保持する Bounds に相当)。ダーティ時に SendRenderTransform が更新する (プッシュ型)。
 	FBoxSphereBounds m_Bounds;
 
 	// UPrimitiveComponent::TranslucencySortPriority のミラー
@@ -73,6 +73,7 @@ protected:
 	bool m_Visible = true;
 	bool m_bCastShadow = true;	// シャドウ深度パスに参加するか (生成時スナップショット)
 	bool m_bAffectDistanceField = true;	// Distance Field に寄与するか (生成時スナップショット)
+	bool m_bRenderVelocity = true;	// ベロシティパスに参加するか (生成時スナップショット)
 
 	// 描画距離カリング (生成時スナップショット。0 = 無制限)
 	float m_MinDrawDistance = 0.0f;
@@ -97,13 +98,14 @@ public:
 
 	bool CastsShadow() const { return m_bCastShadow; }
 	bool AffectsDistanceField() const { return m_bAffectDistanceField; }
+	bool RendersVelocity() const { return m_bRenderVelocity; }
 
 	// フラスタム / 距離カリング用アクセサ
 	const FBoxSphereBounds& GetBounds() const { return m_Bounds; }
 
 	// ---- トランスルーセンシーソート優先度 (TranslucencySortPriority) ----
 	// 低い値が奥、高い値が手前に描かれる。同値内は後→前ソート。
-	// SendRenderTransform が毎フレームコンポーネントからプッシュする。
+	// ダーティ時に SendRenderTransform がコンポーネントからプッシュする。
 	void SetTranslucencySortPriority(int Priority) { m_TranslucencySortPriority = Priority; }
 	int  GetTranslucencySortPriority() const { return m_TranslucencySortPriority; }
 	float GetMinDrawDistance() const { return m_MinDrawDistance; }
@@ -125,20 +127,21 @@ public:
 	// Translucent / Additive サブセットは描かないこと)
 	virtual void DrawPrimitive(RenderManager* RHI) const = 0;
 
-	// トランスルーセンシーパス (FSceneRenderer::RenderTranslucency)
-	// から呼ばれる描画。Translucent / Additive サブセットのみ描く。
-	// 既定は何も描かない (不透明専用プリミティブ)。
 	// トランスルーセンシーパスの描画モード
 	// (FSceneRenderer::RenderTranslucency の深度プリパス方式が使用)
 	enum class ETranslucencyDrawMode
 	{
-		Standard,		// 従来: 1 パス合成 (深度テストのみ)
+		Standard,		// 従来: 1 パス合成 (深度テストのみ。"Translucency" 系 PSO)。
+		// (現在の RenderTranslucency は渡さない。DrawTranslucency の既定引数用)
 		DepthPrepass,	// 深度のみ: プリミティブの最前面を深度へ焼く
 		// (BLEND_Translucent のみ。Additive は何も描かない)
 		ColorEqual,		// 着色: EQUAL 比較で最前面のみ合成
 		// (Additive はここで従来 PSO のまま描く)
 	};
 
+	// トランスルーセンシーパス (FSceneRenderer::RenderTranslucency)
+	// から呼ばれる描画。Translucent / Additive サブセットのみ描く。
+	// 既定は何も描かない (不透明専用プリミティブ)。
 	virtual void DrawTranslucency(RenderManager* RHI,
 		ETranslucencyDrawMode Mode = ETranslucencyDrawMode::Standard) const {
 	}
@@ -155,9 +158,33 @@ public:
 	// 既定は何も描かない (SDF を持つ FStaticMeshSceneProxy が実装する)。
 	virtual void DrawCardCapture(RenderManager* RHI) const {}
 
+	// ベロシティパス (FSceneRenderer::RenderVelocities, VelocityRendering.cpp) から
+	// 呼ばれる描画。前フレームから動いたプリミティブだけが呼ばれる。
+	// b1 に LocalToWorld + PreviousLocalToWorld を積み、Opaque / Masked サブセットを
+	// Velocity* PSO で描くこと (Translucent / Additive は描かない = UE 既定)。
+	// 既定は何も描かない (2D オーバーレイなど)。
+	virtual void DrawVelocity(RenderManager* RHI, const XMFLOAT4X4& PreviousLocalToWorld) const {}
+
+	// 変換が変わらなくても毎フレーム速度を描くか (UE FPrimitiveSceneProxy::AlwaysHasVelocity)。
+	// 将来のスキニング / WPO 用のフック。現状はすべて false
+	virtual bool AlwaysHasVelocity() const { return false; }
+
+	// Responsive AA マスクパス (FSceneRenderer::RenderResponsiveAAMask) から呼ばれる描画。
+	// RenderTranslucency の最後 (半透明深度プリパスの深度を DSV にバインドしたまま) に、
+	// 後→前ソート順で呼ばれる。b1 を積み、マテリアルが bEnableResponsiveAA の
+	// Translucent / Additive サブセット (bForceAll なら全 Translucent / Additive サブセット) だけを
+	// ResponsiveAA[TwoSided] PSO (GeometryVS / ResponsiveAAPS, R8_UNORM, LESS_EQUAL 書き込み無し) で描くこと
+	// (UE: 半透明描画でステンシル bit 3 を立てる代わり [PORT])。既定は何も描かない
+	virtual void DrawResponsiveAA(RenderManager* RHI, bool bForceAll) const {}
+
+	// DrawResponsiveAA が何か描くか (Responsive の Translucent / Additive サブセットを持つか)。
+	// 1 つも無いフレームはマスクのクリアもせず、TAA は Responsive 無効 (ダミー) で走る
+	virtual bool HasResponsiveAATranslucency(bool bForceAll) const { return false; }
+
 protected:
-	// OBJECT 定数 (ワールド行列) を転置してアップロードする共通処理
-	// PRIMITIVE 定数 (b1, FPrimitiveUniformShaderParameters 相当) を
-	// プロキシのワールド行列からアップロードする。
-	void UploadPrimitiveConstant(RenderManager* RHI) const;
+	// PRIMITIVE 定数 (b1, FPrimitiveUniformShaderParameters 相当) へ
+	// プロキシのワールド行列を転置してアップロードする共通処理。
+	// PreviousLocalToWorld (転置前) を渡すとベロシティ用の前フレーム行列として書く。
+	// nullptr (既定) なら前フレーム行列にも今の LocalToWorld を書く。
+	void UploadPrimitiveConstant(RenderManager* RHI, const XMFLOAT4X4* PreviousLocalToWorld = nullptr) const;
 };

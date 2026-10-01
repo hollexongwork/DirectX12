@@ -3,6 +3,7 @@
 #include "SubstrateEvaluation.hlsl"
 #include "ShadowFilteringCommon.hlsl"
 #include "LightGridCommon.hlsl"
+#include "TemporalAACommon.hlsl"	// InterleavedGradientNoise (自己テスト Out[36] と同じ関数。レジスタ宣言無し)
 
 // ---- Lumen スクリーン GI (半球コーントレース + Surface Cache 採光) ----
 // SDF アトラス / サンプラーは既存リソースを共通名へエイリアスして
@@ -28,9 +29,10 @@ void LumenScreenGather(float3 WorldPos, float3 Normal, uint2 PixelPos,
 
     const uint numCones = clamp(LumenNumScreenCones, 1u, 8u);
 
-    // Interleaved Gradient Noise でピクセルごとにコーンリングを回転
-    float ign = frac(52.9829189f *
-        frac(dot(float2(PixelPos), float2(0.06711056f, 0.00583715f))));
+    // Interleaved Gradient Noise でピクセルごとにコーンリングを回転。
+    // UE InterleavedGradientNoise と同じフレーム項 (View.StateFrameIndexMod8) で 8 フレーム周期に回し、
+    // 静止ノイズを TAA に積分させる。AA 無効時は StateFrameIndexMod8 = 0 なので従来の画像と同一
+    float ign = InterleavedGradientNoise(float2(PixelPos), (float)StateFrameIndexMod8);
     float randomRotation = ign * 6.2831853f;
 
     float3 rayStart = WorldPos + Normal * LumenSurfaceBias;
@@ -148,22 +150,8 @@ PS_OUTPUT main(PS_INPUT input)
     if (LumenGatherMode == 2u)
     {
         float4 diffuseIndirect = LumenDiffuseIndirectTexture.Load(int3(input.Position.xy, 0));
-
-        [branch]
-        if (diffuseIndirect.a < 0.0f)
-        {
-            // a < 0 = プローブ未カバー (シルエット / 16px より細い形状で
-            // 周囲のプローブが全て別物体)。Integrate が黒を書く代わりに
-            // マークするので、ここでピクセル毎コーントレースにフォールバック
-            // する (エッジピクセルのみなのでコストは限定的)
-            LumenScreenGather(worldPos.xyz, normal, uint2(input.Position.xy),
-                lumenRadiance, lumenSkyVisibility);
-        }
-        else
-        {
-            lumenRadiance = diffuseIndirect.rgb;
-            lumenSkyVisibility = diffuseIndirect.a;
-        }
+        lumenRadiance = diffuseIndirect.rgb;
+        lumenSkyVisibility = diffuseIndirect.a;
     }
     else if (bLumenScreenGI != 0u)
     {
@@ -342,19 +330,15 @@ PS_OUTPUT main(PS_INPUT input)
     [branch]
     if (LumenGatherMode != 0u && LumenDebugMode != 0u)
     {
-        if (LumenDebugMode == 1u)
+        if (LumenDebugMode == 1u || LumenDebugMode == 4u)
         {
+            // 4 (Short Range AO): Integrate_CS が rgb に AO を書いている
+            // (GatherMode 2 のみ。ピクセル毎経路では GI ラディアンスのまま)
             output.Color.rgb = lumenRadiance;
         }
         else if (LumenDebugMode == 2u)
         {
             output.Color.rgb = lumenSkyVisibility.xxx;
-        }
-        else if (LumenDebugMode == 4u)
-        {
-            // Short Range AO: Integrate_CS が rgb に AO を書いている
-            // (GatherMode 2 のみ。ピクセル毎経路では GI ラディアンスのまま)
-            output.Color.rgb = lumenRadiance;
         }
         else
         {

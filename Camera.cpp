@@ -57,64 +57,76 @@ void ACameraActor::Tick(float DeltaTime)
 	UNREFERENCED_PARAMETER(DeltaTime);
 	const float dt = Time::GetUnscaledDeltaTime();
 
-	const InputManager* input = GameManager::GetInstance()->GetInputManager();
-
-	Mouse_State mouse;
-	Mouse_GetState(&mouse);
+	// カメラカット (テレポート / Reset / Load) の直後は慣性を残さない。
+	// ラッチは読むだけで、消費は UWorld::CalcSceneView (FSceneView::bCameraCut) が行う
+	if (m_CameraComponent && m_CameraComponent->IsCameraCutPending())
+	{
+		m_CameraController.ResetVelocity();
+	}
 
 	FCameraControllerUserImpulseData impulse;
 
-	// InputManager が ImGui 外で開始した右 / 中ドラッグだけを相対座標モードにする
-	const bool bViewportDrag = (mouse.positionMode == MOUSE_POSITION_MODE_RELATIVE) && input->IsViewportDragActive();
-	const bool bFlightCameraInputMode = bViewportDrag && mouse.rightButton;	// UE: IsFlightCameraInputModeActive
-
-	// ---- マウスルック (右ドラッグ) ----
-	if (bFlightCameraInputMode)
+	// テストドライバ (-taatest) 中は入力ブロック全体を無効化する
+	// (インパルス 0 のまま UpdateSimulation へ渡り、スクリプトが設定したトランスフォームを保つ)
+	if (m_bInputEnabled)
 	{
-		const float sensitivity = XMConvertToRadians(m_ViewportSettings.MouseSensitivity);
-		const float pitchSign = m_ViewportSettings.bInvertMouseLookYAxis ? -1.0f : 1.0f;
+		const InputManager* input = GameManager::GetInstance()->GetInputManager();
 
-		impulse.YawDelta = (float)mouse.x * sensitivity;
-		impulse.PitchDelta = (float)mouse.y * sensitivity * pitchSign;
-	}
+		Mouse_State mouse;
+		Mouse_GetState(&mouse);
 
-	// ---- パン (中ドラッグ): 画面の右 / 上方向へ平行移動 (マウスと逆向き = シーンを掴んで動かす) ----
-	if (bViewportDrag && mouse.middleButton)
-	{
-		const float sensitivity = m_ViewportSettings.PanSensitivity;
+		// InputManager が ImGui 外で開始した右 / 中ドラッグだけを相対座標モードにする
+		const bool bViewportDrag = (mouse.positionMode == MOUSE_POSITION_MODE_RELATIVE) && input->IsViewportDragActive();
+		const bool bFlightCameraInputMode = bViewportDrag && mouse.rightButton;	// UE: IsFlightCameraInputModeActive
 
-		impulse.TranslationDelta += -GetActorRightVector() * ((float)mouse.x * sensitivity);
-		impulse.TranslationDelta += GetActorUpVector() * ((float)mouse.y * sensitivity);
-	}
-
-	// ---- ホイール ----
-	// ImGui ウィンドウ上 (WantCaptureMouse) では ImGui のスクロールに譲る。
-	// ビューポートがドラッグを所有している間はカーソルが非表示なので常にビューポートへ。
-	if (mouse.scrollWheelDelta != 0 && (bViewportDrag || !input->IsMouseCapturedByUI()))
-	{
+		// ---- マウスルック (右ドラッグ) ----
 		if (bFlightCameraInputMode)
 		{
-			// フライト入力中のホイールはカメラ速度段階の変更 (OnChangeCameraSpeed)
-			OnChangeCameraSpeed(mouse.scrollWheelDelta);
-		}
-		else
-		{
-			// 視線方向へ 1 ノッチあたり一定距離
-			const float notches = (float)mouse.scrollWheelDelta / (float)WHEEL_DELTA;
-			impulse.TranslationDelta += GetActorForwardVector() * (notches * GetScrollDollyDistance());
-		}
-	}
+			const float sensitivity = XMConvertToRadians(m_ViewportSettings.MouseSensitivity);
+			const float pitchSign = m_ViewportSettings.bInvertMouseLookYAxis ? -1.0f : 1.0f;
 
-	// ---- キーボード (フライト) ----
-	// ImGui のテキスト入力 / アクティブ項目 (WantCaptureKeyboard) 中は無視する。
-	if (!input->IsKeyboardCapturedByUI())
-	{
-		if (Input::GetKeyPress('W')) impulse.MoveForwardBackwardImpulse += 1.0f;
-		if (Input::GetKeyPress('S')) impulse.MoveForwardBackwardImpulse -= 1.0f;
-		if (Input::GetKeyPress('D')) impulse.MoveRightLeftImpulse += 1.0f;
-		if (Input::GetKeyPress('A')) impulse.MoveRightLeftImpulse -= 1.0f;
-		if (Input::GetKeyPress('E')) impulse.MoveUpDownImpulse += 1.0f;
-		if (Input::GetKeyPress('Q')) impulse.MoveUpDownImpulse -= 1.0f;
+			impulse.YawDelta = (float)mouse.x * sensitivity;
+			impulse.PitchDelta = (float)mouse.y * sensitivity * pitchSign;
+		}
+
+		// ---- パン (中ドラッグ): 画面の右 / 上方向へ平行移動 (マウスと逆向き = シーンを掴んで動かす) ----
+		if (bViewportDrag && mouse.middleButton)
+		{
+			const float sensitivity = m_ViewportSettings.PanSensitivity;
+
+			impulse.TranslationDelta += -GetActorRightVector() * ((float)mouse.x * sensitivity);
+			impulse.TranslationDelta += GetActorUpVector() * ((float)mouse.y * sensitivity);
+		}
+
+		// ---- ホイール ----
+		// ImGui ウィンドウ上 (WantCaptureMouse) では ImGui のスクロールに譲る。
+		// ビューポートがドラッグを所有している間はカーソルが非表示なので常にビューポートへ。
+		if (mouse.scrollWheelDelta != 0 && (bViewportDrag || !input->IsMouseCapturedByUI()))
+		{
+			if (bFlightCameraInputMode)
+			{
+				// フライト入力中のホイールはカメラ速度段階の変更 (OnChangeCameraSpeed)
+				OnChangeCameraSpeed(mouse.scrollWheelDelta);
+			}
+			else
+			{
+				// 視線方向へ 1 ノッチあたり一定距離
+				const float notches = (float)mouse.scrollWheelDelta / (float)WHEEL_DELTA;
+				impulse.TranslationDelta += GetActorForwardVector() * (notches * GetScrollDollyDistance());
+			}
+		}
+
+		// ---- キーボード (フライト) ----
+		// ImGui のテキスト入力 / アクティブ項目 (WantCaptureKeyboard) 中は無視する。
+		if (!input->IsKeyboardCapturedByUI())
+		{
+			if (Input::GetKeyPress('W')) impulse.MoveForwardBackwardImpulse += 1.0f;
+			if (Input::GetKeyPress('S')) impulse.MoveForwardBackwardImpulse -= 1.0f;
+			if (Input::GetKeyPress('D')) impulse.MoveRightLeftImpulse += 1.0f;
+			if (Input::GetKeyPress('A')) impulse.MoveRightLeftImpulse -= 1.0f;
+			if (Input::GetKeyPress('E')) impulse.MoveUpDownImpulse += 1.0f;
+			if (Input::GetKeyPress('Q')) impulse.MoveUpDownImpulse -= 1.0f;
+		}
 	}
 
 	// ---- シミュレーション ----

@@ -96,6 +96,11 @@ void SettingsManager::CaptureDefaults()
 		m_DefaultViewport = m_CameraActor->GetViewportSettings();
 	}
 
+	if (m_SceneRenderer)
+	{
+		m_DefaultAntiAliasing = m_SceneRenderer->GetAntiAliasingParams();
+	}
+
 	// ---- ワールド内全アクター (m_DefaultActors[i] = スポーン順 i 番) ----
 	m_DefaultActors.clear();
 	if (m_World)
@@ -144,6 +149,13 @@ void SettingsManager::LoadAndApply()
 		t.SortPolicy = (FSceneRenderer::ETranslucentSortPolicy)policy;
 
 		ini.GetFloat3("Translucency", "SortAxis", t.SortAxis);
+	}
+
+	// ---- Anti-Aliasing / Screen Percentage (r.AntiAliasingMethod / r.ScreenPercentage / r.TemporalAA.* ...) ----
+	// 範囲外 / NaN / 未実装の AA 手法は ReadAntiAliasing が丸める
+	if (m_SceneRenderer && ini.HasSection("AntiAliasing"))
+	{
+		ReadAntiAliasing(ini, m_SceneRenderer->GetAntiAliasingParams());
 	}
 
 	// ---- Auto Exposure ----
@@ -235,6 +247,10 @@ void SettingsManager::LoadAndApply()
 // ------------------------------------------------------------
 bool SettingsManager::SaveCurrent() const
 {
+	// テストドライバ実行中 (SetSaveEnabled(false)) は INI を書き換えない
+	if (!m_bSaveEnabled)
+		return false;
+
 	if (!m_Initialized)
 		return false;
 
@@ -275,6 +291,8 @@ bool SettingsManager::SaveCurrent() const
 		const FSceneRenderer::FTranslucencyParams& t = m_SceneRenderer->GetTranslucencyParams();
 		ini.SetInt("Translucency", "SortPolicy", (int)t.SortPolicy);
 		ini.SetFloat3("Translucency", "SortAxis", t.SortAxis);
+
+		WriteAntiAliasing(ini, m_SceneRenderer->GetAntiAliasingParams());
 	}
 
 	if (m_Lumen)
@@ -334,7 +352,7 @@ void SettingsManager::ResetPostProcess()
 		m_PostProcess->Settings().Exposure = powf(2.0f, m_DefaultEV);
 	}
 
-	// Artist LUT も PostProcess ウィンドウ配下なので一緒に戻す。
+	// Artist LUT も Details の Post Process Volume セクション配下なので一緒に戻す。
 	// グレーディング値の変化は ColorGradingLUTBaker::UpdateIfDirty の
 	// ParamsChanged が検出するので、明示的な MarkDirty は不要。
 	if (m_LUTBaker)
@@ -376,11 +394,8 @@ void SettingsManager::ResetActor(AActor* Actor)
 		if (i >= (int)m_DefaultActors.size())
 			return;	// Default キャプチャ後にスポーンされたアクター
 
-		const ActorSnapshot& snap = m_DefaultActors[i];
-		if (snap.ClassName != UWorld::GetClassDisplayName(Actor))
-			return;	// 構成が変わっている場合は何もしない
-
-		ApplyActor(Actor, snap);
+		// 構成が変わっている (クラス名不一致) 場合は ApplyActor 側で何もしない
+		ApplyActor(Actor, m_DefaultActors[i]);
 		return;
 	}
 }
@@ -451,6 +466,15 @@ void SettingsManager::ResetEditorViewport()
 	}
 }
 
+void SettingsManager::ResetAntiAliasing()
+{
+	if (m_SceneRenderer)
+	{
+		// FTemporalAADebugSettings (可視化 / ジッタ / ワンショット要求) は別構造体なので触れない
+		m_SceneRenderer->GetAntiAliasingParams() = m_DefaultAntiAliasing;
+	}
+}
+
 void SettingsManager::ResetAll()
 {
 	ResetImGuiLayout();
@@ -460,6 +484,7 @@ void SettingsManager::ResetAll()
 	ResetLumen();
 	ResetVolumetricFog();
 	ResetEditorViewport();
+	ResetAntiAliasing();
 }
 
 int SettingsManager::GetDefaultLightCount() const
@@ -652,6 +677,14 @@ void SettingsManager::ApplyComponent(UActorComponent* Component, const Component
 			primitive->SetCachedMaxDrawDistance(Snap.MaxDrawDistance);
 			primitive->SetTranslucentSortPriority(Snap.TranslucencySortPriority);
 		}
+
+		// 適用 (起動時の INI 読み込み / Reset / Details の Reset Actor) はテレポート扱い (UE bTeleport):
+		// 次のトランスフォームプッシュで前フレーム変換 = 今の変換にし、ベロシティを出さない。
+		// ApplyComponent は static なのでワールドへはコンポーネント経由で辿る
+		if (UWorld* world = primitive->GetWorld())
+		{
+			world->GetScene()->MarkPrimitiveTeleported(primitive);
+		}
 	}
 
 	if (auto* camera = dynamic_cast<UCameraComponent*>(Component))
@@ -662,6 +695,11 @@ void SettingsManager::ApplyComponent(UActorComponent* Component, const Component
 			camera->SetNearClip(Snap.NearClip);
 			camera->SetFarClip(Snap.FarClip);
 		}
+
+		// 適用 (起動時の INI 読み込み / Reset / Details の Reset Actor) はテレポート扱い:
+		// ラッチを立てる -> ACameraActor::Tick がコントローラの慣性を捨て、
+		// UWorld::CalcSceneView が消費して FSceneView::bCameraCut (前フレーム情報の破棄) になる
+		camera->NotifyCameraCut();
 	}
 
 	if (auto* polygon = dynamic_cast<UPolygon2DComponent*>(Component))
@@ -728,6 +766,7 @@ SettingsManager::MaterialSnapshot SettingsManager::CaptureMaterial(const Materia
 
 	snap.BlendMode = (int)Mat.Params.BlendMode;
 	snap.TwoSided = Mat.IsTwoSided();
+	snap.EnableResponsiveAA = Mat.ShouldEnableResponsiveAA();
 	snap.Opacity = Mat.Params.Opacity;
 	snap.OpacityMaskClipValue = Mat.Params.OpacityMaskClipValue;
 
@@ -773,6 +812,7 @@ void SettingsManager::ApplyMaterial(Material& Mat, const MaterialSnapshot& Snap)
 	Mat.Params.BlendMode = (EBlendMode)blendMode;
 
 	Mat.SetTwoSided(Snap.TwoSided);
+	Mat.SetEnableResponsiveAA(Snap.EnableResponsiveAA);
 	Mat.Params.Opacity = Snap.Opacity;
 	Mat.Params.OpacityMaskClipValue = Snap.OpacityMaskClipValue;
 
@@ -1147,6 +1187,7 @@ void SettingsManager::WriteComponent(ConfigFile& Ini, const std::string& Section
 
 			Ini.SetInt(Section, mp + "BlendMode", mat.BlendMode);
 			Ini.SetBool(Section, mp + "TwoSided", mat.TwoSided);
+			Ini.SetBool(Section, mp + "EnableResponsiveAA", mat.EnableResponsiveAA);
 			Ini.SetFloat(Section, mp + "Opacity", mat.Opacity);
 			Ini.SetFloat(Section, mp + "OpacityMaskClipValue", mat.OpacityMaskClipValue);
 
@@ -1314,6 +1355,7 @@ void SettingsManager::ReadComponent(const ConfigFile& Ini, const std::string& Se
 
 		Ini.GetInt(Section, mp + "BlendMode", mat.BlendMode);
 		Ini.GetBool(Section, mp + "TwoSided", mat.TwoSided);
+		Ini.GetBool(Section, mp + "EnableResponsiveAA", mat.EnableResponsiveAA);	// キーが無い (旧 INI) なら既定 false のまま
 		Ini.GetFloat(Section, mp + "Opacity", mat.Opacity);
 		Ini.GetFloat(Section, mp + "OpacityMaskClipValue", mat.OpacityMaskClipValue);
 
@@ -1706,6 +1748,7 @@ void SettingsManager::WriteImGuiLayout(ConfigFile& Ini, const ImGuiManager::FLay
 	Ini.SetBool(sec, "bShowGBuffer", l.bShowGBuffer);
 	Ini.SetBool(sec, "bShowLightGrid", l.bShowLightGrid);
 	Ini.SetBool(sec, "bShowLumen", l.bShowLumen);
+	Ini.SetBool(sec, "bShowAntiAliasing", l.bShowAntiAliasing);
 	Ini.SetBool(sec, "bShowCulling", l.bShowCulling);
 	Ini.SetFloat(sec, "OutlinerSplitRatio", l.OutlinerSplitRatio);
 }
@@ -1719,6 +1762,7 @@ void SettingsManager::ReadImGuiLayout(const ConfigFile& Ini, ImGuiManager::FLayo
 	Ini.GetBool(sec, "bShowGBuffer", l.bShowGBuffer);
 	Ini.GetBool(sec, "bShowLightGrid", l.bShowLightGrid);
 	Ini.GetBool(sec, "bShowLumen", l.bShowLumen);
+	Ini.GetBool(sec, "bShowAntiAliasing", l.bShowAntiAliasing);
 	Ini.GetBool(sec, "bShowCulling", l.bShowCulling);
 	Ini.GetFloat(sec, "OutlinerSplitRatio", l.OutlinerSplitRatio);
 
@@ -1781,4 +1825,67 @@ void SettingsManager::ReadEditorViewport(const ConfigFile& Ini, ACameraActor::FL
 	clampFloat(v.PanSensitivity, 0.001f, 0.05f, def.PanSensitivity);
 	clampFloat(v.MouseLookSmoothingRate, 5.0f, 60.0f, def.MouseLookSmoothingRate);
 	clampFloat(v.PanDollySmoothingRate, 5.0f, 40.0f, def.PanDollySmoothingRate);
+}
+
+// ------------------------------------------------------------
+//  Anti-Aliasing / Screen Percentage <-> [AntiAliasing] セクション
+//  キー名は FAntiAliasingParams のフィールド名と一致させる
+//  (INI を手編集するときに AntiAliasingSettings.h を見れば分かるように)。
+//  UE の CVar との対応はフィールドのコメントを参照。
+// ------------------------------------------------------------
+void SettingsManager::WriteAntiAliasing(ConfigFile& Ini, const FAntiAliasingParams& p)
+{
+	const std::string sec = "AntiAliasing";
+
+	Ini.SetInt(sec, "AntiAliasingMethod", p.AntiAliasingMethod);
+	Ini.SetFloat(sec, "ScreenPercentage", p.ScreenPercentage);
+	Ini.SetBool(sec, "bTemporalAAUpsampling", p.bTemporalAAUpsampling);
+	Ini.SetInt(sec, "TemporalAAQuality", p.TemporalAAQuality);
+	Ini.SetInt(sec, "TemporalAASamples", p.TemporalAASamples);
+	Ini.SetFloat(sec, "TemporalAACurrentFrameWeight", p.TemporalAACurrentFrameWeight);
+	Ini.SetFloat(sec, "TemporalAAFilterSize", p.TemporalAAFilterSize);
+	Ini.SetBool(sec, "bTemporalAACatmullRom", p.bTemporalAACatmullRom);
+	Ini.SetBool(sec, "bTemporalAAUpsampleFiltered", p.bTemporalAAUpsampleFiltered);
+	Ini.SetFloat(sec, "TemporalAAHistoryScreenPercentage", p.TemporalAAHistoryScreenPercentage);
+	Ini.SetBool(sec, "bTemporalAAR11G11B10History", p.bTemporalAAR11G11B10History);
+	Ini.SetBool(sec, "bTemporalAAAllowDownsampling", p.bTemporalAAAllowDownsampling);
+	Ini.SetInt(sec, "UpscaleQuality", p.UpscaleQuality);
+	Ini.SetFloat(sec, "UpscaleSoftness", p.UpscaleSoftness);
+	Ini.SetInt(sec, "TonemapperMergeWithUpscaleMode", p.TonemapperMergeWithUpscaleMode);
+	Ini.SetFloat(sec, "TonemapperMergeWithUpscaleThreshold", p.TonemapperMergeWithUpscaleThreshold);
+	Ini.SetFloat(sec, "ViewTextureMipBiasOffset", p.ViewTextureMipBiasOffset);
+	Ini.SetFloat(sec, "ViewTextureMipBiasMin", p.ViewTextureMipBiasMin);
+	Ini.SetFloat(sec, "CameraRotationThreshold", p.CameraRotationThreshold);
+	Ini.SetFloat(sec, "CameraTranslationThreshold", p.CameraTranslationThreshold);
+}
+
+void SettingsManager::ReadAntiAliasing(const ConfigFile& Ini, FAntiAliasingParams& p)
+{
+	const std::string sec = "AntiAliasing";
+
+	Ini.GetInt(sec, "AntiAliasingMethod", p.AntiAliasingMethod);
+	Ini.GetFloat(sec, "ScreenPercentage", p.ScreenPercentage);
+	Ini.GetBool(sec, "bTemporalAAUpsampling", p.bTemporalAAUpsampling);
+	Ini.GetInt(sec, "TemporalAAQuality", p.TemporalAAQuality);
+	Ini.GetInt(sec, "TemporalAASamples", p.TemporalAASamples);
+	Ini.GetFloat(sec, "TemporalAACurrentFrameWeight", p.TemporalAACurrentFrameWeight);
+	Ini.GetFloat(sec, "TemporalAAFilterSize", p.TemporalAAFilterSize);
+	Ini.GetBool(sec, "bTemporalAACatmullRom", p.bTemporalAACatmullRom);
+	Ini.GetBool(sec, "bTemporalAAUpsampleFiltered", p.bTemporalAAUpsampleFiltered);
+	Ini.GetFloat(sec, "TemporalAAHistoryScreenPercentage", p.TemporalAAHistoryScreenPercentage);
+	Ini.GetBool(sec, "bTemporalAAR11G11B10History", p.bTemporalAAR11G11B10History);
+	Ini.GetBool(sec, "bTemporalAAAllowDownsampling", p.bTemporalAAAllowDownsampling);
+	Ini.GetInt(sec, "UpscaleQuality", p.UpscaleQuality);
+	Ini.GetFloat(sec, "UpscaleSoftness", p.UpscaleSoftness);
+	Ini.GetInt(sec, "TonemapperMergeWithUpscaleMode", p.TonemapperMergeWithUpscaleMode);
+	Ini.GetFloat(sec, "TonemapperMergeWithUpscaleThreshold", p.TonemapperMergeWithUpscaleThreshold);
+	Ini.GetFloat(sec, "ViewTextureMipBiasOffset", p.ViewTextureMipBiasOffset);
+	Ini.GetFloat(sec, "ViewTextureMipBiasMin", p.ViewTextureMipBiasMin);
+	Ini.GetFloat(sec, "CameraRotationThreshold", p.CameraRotationThreshold);
+	Ini.GetFloat(sec, "CameraTranslationThreshold", p.CameraTranslationThreshold);
+
+	// ---- 手編集 / 旧 INI に対する検証 (§7.1: ImGui スライダーの範囲と同値) ----
+	// AntiAliasingMethod: 1 -> 0, 3 -> 0, 4 -> 2, {0, 2} 以外 -> 2。
+	// float の NaN (例: ScreenPercentage=nan) は既定値へ戻す
+	SanitizeAntiAliasingParams(p);
 }

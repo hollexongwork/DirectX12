@@ -34,9 +34,9 @@ SamplerState LUTSampler : register(s0); // linear clamp
 // -------------------------------------------------------------
 //  2D ストリップ LUT ルックアップ (本 CS 固有)
 //  レイアウト (LUT_Adventure.DDS, 256x16 -> 16^3 で検証済):
-//    X 方向のタイル index = RED, タイル内 X = BLUE, タイル内 Y = GREEN。
-//    pixel.x = red * N + blue,  pixel.y = green。
-//  RED 隣接 2 タイルを補間して trilinear 相当にする。
+//    X 方向のタイル index = BLUE, タイル内 X = RED, タイル内 Y = GREEN。
+//    pixel.x = blue * N + red,  pixel.y = green。
+//  BLUE 隣接 2 タイルを補間して trilinear 相当にする。
 // -------------------------------------------------------------
 float3 SampleArtistLUT(float3 c)
 {

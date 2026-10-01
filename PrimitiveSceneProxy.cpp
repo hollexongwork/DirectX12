@@ -9,24 +9,30 @@ FPrimitiveSceneProxy::FPrimitiveSceneProxy(const UPrimitiveComponent* Component)
 	XMStoreFloat4x4(&m_LocalToWorld, localToWorld);
 
 	// 境界は生成時点のトランスフォームで初期化する
-	// (以後は SendRenderTransform -> SetTransform が毎フレーム更新)
+	// (以後はトランスフォームダーティ時に SendRenderTransform -> SetTransform が更新)
 	m_Bounds = Component->CalcBounds(localToWorld);
 
 	m_Visible = Component->IsVisible();
 	m_bCastShadow = Component->GetCastShadow();
 	m_bAffectDistanceField = Component->GetAffectDistanceFieldLighting();
+	m_bRenderVelocity = Component->GetRenderVelocity();
 
 	// 描画距離カリング (0 = 無制限)
 	m_MinDrawDistance = Component->GetMinDrawDistance();
 	m_MaxDrawDistance = Component->GetCachedMaxDrawDistance();
 }
 
-void FPrimitiveSceneProxy::UploadPrimitiveConstant(RenderManager* RHI) const
+void FPrimitiveSceneProxy::UploadPrimitiveConstant(RenderManager* RHI, const XMFLOAT4X4* PreviousLocalToWorld) const
 {
 	XMMATRIX localToWorld = XMLoadFloat4x4(&m_LocalToWorld);
 
 	PRIMITIVE_CONSTANT constant{};
 	XMStoreFloat4x4(&constant.LocalToWorld, XMMatrixTranspose(localToWorld));
+
+	// 前フレーム行列 (ベロシティパスのみ別の値。それ以外は今の値と同じ)
+	const XMMATRIX previousLocalToWorld =
+		(PreviousLocalToWorld != nullptr) ? XMLoadFloat4x4(PreviousLocalToWorld) : localToWorld;
+	XMStoreFloat4x4(&constant.PreviousLocalToWorld, XMMatrixTranspose(previousLocalToWorld));
 
 	RHI->SetConstant(RenderManager::CONSTANT_TYPE::PRIMITIVE, &constant, sizeof(constant));
 }

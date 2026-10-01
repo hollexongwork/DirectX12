@@ -1,6 +1,5 @@
 ﻿#include "Main.h"
-#include "RenderManager.h"
-#include "GameManager.h"
+#include "World.h"
 #include "Sky.h"
 #include "Camera.h"
 
@@ -19,6 +18,10 @@ ASky::ASky()
 	mesh->SetCastShadow(false);
 	mesh->SetAffectDistanceFieldLighting(false);
 
+	// カメラ追従 (平行移動のみ) のため速度は書かない。深度が 1 にクランプされるので
+	// TAA は遠方画素の回転のみ再投影 (d = Q) で正しい動きを再構成する (UE の空は速度を書かない)
+	mesh->SetRenderVelocity(false);
+
 	SetActorScale3D({ 10000.0f, 10000.0f, 10000.0f });
 
 	Material& material = mesh->GetMaterial(0);
@@ -31,18 +34,11 @@ ASky::ASky()
 	material.Params.Unlit = TRUE;
 }
 
-void ASky::BeginPlay()
-{
-	UWorld* world = GameManager::GetInstance()->GetWorld();
-	m_Camera = world->GetActorOfClass<ACameraActor>();
-}
-
 void ASky::Tick(float DeltaTime)
 {
 	if (!m_Camera)
 	{
-		UWorld* world = GameManager::GetInstance()->GetWorld();
-		m_Camera = world->GetActorOfClass<ACameraActor>();
+		m_Camera = GetWorld()->GetActorOfClass<ACameraActor>();
 
 		if (!m_Camera)
 		{

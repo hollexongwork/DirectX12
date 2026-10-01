@@ -164,6 +164,58 @@ public:
 		RM->GetGraphicsCommandList()->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
 		RM->GetGraphicsCommandList()->DrawInstanced(4, 1, 0, 0);
 	}
+
+	// ベロシティパス (前フレームから動いた時だけ呼ばれる): DrawShadowDepth と同じ構造。
+	// b1 = LocalToWorld + PreviousLocalToWorld、Masked は t0 + b2 をバインドして clip、
+	// Two Sided はカリング無効、Translucent / Additive は描かない
+	void DrawVelocity(RenderManager* RM, const XMFLOAT4X4& PreviousLocalToWorld) const override
+	{
+		const EBlendMode blendMode = m_Material.GetBlendMode();
+		if (IsTranslucentBlendMode(blendMode))
+			return;
+
+		UploadPrimitiveConstant(RM, &PreviousLocalToWorld);
+
+		const bool bTwoSided = m_Material.IsTwoSided();
+
+		if (IsMaskedBlendMode(blendMode) && m_Diffuse)
+		{
+			RM->SetPipelineState(bTwoSided ? "VelocityMaskedTwoSided" : "VelocityMasked");
+			RM->SetTexture(RenderManager::TEXTURE_TYPE::BASE_COLOR, m_Diffuse.get());
+			m_Material.Bind(RM);	// b2 (BlendMode / OpacityMaskClipValue)
+		}
+		else
+		{
+			RM->SetPipelineState(bTwoSided ? "VelocityTwoSided" : "Velocity");
+		}
+
+		RM->SetVertexBuffer(m_VertexBuffer.get());
+		RM->GetGraphicsCommandList()->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+		RM->GetGraphicsCommandList()->DrawInstanced(4, 1, 0, 0);
+	}
+
+	// ---- Responsive AA マスクパス (FSceneRenderer::RenderResponsiveAAMask) ----
+	// マテリアルが Translucent / Additive かつ bEnableResponsiveAA (bForceAll なら半透明全て) の時だけ
+	// ResponsiveAA[TwoSided] でマスク (R8_UNORM) へ描く。VS / b0 / b1 は半透明の描画と同じ
+	// (半透明深度プリパスの深度に LESS_EQUAL でビット一致)。ResponsiveAAPS は定数を返すだけなので
+	// テクスチャ / b2 はバインドしない
+	bool HasResponsiveAATranslucency(bool bForceAll) const override
+	{
+		return IsTranslucentBlendMode(m_Material.GetBlendMode()) && (bForceAll || m_Material.ShouldEnableResponsiveAA());
+	}
+
+	void DrawResponsiveAA(RenderManager* RM, bool bForceAll) const override
+	{
+		if (!HasResponsiveAATranslucency(bForceAll))
+			return;
+
+		UploadPrimitiveConstant(RM);	// b1 (半透明の描画と同じ値)
+
+		RM->SetPipelineState(m_Material.IsTwoSided() ? "ResponsiveAATwoSided" : "ResponsiveAA");
+		RM->SetVertexBuffer(m_VertexBuffer.get());
+		RM->GetGraphicsCommandList()->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+		RM->GetGraphicsCommandList()->DrawInstanced(4, 1, 0, 0);
+	}
 };
 
 // ------------------------------------------------------------

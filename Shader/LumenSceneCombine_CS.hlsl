@@ -2,17 +2,17 @@
 
 // =============================================================
 //  LumenSceneCombine_CS
-//  CombineLumenSceneLighting ‘Š“–BSurface Cache ‚ÌÅIoË
-//  ƒ‰ƒfƒBƒAƒ“ƒX‚ğ‡¬‚µ‚Ä FinalLightingAtlas (u2) ‚Ö‘‚­:
+//  CombineLumenSceneLighting ç›¸å½“ã€‚Surface Cache ã®æœ€çµ‚å‡ºå°„
+//  ãƒ©ãƒ‡ã‚£ã‚¢ãƒ³ã‚¹ã‚’åˆæˆã—ã¦ FinalLightingAtlas (u2) ã¸æ›¸ã:
 //
 //    FinalLighting = (Direct + Indirect) * Albedo / pi
 //                  + Emissive * EmissiveBoost
 //
-//  Emissive ‚ª‚±‚±‚Å FinalLighting ‚É“ü‚é‚±‚Æ‚ÅA”­Œõ–Ê‚Í
-//  Radiosity / ƒXƒNƒŠ[ƒ“ GI ‚ÌƒgƒŒ[ƒX‚©‚çuŒõŒ¹v‚Æ‚µ‚ÄŒ©‚¦‚é
-//  (= Surface Cache ‚ª Emissive ‚ğŒõŒ¹‚Æ‚µ‚Äˆµ‚¤d‘g‚İ‚Ì–{‘Ì)B
-//  FinalLighting.a ‚ÍƒLƒƒƒvƒ`ƒƒ—LŒø—¦‚ÅAÌŒõ‘¤ (ƒoƒCƒŠƒjƒA) ‚Ì
-//  –³ŒøƒeƒNƒZƒ‹¬“ü‚Ìd‚İœ‹‚Ég‚¤B
+//  Emissive ãŒã“ã“ã§ FinalLighting ã«å…¥ã‚‹ã“ã¨ã§ã€ç™ºå…‰é¢ã¯
+//  Radiosity / ã‚¹ã‚¯ãƒªãƒ¼ãƒ³ GI ã®ãƒˆãƒ¬ãƒ¼ã‚¹ã‹ã‚‰ã€Œå…‰æºã€ã¨ã—ã¦è¦‹ãˆã‚‹
+//  (= Surface Cache ãŒ Emissive ã‚’å…‰æºã¨ã—ã¦æ‰±ã†ä»•çµ„ã¿ã®æœ¬ä½“)ã€‚
+//  FinalLighting.a ã¯ã‚­ãƒ£ãƒ—ãƒãƒ£æœ‰åŠ¹ç‡ã§ã€æ¡å…‰å´ (ãƒã‚¤ãƒªãƒ‹ã‚¢) ã®
+//  ç„¡åŠ¹ãƒ†ã‚¯ã‚»ãƒ«æ··å…¥ã®é‡ã¿é™¤å»ã«ä½¿ã†ã€‚
 //
 //  Dispatch: (CARD_RES/8, CARD_RES/8, NumCardsToProcess)
 // =============================================================
@@ -28,7 +28,7 @@ void main(uint3 GroupID : SV_GroupID, uint3 GroupThreadID : SV_GroupThreadID)
 
     if (card.CardExtentAndValid.w < 0.5f)
     {
-        // –³ŒøƒJ[ƒh: ƒ^ƒCƒ‹‚ğƒ[ƒ‚ÅŠm’è‚³‚¹‚é (ÌŒõ‘¤‚Í a=0 ‚ÅŠü‹p)
+        // ç„¡åŠ¹ã‚«ãƒ¼ãƒ‰: ã‚¿ã‚¤ãƒ«ã‚’ã‚¼ãƒ­ã§ç¢ºå®šã•ã›ã‚‹ (æ¡å…‰å´ã¯ a=0 ã§æ£„å´)
         RWFinalLighting[atlasTexel] = float4(0.0f, 0.0f, 0.0f, 0.0f);
         return;
     }
@@ -49,8 +49,8 @@ void main(uint3 GroupID : SV_GroupID, uint3 GroupThreadID : SV_GroupThreadID)
 
     const float emissiveBoost = PassTraceParams.w;
 
-    // ŠgU–Ê‚ÌoËƒ‰ƒfƒBƒAƒ“ƒX: L = (E_direct + E_indirect) * albedo / pi
-    // + ƒGƒ~ƒbƒVƒu (radiance ‚ğ‚»‚Ì‚Ü‚Ü‰ÁZ = ”­Œõ–Ê‚ÌŒõŒ¹‰»)
+    // æ‹¡æ•£é¢ã®å‡ºå°„ãƒ©ãƒ‡ã‚£ã‚¢ãƒ³ã‚¹: L = (E_direct + E_indirect) * albedo / pi
+    // + ã‚¨ãƒŸãƒƒã‚·ãƒ– (radiance ã‚’ãã®ã¾ã¾åŠ ç®— = ç™ºå…‰é¢ã®å…‰æºåŒ–)
     float3 finalLighting = (direct + indirect) * albedo.rgb / LUMEN_PI
         + emissive * emissiveBoost;
 

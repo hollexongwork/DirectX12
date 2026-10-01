@@ -56,7 +56,7 @@ void main(uint3 DispatchThreadId : SV_DispatchThreadID)
         {
             // bOverrideLightColorsWithFogInscatteringColors:
             // 太陽光の色を DirectionalInscatteringLuminance で置き換える
-            float luminance = dot(DirectionalLightColor.rgb, float3(0.2126f, 0.7152f, 0.0722f));
+            float luminance = Luminance(DirectionalLightColor.rgb);
             directionalColor = DirectionalInscatteringColor.rgb * luminance;
         }
 
@@ -71,7 +71,7 @@ void main(uint3 DispatchThreadId : SV_DispatchThreadID)
     [branch]
     if (DirectionalInscatteringColor.w > 0.0f)
     {
-        float3 skyRadiance = SkyIrradiance.SampleLevel(LinearClampSampler, cameraVector, 0.0f).rgb / VF_PI;
+        float3 skyRadiance = SkyIrradiance.SampleLevel(LinearClampSampler, cameraVector, 0.0f).rgb / PI;
         lightScattering += skyRadiance * DirectionalInscatteringColor.w;
     }
 

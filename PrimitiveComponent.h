@@ -8,7 +8,7 @@
 //  CreateSceneProxy() でレンダー側ミラー (FPrimitiveSceneProxy) を
 //  生成・所有する。描画本体はプロキシへ移設済みで、レンダラは
 //  ゲーム側のこのクラスにはもう触れない。
-//  ShadowMap 実装時も深度パスは同じプロキシ列を巡回する。
+//  シャドウ深度パス (FShadowSceneRenderer) も同じプロキシ列を巡回する。
 //
 //  フラスタムカリング: SendRenderTransform が UpdateBounds ->
 //  SetTransform でワールド境界をプロキシへプッシュし、
@@ -17,7 +17,6 @@
 //  同じ場所で行われる (0 = 無制限)。
 // ============================================================
 
-class RenderManager;
 class FPrimitiveSceneProxy;
 
 class UPrimitiveComponent : public USceneComponent
@@ -32,6 +31,11 @@ protected:
 	// Distance Field (SDF レイマーチ) に寄与するか
 	// (bAffectDistanceFieldLighting)。空ドームは false にすること。
 	bool m_bAffectDistanceFieldLighting = true;
+
+	// ベロシティパスに参加するか (UE の空 = IsSky マテリアルは速度を書かない相当)。
+	// カメラ追従の空ドームは false にすること (平行移動のみでカメラと一緒に動くため、
+	// 遠方画素の回転のみ再投影 (d = Q) で正しく再構成される。速度を書くとアンチゴースト判定を誤らせる)。
+	bool m_bRenderVelocity = true;
 
 	// ---- 描画距離カリング (MinDrawDistance / LDMaxDrawDistance) ----
 	// カメラから境界中心までの距離で判定する。0 = 無制限。
@@ -95,6 +99,10 @@ public:
 	// Distance Field への寄与 (変更はプロキシ再生成で反映される)
 	void SetAffectDistanceFieldLighting(bool bAffect) { m_bAffectDistanceFieldLighting = bAffect; MarkRenderStateDirty(); }
 	bool GetAffectDistanceFieldLighting() const { return m_bAffectDistanceFieldLighting; }
+
+	// ベロシティパスへの参加 (変更はプロキシ再生成で反映される)
+	void SetRenderVelocity(bool bRender) { m_bRenderVelocity = bRender; MarkRenderStateDirty(); }
+	bool GetRenderVelocity() const { return m_bRenderVelocity; }
 
 	// ---- 描画距離カリング (変更はプロキシ再生成で反映される) ----
 	void  SetMinDrawDistance(float Distance) { m_MinDrawDistance = Distance; MarkRenderStateDirty(); }

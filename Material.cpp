@@ -25,7 +25,7 @@ Material::Material()
 	Params.SubstrateDiffuseAlbedo      = { 0.18f, 0.18f, 0.18f, 1.0f };
 	Params.SubstrateF0                 = { 0.04f, 0.04f, 0.04f, 1.0f };
 	Params.SubstrateF90                = { 1.0f, 1.0f, 1.0f, 1.0f };
-	Params.SubstrateTransmittanceColor = { 0.5f, 0.5f, 0.5f, 1.0f }; // w = SSSMFPScale
+	Params.SubstrateTransmittanceColor = { 0.5f, 0.5f, 0.5f, 1.0f }; // w = 予約 (未使用)
 	Params.SubstrateFuzzColor          = { 1.0f, 1.0f, 1.0f, 0.0f }; // w = FuzzAmount
 
 	Params.SubstrateAnisotropy         = 0.0f;
@@ -46,6 +46,9 @@ Material::Material()
 	Params.RefractionDepthBias = 0.0f;
 	Params.bRefractionUseF0    = FALSE;
 	Params._padSubstrate       = { 0.0f, 0.0f };
+
+	// ---- Responsive AA (UMaterial::bEnableResponsiveAA 既定 false。b2 の外の CPU 専用フラグ) ----
+	bEnableResponsiveAA = false;
 }
 
 void Material::Bind(RenderManager* rm) const

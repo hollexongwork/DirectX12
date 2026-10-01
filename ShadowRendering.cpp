@@ -131,13 +131,17 @@ void FShadowSceneRenderer::InitShadowDepthTarget(FShadowDepthTarget& Target,
 }
 
 
-void FShadowSceneRenderer::InitShadowParamBuffers()
+// ------------------------------------------------------------
+//  アップロードヒープ上のダブルバッファ StructuredBuffer
+//  (永続 Map + ゼロクリア + SRV) を作る。t16 / t18 共通。
+// ------------------------------------------------------------
+template <typename T>
+static void CreateUploadStructuredBuffers(RenderManager* RHI, unsigned int NumElements, const wchar_t* Name,
+	ComPtr<ID3D12Resource> (&OutBuffers)[2], T* (&OutPointers)[2], unsigned int (&OutSRVIndices)[2])
 {
-	// ローカルシャドウパラメータ (t16)。ライトバッファ (t13) と同じ
-	// ダブルバッファ方式のアップロードヒープ + 永続 Map。
-	ID3D12Device* device = m_RHI->GetDevice();
+	ID3D12Device* device = RHI->GetDevice();
 
-	const UINT64 bufferSize = sizeof(FLocalShadowParameters) * MAX_LOCAL_LIGHTS;
+	const UINT64 bufferSize = sizeof(T) * NumElements;
 
 	D3D12_HEAP_PROPERTIES heapProperties{};
 	heapProperties.Type = D3D12_HEAP_TYPE_UPLOAD;
@@ -160,29 +164,37 @@ void FShadowSceneRenderer::InitShadowParamBuffers()
 			&resourceDesc,
 			D3D12_RESOURCE_STATE_GENERIC_READ,
 			nullptr,
-			IID_PPV_ARGS(&m_ShadowParamBuffer[i]));
+			IID_PPV_ARGS(&OutBuffers[i]));
 		assert(SUCCEEDED(hr));
-		m_ShadowParamBuffer[i]->SetName(L"LocalShadowParamBuffer");
+		OutBuffers[i]->SetName(Name);
 
-		hr = m_ShadowParamBuffer[i]->Map(0, nullptr, (void**)&m_ShadowParamPointer[i]);
+		hr = OutBuffers[i]->Map(0, nullptr, (void**)&OutPointers[i]);
 		assert(SUCCEEDED(hr));
-		memset(m_ShadowParamPointer[i], 0, bufferSize);
+		memset(OutPointers[i], 0, bufferSize);
 
-		m_ShadowParamSRVIndex[i] = m_RHI->AllocateDescriptor();
+		OutSRVIndices[i] = RHI->AllocateDescriptor();
 
 		D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
 		srvDesc.Format = DXGI_FORMAT_UNKNOWN;
 		srvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
 		srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 		srvDesc.Buffer.FirstElement = 0;
-		srvDesc.Buffer.NumElements = MAX_LOCAL_LIGHTS;
-		srvDesc.Buffer.StructureByteStride = sizeof(FLocalShadowParameters);
+		srvDesc.Buffer.NumElements = NumElements;
+		srvDesc.Buffer.StructureByteStride = sizeof(T);
 		srvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
 
-		device->CreateShaderResourceView(
-			m_ShadowParamBuffer[i].Get(), &srvDesc,
-			m_RHI->GetCPUDescriptorHandle(m_ShadowParamSRVIndex[i]));
+		device->CreateShaderResourceView(OutBuffers[i].Get(), &srvDesc,
+			RHI->GetCPUDescriptorHandle(OutSRVIndices[i]));
 	}
+}
+
+
+void FShadowSceneRenderer::InitShadowParamBuffers()
+{
+	// ローカルシャドウパラメータ (t16)。ライトバッファ (t13) と同じ
+	// ダブルバッファ方式のアップロードヒープ + 永続 Map。
+	CreateUploadStructuredBuffers(m_RHI, MAX_LOCAL_LIGHTS, L"LocalShadowParamBuffer",
+		m_ShadowParamBuffer, m_ShadowParamPointer, m_ShadowParamSRVIndex);
 }
 
 
@@ -209,16 +221,9 @@ void FShadowSceneRenderer::InitDynamicShadows(
 	m_DirectionalConstant = DIRECTIONAL_SHADOW_CONSTANT{};
 	m_DirectionalConstant.CascadeSplits = { 1.0e9f, 1.0e9f, 1.0e9f, 1.0e9f };
 
-	// DF 既定値 (x=オブジェクト数 は UpdateDistanceFieldObjects が毎フレーム設定。
-	// y/z の自己遮蔽オフセットはディレクショナルの ShadowBias / SlopeBias から
-	// SetupDirectionalShadows で上書きされる。ローカルライト DF は t16 側の
-	// 各ライト値 (DFSelfShadowBias / NormalOffsetWorld) を参照する)
-	m_DirectionalConstant.DFShadowParams0 = { (float)m_NumDFObjects, 0.0f, 0.0f, 0.0f };
-	m_DirectionalConstant.DFShadowParams1 = {
-		0.0f,
-		SHADOW_BIAS_WORLD_SCALE * 0.5f,
-		SHADOW_BIAS_WORLD_SCALE * 0.5f,
-		0.0f };
+	// DF パラメータは既定 0 (= ディレクショナル DF 無効)。DFShadowParams0.x (オブジェクト数) は
+	// UpdateDistanceFieldObjects が毎フレーム設定し、残りは SetupDirectionalShadows が
+	// DF 有効時のみ設定する (ローカルライト DF は t16 側の各ライト値を参照する)。
 
 	FLocalShadowParameters* params = m_ShadowParamPointer[m_ShadowParamFrame];
 	for (unsigned int i = 0; i < MAX_LOCAL_LIGHTS; ++i)
@@ -236,6 +241,24 @@ void FShadowSceneRenderer::InitDynamicShadows(
 
 	// ---- ローカル (Spot / Rect / Point) ----
 	SetupLocalShadows(LocalLights);
+}
+
+
+// ------------------------------------------------------------
+//  シャドウビュー 1 枚を m_ShadowViews へ追加する。
+//  View / Projection は転置して VIEW 定数用に、View * Projection は
+//  転置前のままキャスターカリング用に格納する。
+// ------------------------------------------------------------
+void FShadowSceneRenderer::AddShadowView(const XMMATRIX& View, const XMMATRIX& Projection,
+	unsigned int SliceIndex, bool bDirectional)
+{
+	FProjectedShadowInfo info;
+	XMStoreFloat4x4(&info.ViewMatrixT, XMMatrixTranspose(View));
+	XMStoreFloat4x4(&info.ProjectionMatrixT, XMMatrixTranspose(Projection));
+	XMStoreFloat4x4(&info.ViewProjection, View * Projection);	// キャスターカリング用 (転置前)
+	info.SliceIndex = SliceIndex;
+	info.bDirectional = bDirectional;
+	m_ShadowViews.push_back(info);
 }
 
 
@@ -369,13 +392,7 @@ void FShadowSceneRenderer::SetupDirectionalShadows(const FLightSceneProxy* Direc
 		// ワールド換算は shadowBias * SHADOW_BIAS_WORLD_SCALE [m] で DF と一致
 		depthBiases[i] = (shadowBias * SHADOW_BIAS_WORLD_SCALE) / depthRange;
 
-		FProjectedShadowInfo info;
-		XMStoreFloat4x4(&info.ViewMatrixT, XMMatrixTranspose(view));
-		XMStoreFloat4x4(&info.ProjectionMatrixT, XMMatrixTranspose(proj));
-		XMStoreFloat4x4(&info.ViewProjection, viewProj);	// キャスターカリング用 (転置前)
-		info.SliceIndex = (unsigned int)i;
-		info.bDirectional = true;
-		m_ShadowViews.push_back(info);
+		AddShadowView(view, proj, (unsigned int)i, true);
 	}
 
 	m_DirectionalConstant.CascadeSplits = { splits[0], splits[1], splits[2], splits[3] };
@@ -399,7 +416,7 @@ void FShadowSceneRenderer::SetupDirectionalShadows(const FLightSceneProxy* Direc
 		m_DirectionalConstant.DFShadowParams1.x = 1.0f;
 
 		// 自己遮蔽オフセットはライトの ShadowBias / SlopeBias から決める
-		// (シャドウマップ用より大きい距離が必要なため専用スケール)
+		// (シャドウマップ経路と同じ SHADOW_BIAS_WORLD_SCALE 換算。ShadowRendering.h 参照)
 		m_DirectionalConstant.DFShadowParams1.y = SHADOW_BIAS_WORLD_SCALE * Directional->GetShadowBias();
 		m_DirectionalConstant.DFShadowParams1.z = SHADOW_BIAS_WORLD_SCALE * Directional->GetShadowSlopeBias();
 	}
@@ -416,7 +433,7 @@ void FShadowSceneRenderer::SetupDirectionalShadows(const FLightSceneProxy* Direc
 // ------------------------------------------------------------
 void FShadowSceneRenderer::SetupLocalShadows(const std::vector<const FLightSceneProxy*>& LocalLights)
 {
-	// キューブ 6 面の基底 (HLSL 側 ShadowFilteringCommon.hlsl と 1:1 必須)
+	// キューブ 6 面の基底 (HLSL 側 ShadowProjectionCommon.hlsl と 1:1 必須)
 	static const XMVECTOR CubeFaceForward[6] =
 	{
 		XMVectorSet(1.0f, 0.0f, 0.0f, 0.0f),
@@ -479,8 +496,9 @@ void FShadowSceneRenderer::SetupLocalShadows(const std::vector<const FLightScene
 
 			// 自己遮蔽オフセットはシャドウマップと同じワールド換算を使う
 			// (NormalOffsetWorld は上で設定済みの共通値をそのまま流用)。
-			// DF 固有の必要量は SDF ボクセル幅の下駄がシェーダ側で自動適用
-			// されるため、ここはスライダーの純粋な調整量になる。
+			// DF 固有の自己交差回避はシェーダ側の表皮スキップ
+			// (DistanceFieldShadowing.hlsl) が自動で行うため、
+			// ここはスライダーの純粋な調整量になる。
 			sp.DFSelfShadowBias = SHADOW_BIAS_WORLD_SCALE * proxy->GetShadowBias();
 			continue;
 		}
@@ -505,13 +523,7 @@ void FShadowSceneRenderer::SetupLocalShadows(const std::vector<const FLightScene
 			{
 				XMMATRIX view = XMMatrixLookToLH(lightPos, CubeFaceForward[face], CubeFaceUp[face]);
 
-				FProjectedShadowInfo info;
-				XMStoreFloat4x4(&info.ViewMatrixT, XMMatrixTranspose(view));
-				XMStoreFloat4x4(&info.ProjectionMatrixT, XMMatrixTranspose(proj));
-				XMStoreFloat4x4(&info.ViewProjection, view * proj);	// キャスターカリング用 (転置前)
-				info.SliceIndex = slice + (unsigned int)face;
-				info.bDirectional = false;
-				m_ShadowViews.push_back(info);
+				AddShadowView(view, proj, slice + (unsigned int)face, false);
 			}
 
 			XMStoreFloat4x4(&sp.WorldToShadow, XMMatrixIdentity());	// ポイントでは未使用
@@ -555,13 +567,7 @@ void FShadowSceneRenderer::SetupLocalShadows(const std::vector<const FLightScene
 			XMStoreFloat4x4(&sp.WorldToShadow, XMMatrixTranspose(view * proj));
 			sp.ShadowSliceIndex = (int)slice;
 
-			FProjectedShadowInfo info;
-			XMStoreFloat4x4(&info.ViewMatrixT, XMMatrixTranspose(view));
-			XMStoreFloat4x4(&info.ProjectionMatrixT, XMMatrixTranspose(proj));
-			XMStoreFloat4x4(&info.ViewProjection, view * proj);	// キャスターカリング用 (転置前)
-			info.SliceIndex = slice;
-			info.bDirectional = false;
-			m_ShadowViews.push_back(info);
+			AddShadowView(view, proj, slice, false);
 
 			slice += 1;
 			m_bUsedLocal = true;
@@ -677,22 +683,13 @@ void FShadowSceneRenderer::RenderShadowDepthMaps(FScene* Scene)
 				D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
 	}
 
-	// ---- フル解像度ビューポート / シザーを復元 ----
-	// (後続の LinearDepth / デファードパスは BeginFrame のビューポートを
-	//  前提にしているため、ここで必ず戻す)
-	D3D12_VIEWPORT fullVP{ 0.0f, 0.0f,
-		(FLOAT)m_RHI->GetBackBufferWidth(), (FLOAT)m_RHI->GetBackBufferHeight(), 0.0f, 1.0f };
-	D3D12_RECT fullSC{ 0, 0,
-		(LONG)m_RHI->GetBackBufferWidth(), (LONG)m_RHI->GetBackBufferHeight() };
-	cl->RSSetViewports(1, &fullVP);
-	cl->RSSetScissorRects(1, &fullSC);
+	// ---- 既定ビューポート / シザーを復元 ----
+	// (後続の LinearDepth / デファードパスは BeginFrame のビューポート
+	//  (RHI の既定ビューポート) を前提にしているため、ここで必ず戻す)
+	m_RHI->RestoreDefaultViewport();
 }
 
 
-// ============================================================
-//  BindShadowResources
-//  デファードライティング直前に b5 + t14/t15/t16 をバインドする。
-// ============================================================
 // ------------------------------------------------------------
 //  InitDistanceFieldBuffers
 //  DF オブジェクトバッファ (t18)。t16 と同じダブルバッファの
@@ -700,53 +697,8 @@ void FShadowSceneRenderer::RenderShadowDepthMaps(FScene* Scene)
 // ------------------------------------------------------------
 void FShadowSceneRenderer::InitDistanceFieldBuffers()
 {
-	ID3D12Device* device = m_RHI->GetDevice();
-
-	const UINT64 bufferSize = sizeof(FDFObjectData) * MAX_DF_OBJECTS;
-
-	D3D12_HEAP_PROPERTIES heapProperties{};
-	heapProperties.Type = D3D12_HEAP_TYPE_UPLOAD;
-
-	D3D12_RESOURCE_DESC resourceDesc{};
-	resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-	resourceDesc.Width = bufferSize;
-	resourceDesc.Height = 1;
-	resourceDesc.DepthOrArraySize = 1;
-	resourceDesc.MipLevels = 1;
-	resourceDesc.Format = DXGI_FORMAT_UNKNOWN;
-	resourceDesc.SampleDesc.Count = 1;
-	resourceDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-
-	for (int i = 0; i < 2; ++i)
-	{
-		HRESULT hr = device->CreateCommittedResource(
-			&heapProperties,
-			D3D12_HEAP_FLAG_NONE,
-			&resourceDesc,
-			D3D12_RESOURCE_STATE_GENERIC_READ,
-			nullptr,
-			IID_PPV_ARGS(&m_DFObjectBuffer[i]));
-		assert(SUCCEEDED(hr));
-		m_DFObjectBuffer[i]->SetName(L"DFObjectBuffer");
-
-		hr = m_DFObjectBuffer[i]->Map(0, nullptr, (void**)&m_DFObjectPointer[i]);
-		assert(SUCCEEDED(hr));
-		memset(m_DFObjectPointer[i], 0, bufferSize);
-
-		m_DFObjectSRVIndex[i] = m_RHI->AllocateDescriptor();
-
-		D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
-		srvDesc.Format = DXGI_FORMAT_UNKNOWN;
-		srvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
-		srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-		srvDesc.Buffer.FirstElement = 0;
-		srvDesc.Buffer.NumElements = MAX_DF_OBJECTS;
-		srvDesc.Buffer.StructureByteStride = sizeof(FDFObjectData);
-		srvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
-
-		device->CreateShaderResourceView(m_DFObjectBuffer[i].Get(), &srvDesc,
-			m_RHI->GetCPUDescriptorHandle(m_DFObjectSRVIndex[i]));
-	}
+	CreateUploadStructuredBuffers(m_RHI, MAX_DF_OBJECTS, L"DFObjectBuffer",
+		m_DFObjectBuffer, m_DFObjectPointer, m_DFObjectSRVIndex);
 }
 
 
@@ -816,6 +768,11 @@ void FShadowSceneRenderer::UpdateDistanceFieldObjects(FScene* Scene)
 }
 
 
+// ============================================================
+//  BindShadowResources
+//  デファードライティング / トランスルーセンシー直前に
+//  b5 + t14/t15/t16/t17/t18 をバインドする。
+// ============================================================
 void FShadowSceneRenderer::BindShadowResources()
 {
 	// b5: ディレクショナルシャドウ定数

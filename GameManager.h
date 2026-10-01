@@ -9,6 +9,7 @@
 
 #include "ImGuiManager.h"
 #include "SettingsManager.h"
+#include "TemporalAATestDriver.h"
 
 // ============================================================
 //  GameManager
@@ -56,10 +57,15 @@ private:
 	// 起動時に読み込み・終了時に自動保存する。
 	SettingsManager m_SettingsManager;
 
+	// TAA 検証用テストドライバ (-taatest)。コマンドラインはコンストラクタで解析する。
+	// -taatest 無しの通常起動では何もしない。
+	FTemporalAATestDriver m_TestDriver;
+
 public:
 	static GameManager* GetInstance() { return m_Instance; }
 
-	GameManager(HWND hWnd);
+	// CmdLine = wWinMain の lpCmdLine (テストドライバが解析する)
+	GameManager(HWND hWnd, const wchar_t* CmdLine);
 	~GameManager();
 
 	UWorld* GetWorld() { return &m_World; }
@@ -71,4 +77,9 @@ public:
 	void Begin();
 	void Update();
 	void Draw();
+
+	// テストドライバの終了要求 (最終フレーム後 / コマンドライン不正)。メインループが参照する
+	bool ShouldExit() const { return m_TestDriver.ShouldExit(); }
+	// wWinMain の戻り値 (0 = 成功, 1 = 自己テスト失敗, 2 = コマンドライン不正, 3 = BMP 書き出し失敗)
+	int GetExitCode() const { return m_TestDriver.GetExitCode(); }
 };

@@ -6,16 +6,10 @@
 //  これにより per-subresource バリアの複雑さを回避。
 // ============================================================
 
+#include "IBL_Common.hlsl"
+
 RWTexture2DArray<float4>  SrcMip : register(u1);   // 親mip(mip N) 読み取り
 RWTexture2DArray<float4>  DstMip : register(u0);   // 子mip(mip N+1) 書き込み
-
-cbuffer BakeParams : register(b0)
-{
-    uint  FaceSize;     // 出力(子)mipの一辺
-    uint  MipLevel;
-    float Roughness;
-    float _pad;
-};
 
 [numthreads(8, 8, 1)]
 void main(uint3 id : SV_DispatchThreadID)

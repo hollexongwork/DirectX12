@@ -2,21 +2,21 @@
 
 // =============================================================
 //  LumenSceneDirectLighting_CS
-//  LumenSceneDirectLighting.usf ‘Š“–BSurface Cache ‚ÌŠeƒJ[ƒh
-//  ƒeƒNƒZƒ‹‚É‘Î‚·‚é’¼ÚŒõƒCƒ‰ƒfƒBƒAƒ“ƒX [lux] ‚ğŒvZ‚µ‚Ä
-//  DirectLightingAtlas (u0) ‚Ö‘‚­ (ƒAƒ‹ƒxƒhæZ‚Í Combine ‚ªs‚¤)B
-//    - ƒfƒBƒŒƒNƒVƒ‡ƒiƒ‹: ƒƒbƒVƒ… SDF ‚ÌÕ•ÁƒgƒŒ[ƒX•t‚«
-//    - ƒ[ƒJƒ‹ (Point/Spot/Rect): ‹——£Œ¸Š + ƒR[ƒ“Œ¸Š +
-//      SDF Õ•ÁƒgƒŒ[ƒX (ŠgU‚Ì‚İBƒXƒyƒLƒ…ƒ‰‚ÍƒJ[ƒh‚Å‚Íˆµ‚í‚È‚¢)
+//  LumenSceneDirectLighting.usf ç›¸å½“ã€‚Surface Cache ã®å„ã‚«ãƒ¼ãƒ‰
+//  ãƒ†ã‚¯ã‚»ãƒ«ã«å¯¾ã™ã‚‹ç›´æ¥å…‰ã‚¤ãƒ©ãƒ‡ã‚£ã‚¢ãƒ³ã‚¹ [lux] ã‚’è¨ˆç®—ã—ã¦
+//  DirectLightingAtlas (u0) ã¸æ›¸ã (ã‚¢ãƒ«ãƒ™ãƒ‰ä¹—ç®—ã¯ Combine ãŒè¡Œã†)ã€‚
+//    - ãƒ‡ã‚£ãƒ¬ã‚¯ã‚·ãƒ§ãƒŠãƒ«: ãƒ¡ãƒƒã‚·ãƒ¥ SDF ã®é®è”½ãƒˆãƒ¬ãƒ¼ã‚¹ä»˜ã
+//    - ãƒ­ãƒ¼ã‚«ãƒ« (Point/Spot/Rect): è·é›¢æ¸›è¡° + ã‚³ãƒ¼ãƒ³æ¸›è¡° +
+//      SDF é®è”½ãƒˆãƒ¬ãƒ¼ã‚¹ (æ‹¡æ•£ã®ã¿ã€‚ã‚¹ãƒšã‚­ãƒ¥ãƒ©ã¯ã‚«ãƒ¼ãƒ‰ã§ã¯æ‰±ã‚ãªã„)
 //
 //  Dispatch: (CARD_RES/8, CARD_RES/8, NumCardsToProcess)
 // =============================================================
 
-// Õ•ÁƒgƒŒ[ƒX‚ğƒXƒLƒbƒv‚·‚éŠñ—^‚µ‚«‚¢’l (•‰‰×‘Îô)
+// é®è”½ãƒˆãƒ¬ãƒ¼ã‚¹ã‚’ã‚¹ã‚­ãƒƒãƒ—ã™ã‚‹å¯„ä¸ã—ãã„å€¤ (è² è·å¯¾ç­–)
 static const float SHADOW_TRACE_THRESHOLD = 0.005f;
 
-// ƒ‰ƒCƒg‚Ìƒ\ƒtƒgƒlƒX (ƒR[ƒ“”¼Šp tan)BƒfƒBƒŒƒNƒVƒ‡ƒiƒ‹‚Í‘¾—z‚Ì
-// Œ©‚©‚¯Šp‘Š“–‚Ì¬‚³‚ßAƒ[ƒJƒ‹‚Í“_ŒõŒ¹‚Ì‹ß‹——£‚ğl—¶‚µ‚ÄL‚ßB
+// ãƒ©ã‚¤ãƒˆã®ã‚½ãƒ•ãƒˆãƒã‚¹ (ã‚³ãƒ¼ãƒ³åŠè§’ tan)ã€‚ãƒ‡ã‚£ãƒ¬ã‚¯ã‚·ãƒ§ãƒŠãƒ«ã¯å¤ªé™½ã®
+// è¦‹ã‹ã‘è§’ç›¸å½“ã®å°ã•ã‚ã€ãƒ­ãƒ¼ã‚«ãƒ«ã¯ç‚¹å…‰æºã®è¿‘è·é›¢ã‚’è€ƒæ…®ã—ã¦åºƒã‚ã€‚
 static const float DIRECTIONAL_SHADOW_CONE_TAN = 0.05f;
 static const float LOCAL_SHADOW_CONE_TAN = 0.1f;
 
@@ -30,7 +30,7 @@ void main(uint3 GroupID : SV_GroupID, uint3 GroupThreadID : SV_GroupThreadID)
 
     if (card.CardExtentAndValid.w < 0.5f)
     {
-        // –³ŒøƒJ[ƒh: ƒ^ƒCƒ‹‚ğƒ[ƒ‚ÅŠm’è‚³‚¹‚é (–¢‰Šú‰»’l‚Ì¬“ü–h~)
+        // ç„¡åŠ¹ã‚«ãƒ¼ãƒ‰: ã‚¿ã‚¤ãƒ«ã‚’ã‚¼ãƒ­ã§ç¢ºå®šã•ã›ã‚‹ (æœªåˆæœŸåŒ–å€¤ã®æ··å…¥é˜²æ­¢)
         RWDirectLighting[GetLumenCardTileOrigin(cardIndex) + texelInCard] =
             float4(0.0f, 0.0f, 0.0f, 0.0f);
         return;
@@ -52,7 +52,7 @@ void main(uint3 GroupID : SV_GroupID, uint3 GroupThreadID : SV_GroupThreadID)
 
     float3 directLighting = float3(0.0f, 0.0f, 0.0f);
 
-    // ---- ƒfƒBƒŒƒNƒVƒ‡ƒiƒ‹ƒ‰ƒCƒg ----
+    // ---- ãƒ‡ã‚£ãƒ¬ã‚¯ã‚·ãƒ§ãƒŠãƒ«ãƒ©ã‚¤ãƒˆ ----
     [branch]
     if (PassDirectionalLightDirection.w > 0.5f)
     {
@@ -62,7 +62,7 @@ void main(uint3 GroupID : SV_GroupID, uint3 GroupThreadID : SV_GroupThreadID)
         [branch]
         if (NdotL > 0.0f)
         {
-            // ƒnƒCƒuƒŠƒbƒh (SWRT) / RayQuery (HWRT) ‚ÌÕ•ÁƒgƒŒ[ƒX
+            // ãƒã‚¤ãƒ–ãƒªãƒƒãƒ‰ (SWRT) / RayQuery (HWRT) ã®é®è”½ãƒˆãƒ¬ãƒ¼ã‚¹
             float shadow = TraceLumenRay(
                 rayStart, toLight, maxTrace,
                 DIRECTIONAL_SHADOW_CONE_TAN, PassNumLumenObjects).Visibility;
@@ -71,7 +71,7 @@ void main(uint3 GroupID : SV_GroupID, uint3 GroupThreadID : SV_GroupThreadID)
         }
     }
 
-    // ---- ƒ[ƒJƒ‹ƒ‰ƒCƒg (Point / Spot / Rect: ŠgU‚Ì‚İ) ----
+    // ---- ãƒ­ãƒ¼ã‚«ãƒ«ãƒ©ã‚¤ãƒˆ (Point / Spot / Rect: æ‹¡æ•£ã®ã¿) ----
     [loop]
     for (uint i = 0; i < PassNumLocalLights; ++i)
     {
@@ -84,7 +84,7 @@ void main(uint3 GroupID : SV_GroupID, uint3 GroupThreadID : SV_GroupThreadID)
 
         if (normalizedDist >= 1.0f)
         {
-            continue; // Œ¸Š”¼ŒaŠO
+            continue; // æ¸›è¡°åŠå¾„å¤–
         }
 
         float3 L = toLight / dist;
@@ -94,12 +94,12 @@ void main(uint3 GroupID : SV_GroupID, uint3 GroupThreadID : SV_GroupThreadID)
             continue;
         }
 
-        // ---- ‹——£Œ¸Š ----
+        // ---- è·é›¢æ¸›è¡° ----
         float attenuation;
         [branch]
         if (light.Flags & LIGHT_FLAG_INVERSE_SQUARED)
         {
-            // ‹t“ñæ + ”¼ŒaƒEƒBƒ“ƒhƒE (1 - (d/r)^4)^2
+            // é€†äºŒä¹— + åŠå¾„ã‚¦ã‚£ãƒ³ãƒ‰ã‚¦ (1 - (d/r)^4)^2
             float window = saturate(1.0f - normalizedDist * normalizedDist *
                 normalizedDist * normalizedDist);
             attenuation = (window * window) / max(distSq, 0.0001f);
@@ -109,7 +109,7 @@ void main(uint3 GroupID : SV_GroupID, uint3 GroupThreadID : SV_GroupThreadID)
             attenuation = pow(saturate(1.0f - normalizedDist), light.FalloffExponent);
         }
 
-        // ---- ƒR[ƒ“Œ¸Š (Spot) / ”¼‹…§ŒÀ (Rect) ----
+        // ---- ã‚³ãƒ¼ãƒ³æ¸›è¡° (Spot) / åŠçƒåˆ¶é™ (Rect) ----
         if (light.Type == LIGHT_TYPE_SPOT)
         {
             float cosAngle = dot(-L, light.Direction);
@@ -118,7 +118,7 @@ void main(uint3 GroupID : SV_GroupID, uint3 GroupThreadID : SV_GroupThreadID)
         }
         else if (light.Type == LIGHT_TYPE_RECT)
         {
-            // –Ê‚Ì•\‘¤‚Ì‚İÆ‚ç‚·ŠÈˆÕ‹ß—
+            // é¢ã®è¡¨å´ã®ã¿ç…§ã‚‰ã™ç°¡æ˜“è¿‘ä¼¼
             attenuation *= (dot(-L, light.Direction) > 0.0f) ? 1.0f : 0.0f;
         }
 
@@ -126,10 +126,10 @@ void main(uint3 GroupID : SV_GroupID, uint3 GroupThreadID : SV_GroupThreadID)
 
         if (max(contribution.r, max(contribution.g, contribution.b)) < SHADOW_TRACE_THRESHOLD)
         {
-            continue; // Šñ—^‚ª¬‚³‚·‚¬‚é: Õ•ÁƒgƒŒ[ƒX‚ğÈ—ª‚µ‚Ä”jŠü
+            continue; // å¯„ä¸ãŒå°ã•ã™ãã‚‹: é®è”½ãƒˆãƒ¬ãƒ¼ã‚¹ã‚’çœç•¥ã—ã¦ç ´æ£„
         }
 
-        // ---- Õ•ÁƒgƒŒ[ƒX (ƒ‰ƒCƒg‚Ü‚Å) ----
+        // ---- é®è”½ãƒˆãƒ¬ãƒ¼ã‚¹ (ãƒ©ã‚¤ãƒˆã¾ã§) ----
         float shadow = TraceLumenRay(
             rayStart, L, max(dist - surfaceBias, 0.0f),
             LOCAL_SHADOW_CONE_TAN, PassNumLumenObjects).Visibility;

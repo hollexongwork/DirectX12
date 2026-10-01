@@ -21,30 +21,46 @@
 #define PP_FLAG_DOF            (1u << 8)
 
 // -------------------------------------------------------------
-//  b0 : View (FViewUniformShaderParameters 相当)
-//  ビュー行列群 + カメラ + 代表ディレクショナルライト。
+//  b0 : View (FViewUniformShaderParameters 相当, 448 B)
+//  ビュー行列群 + カメラ + 代表ディレクショナルライト + Temporal AA / TAAU。
 //  太陽ライトは View ユニフォームに常駐する。
+//  Projection / InvViewProjection は TAA ジッタ込み (UE ViewToClip / ClipToTranslatedWorld)。
+//  シャドウ / Lumen カード等のビューはゼロ初期化の定数を使うので、
+//  テンポラル系フィールドとミップバイアスは 0 になる。
 // -------------------------------------------------------------
 cbuffer ViewConstantBuffer : register(b0)
 {
     float4x4 View;
-    float4x4 Projection;
-    float4x4 InvViewProjection;
+    float4x4 Projection; // 64  ジッタ込み
+    float4x4 InvViewProjection; // 128 ジッタ込み (深度 + UV からのワールド復元)
     float4 WorldCameraOrigin; // xyz = カメラワールド位置 [m]
     float4 NearFar; // x=Near, y=Far
     // DirectionalLightDirection.xyz = 受光面からライトへ向かう方向 (発光方向の逆)
     // DirectionalLightColor.rgb     = 線形色 x 強度 (lux)。ライト不在時は 0 (無光)
     float4 DirectionalLightDirection;
     float4 DirectionalLightColor;
+    // ---- Temporal AA / TAAU ----
+    float4x4 PrevViewProjection; // 256 前フレーム (ジッタ込み)
+    float4x4 ClipToPrevClip; // 320 NoAA
+    float4 TemporalAAJitter; // 384 xy cur, zw prev (NDC)
+    float4 TemporalAAParams; // 400 x = SampleIndex, y = SampleCount, zw = ジッタ (レンダー px)
+    float4 ViewSizeAndInvSize; // 416 (R.x, R.y, 1/R.x, 1/R.y)
+    float MaterialTextureMipBias; // 432 マテリアルテクスチャの SampleBias (TemporalUpscale 時のみ非 0)
+    float MaterialTextureDerivativeMultiply; // 436 = 2^MipBias (予約)
+    uint StateFrameIndexMod8; // 440 TAA 有効時 FrameIndex & 7, それ以外 0
+    uint StateFrameIndex; // 444
 };
 
 // -------------------------------------------------------------
-//  b1 : Primitive (FPrimitiveUniformShaderParameters 相当)
+//  b1 : Primitive (FPrimitiveUniformShaderParameters 相当, 128 B)
 //  per-draw のローカル→ワールド変換。
+//  PreviousLocalToWorld は前フレームに描いた変換 (ベロシティパス用。
+//  それ以外のパスでは LocalToWorld と同値 / 単位行列)
 // -------------------------------------------------------------
 cbuffer PrimitiveConstantBuffer : register(b1)
 {
     float4x4 LocalToWorld;
+    float4x4 PreviousLocalToWorld; // 64 前フレームの LocalToWorld (UE PreviousLocalToWorld)
 };
 
 // ---- Blend Mode (C++ EBlendMode と 1:1) ----
@@ -65,8 +81,10 @@ cbuffer PrimitiveConstantBuffer : register(b1)
 //  ---- Substrate Slab BSDF ----
 //    bUseSubstrate = true のときレガシー Metallic/Specular ワーク
 //    フローの代わりに Slab (DiffuseAlbedo / F0 / F90 / SSS) で
-//    シェーディングする。MFP は TransmittanceColor + Thickness から
-//    TransmittanceToMeanFreePath で導出 (Substrate.hlsl)。
+//    シェーディングする。MFP は TransmittanceColor と固定参照厚
+//    SUBSTRATE_TRANSMITTANCE_REFERENCE_CM (1cm) から
+//    TransmittanceToMeanFreePath で導出し、Thickness は SSS 評価厚
+//    として濃度をスケールする (Constant.hlsl 参照)。
 //    Thickness は cm 単位オーサリング。
 //
 //  ---- Refraction ----
@@ -94,7 +112,7 @@ cbuffer MaterialConstantBuffer : register(b2)
         float4 SubstrateDiffuseAlbedo; // rgb (w 未使用)
         float4 SubstrateF0; // rgb (w 未使用)
         float4 SubstrateF90; // rgb (w 未使用)
-        float4 SubstrateTransmittanceColor; // rgb = 透過色 (指定厚での透過率) / w = 予約 (未使用)
+        float4 SubstrateTransmittanceColor; // rgb = 透過色 (参照厚 1cm あたりの透過率) / w = 予約 (未使用)
         float4 SubstrateFuzzColor; // rgb = ファズ色 / w = FuzzAmount
 
         float SubstrateAnisotropy; // [-1,1] (評価は等方近似)
@@ -132,7 +150,7 @@ cbuffer MaterialConstantBuffer : register(b2)
 cbuffer ForwardLightData : register(b3)
 {
     uint NumLocalLights; // ローカルライト有効数
-    uint NumGridCells; // グリッド総セル数 (X*Y*Z)
+    uint NumGridCells; // グリッド総セル数 (X*Y*Z)。現状どのシェーダーも読まない (将来用)
     uint CulledGridSizeX; // 画面タイル数 X (= ceil(W / LightGridPixelSize))
     uint CulledGridSizeY; // 画面タイル数 Y
 
@@ -191,9 +209,10 @@ cbuffer PostProcessConstantBuffer : register(b4)
         float DofPad;
 
         uint Flags;
-        float _pp_pad0;
-        float _pp_pad1;
-        float _pp_pad2;
+        // --- レンダラ専有 (永続化しない。C++ PP_SETTINGS の同名フィールド) ---
+        float UpscaleUnsharpAmount; // 一次空間アップスケール mode 5 のアンシャープ量 (r.Upscale.Softness x (1 - 面積比))
+        uint VisualizeMode;         // Temporal AA デバッグ表示 (ETemporalAADebugView)
+        float VisualizeScale;       // デバッグ表示の増幅 (FTemporalAADebugSettings::VisualizeScale)
     } PostProcess;
 };
 
@@ -226,7 +245,7 @@ cbuffer LumenSceneParameters : register(b6)
     uint NumLumenObjects; // 有効 Lumen オブジェクト数
     uint bLumenScreenGI; // 1 = ピクセル毎コーントレース経路 (GatherMode==1)
     uint LumenNumScreenCones; // 半球あたりのコーン数 (1..8, ピクセル毎経路)
-    uint LumenDebugMode; // 0=off 1=GIのみ 2=スカイ可視率 3=GI(アルベド乗算)
+    uint LumenDebugMode; // 0=off 1=GIのみ 2=スカイ可視率 3=GI(アルベド乗算) 4=Short Range AO
 
     float LumenGIIntensity; // 拡散 GI の強度スケール
     float LumenMaxTraceDistance; // トレース最大距離 [m]
@@ -236,9 +255,9 @@ cbuffer LumenSceneParameters : register(b6)
     float LumenSurfaceBias; // レイ開始の法線方向オフセット [m]
     uint LumenGatherMode; // 0=off 1=ピクセル毎トレース 2=Screen Probe Gather (t28)
     uint bLumenReflections; // 1 = 反射テクスチャ (t29) を合成
-    float LumenReflectionMaxRoughness; // これ以上のラフネスは IBL のみ
+    float LumenReflectionMaxRoughness; // これ以上のラフネスは IBL のみ (現状どのシェーダーも読まない。反射パスは PassReflectionParams.x を使用。将来用)
 
-    float LumenReflectionIntensity; // 反射合成の強度
+    float LumenReflectionIntensity; // 反射合成の強度 (現状どのシェーダーも読まない。反射パスは PassReflectionParams.z を使用。将来用)
     uint bLumenTranslucencyGI; // 1 = 半透明パスで Radiance Cache を採光
     float LumenTranslucencyGIIntensity; // 半透明 GI の強度
     float LumenPadA;

@@ -3,21 +3,21 @@
 
 // ============================================================
 //  LumenHardwareRayTracing
-//  Lumen ‚Ì HWRT (DXR 1.1 ƒCƒ“ƒ‰ƒCƒ“ƒŒƒCƒgƒŒ[ƒVƒ“ƒO) —p‚Ì
-//  Top Level Acceleration Structure ŠÇ—B
+//  Lumen ã® HWRT (DXR 1.1 ã‚¤ãƒ³ãƒ©ã‚¤ãƒ³ãƒ¬ã‚¤ãƒˆãƒ¬ãƒ¼ã‚·ãƒ³ã‚°) ç”¨ã®
+//  Top Level Acceleration Structure ç®¡ç†ã€‚
 //
-//    - BLAS ‚Í FBXModel::Load ‚ªˆê“x‚¾‚¯\’z‚·‚é (FBXModel.h)
-//    - TLAS ‚Í–ˆƒtƒŒ[ƒ€ALumen ƒIƒuƒWƒFƒNƒgƒXƒƒbƒg‚©‚çÄ\’z
-//      (ƒCƒ“ƒXƒ^ƒ“ƒX”‚ª­‚È‚¢‚½‚ß PREFER_FAST_BUILD ‚Ìƒtƒ‹
-//       ƒŠƒrƒ‹ƒhBInstanceID = Lumen ƒXƒƒbƒg”Ô† = Surface Cache
-//       ÌŒõ‚ÌƒIƒuƒWƒFƒNƒgƒCƒ“ƒfƒbƒNƒX)
-//    - ƒgƒŒ[ƒX‚ÍŠeƒRƒ“ƒsƒ…[ƒgƒpƒX‚Ì RT ƒoƒŠƒAƒ“ƒg (SM 6.5,
-//      RayQuery) ‚ªƒ‹[ƒg SRV t28 Œo—R‚ÅQÆ‚·‚é
+//    - BLAS ã¯ FBXModel::Load ãŒä¸€åº¦ã ã‘æ§‹ç¯‰ã™ã‚‹ (FBXModel.h)
+//    - TLAS ã¯æ¯ãƒ•ãƒ¬ãƒ¼ãƒ ã€Lumen ã‚ªãƒ–ã‚¸ã‚§ã‚¯ãƒˆã‚¹ãƒ­ãƒƒãƒˆã‹ã‚‰å†æ§‹ç¯‰
+//      (ã‚¤ãƒ³ã‚¹ã‚¿ãƒ³ã‚¹æ•°ãŒå°‘ãªã„ãŸã‚ PREFER_FAST_BUILD ã®ãƒ•ãƒ«
+//       ãƒªãƒ“ãƒ«ãƒ‰ã€‚InstanceID = Lumen ã‚¹ãƒ­ãƒƒãƒˆç•ªå· = Surface Cache
+//       æ¡å…‰ã®ã‚ªãƒ–ã‚¸ã‚§ã‚¯ãƒˆã‚¤ãƒ³ãƒ‡ãƒƒã‚¯ã‚¹)
+//    - ãƒˆãƒ¬ãƒ¼ã‚¹ã¯å„ã‚³ãƒ³ãƒ”ãƒ¥ãƒ¼ãƒˆãƒ‘ã‚¹ã® RT ãƒãƒªã‚¢ãƒ³ãƒˆ (SM 6.5,
+//      RayQuery) ãŒãƒ«ãƒ¼ãƒˆ SRV t28 çµŒç”±ã§å‚ç…§ã™ã‚‹
 //      (LumenTracingHardware.hlsl)
 //
-//  DXR ”ñ‘Î‰ŠÂ‹« (RenderManager::IsRayTracingSupported = false)
-//  ‚Å‚Í Init ‚ª‰½‚à‚¹‚¸AIsAvailable ‚ª false ‚Ì‚Ü‚Ü SWRT
-//  (ƒƒbƒVƒ… SDF + Global Distance Field) ‚ªg‚í‚ê‚éB
+//  DXR éå¯¾å¿œç’°å¢ƒ (RenderManager::IsRayTracingSupported = false)
+//  ã§ã¯ Init ãŒä½•ã‚‚ã›ãšã€IsAvailable ãŒ false ã®ã¾ã¾ SWRT
+//  (ãƒ¡ãƒƒã‚·ãƒ¥ SDF + Global Distance Field) ãŒä½¿ã‚ã‚Œã‚‹ã€‚
 // ============================================================
 
 class FLumenHardwareRayTracing
@@ -25,34 +25,34 @@ class FLumenHardwareRayTracing
 private:
 	RenderManager* m_RHI = nullptr;
 
-	// ---- ƒCƒ“ƒXƒ^ƒ“ƒXƒoƒbƒtƒ@ (ƒAƒbƒvƒ[ƒhƒq[ƒv, ƒ_ƒuƒ‹ƒoƒbƒtƒ@) ----
+	// ---- ã‚¤ãƒ³ã‚¹ã‚¿ãƒ³ã‚¹ãƒãƒƒãƒ•ã‚¡ (ã‚¢ãƒƒãƒ—ãƒ­ãƒ¼ãƒ‰ãƒ’ãƒ¼ãƒ—, ãƒ€ãƒ–ãƒ«ãƒãƒƒãƒ•ã‚¡) ----
 	ComPtr<ID3D12Resource>            m_InstanceBuffer[2];
 	D3D12_RAYTRACING_INSTANCE_DESC* m_InstancePointer[2] = {};
 	unsigned int                      m_Frame = 0;
 
-	// ---- TLAS (–ˆƒtƒŒ[ƒ€ƒCƒ“ƒvƒŒ[ƒXÄ\’z) ----
+	// ---- TLAS (æ¯ãƒ•ãƒ¬ãƒ¼ãƒ ã‚¤ãƒ³ãƒ—ãƒ¬ãƒ¼ã‚¹å†æ§‹ç¯‰) ----
 	ComPtr<ID3D12Resource> m_TLAS;
 	ComPtr<ID3D12Resource> m_TLASScratch;
 
 	unsigned int m_MaxInstances = 0;
-	unsigned int m_NumInstances = 0;	// ¡ƒtƒŒ[ƒ€‚Ì—LŒøƒCƒ“ƒXƒ^ƒ“ƒX”
-	bool         m_bAvailable = false;	// Init ¬Œ÷ (= DXR ‘Î‰ŠÂ‹«)
+	unsigned int m_NumInstances = 0;	// ä»Šãƒ•ãƒ¬ãƒ¼ãƒ ã®æœ‰åŠ¹ã‚¤ãƒ³ã‚¹ã‚¿ãƒ³ã‚¹æ•°
+	bool         m_bAvailable = false;	// Init æˆåŠŸ (= DXR å¯¾å¿œç’°å¢ƒ)
 
 public:
 	explicit FLumenHardwareRayTracing(RenderManager* RHI);
 	~FLumenHardwareRayTracing();
 
-	// MaxInstances •ª‚Ì TLAS / ƒXƒNƒ‰ƒbƒ` / ƒCƒ“ƒXƒ^ƒ“ƒXƒoƒbƒtƒ@‚ğŠm•ÛB
-	// DXR ”ñ‘Î‰ŠÂ‹«‚Å‚Í‰½‚à‚µ‚È‚¢B
+	// MaxInstances åˆ†ã® TLAS / ã‚¹ã‚¯ãƒ©ãƒƒãƒ / ã‚¤ãƒ³ã‚¹ã‚¿ãƒ³ã‚¹ãƒãƒƒãƒ•ã‚¡ã‚’ç¢ºä¿ã€‚
+	// DXR éå¯¾å¿œç’°å¢ƒã§ã¯ä½•ã‚‚ã—ãªã„ã€‚
 	void Init(unsigned int MaxInstances);
 
-	// ¡ƒtƒŒ[ƒ€‚ÌƒCƒ“ƒXƒ^ƒ“ƒX‘‚«‚İæ (MaxInstances •ª) ‚ğ•Ô‚·B
-	// ƒtƒŠƒbƒv‚·‚é‚Ì‚Å–ˆƒtƒŒ[ƒ€ 1 ‰ñ‚¾‚¯ŒÄ‚Ô‚±‚ÆB
-	// —˜—p•s‰Â‚È‚ç nullptrB
+	// ä»Šãƒ•ãƒ¬ãƒ¼ãƒ ã®ã‚¤ãƒ³ã‚¹ã‚¿ãƒ³ã‚¹æ›¸ãè¾¼ã¿å…ˆ (MaxInstances åˆ†) ã‚’è¿”ã™ã€‚
+	// ãƒ•ãƒªãƒƒãƒ—ã™ã‚‹ã®ã§æ¯ãƒ•ãƒ¬ãƒ¼ãƒ  1 å›ã ã‘å‘¼ã¶ã“ã¨ã€‚
+	// åˆ©ç”¨ä¸å¯ãªã‚‰ nullptrã€‚
 	D3D12_RAYTRACING_INSTANCE_DESC* BeginInstances();
 
-	// TLAS Ä\’z‚ğ‹L˜^‚·‚é (NumInstances = 0 ‚È‚ç‰½‚à‚µ‚È‚¢ =
-	// HasTLAS ‚ª false ‚É‚È‚è SWRT ‚ÖƒtƒH[ƒ‹ƒoƒbƒN)B
+	// TLAS å†æ§‹ç¯‰ã‚’è¨˜éŒ²ã™ã‚‹ (NumInstances = 0 ãªã‚‰ä½•ã‚‚ã—ãªã„ =
+	// HasTLAS ãŒ false ã«ãªã‚Š SWRT ã¸ãƒ•ã‚©ãƒ¼ãƒ«ãƒãƒƒã‚¯)ã€‚
 	void BuildTLAS(unsigned int NumInstances);
 
 	bool IsAvailable() const { return m_bAvailable; }

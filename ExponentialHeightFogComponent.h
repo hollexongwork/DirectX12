@@ -19,7 +19,7 @@ using namespace DirectX;
 //    SetVisibility(false)  -> FScene::RemoveExponentialHeightFog
 //
 //  ---- 単位 ----
-//    - FogDensity / FogHeightFalloff : 10 [1/m]
+//    - FogDensity / FogHeightFalloff : コンポーネント値 / 10 = [1/m] (FExponentialHeightFogSceneInfo で換算)
 //    - 距離系 (StartDistance / FogCutoffDistance / DirectionalInscattering
 //      StartDistance / *InscatteringColorDistance / VolumetricFog*) は
 //      メートル。

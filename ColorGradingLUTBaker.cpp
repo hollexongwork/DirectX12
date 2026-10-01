@@ -178,15 +178,7 @@ void ColorGradingLUTBaker::Init()
 		D3D12_HEAP_PROPERTIES prop{};
 		prop.Type = D3D12_HEAP_TYPE_UPLOAD;
 
-		D3D12_RESOURCE_DESC d{};
-		d.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-		d.Width = (sizeof(GRADING_PARAMS) + 255) & ~255u; // 256-aligned CBV
-		d.Height = 1;
-		d.DepthOrArraySize = 1;
-		d.MipLevels = 1;
-		d.Format = DXGI_FORMAT_UNKNOWN;
-		d.SampleDesc.Count = 1;
-		d.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+		const CD3DX12_RESOURCE_DESC d = CD3DX12_RESOURCE_DESC::Buffer((sizeof(GRADING_PARAMS) + 255) & ~255u); // 256-aligned CBV
 
 		// フレーム毎にダブルバッファ (in-flight フレームとの書き込み競合防止)
 		for (int i = 0; i < 2; ++i)
@@ -202,8 +194,6 @@ void ColorGradingLUTBaker::Init()
 	// 1x1 fallback so the artist-LUT SRV slot (t0) is always bound.
 	CreateFallbackSRV();
 
-	//LoadArtistLUT("Asset/Texture/LUTs/LUT_Adventure.DDS");
-
 	// Bake once at startup with default settings so the LUT is valid
 	// even before the first ImGui edit.
 	m_Dirty = true;
@@ -215,7 +205,7 @@ bool ColorGradingLUTBaker::ParamsChanged(const GRADING_PARAMS& p) const
 	return std::memcmp(&p, &m_LastParams, sizeof(GRADING_PARAMS)) != 0;
 }
 
-// ---- 1x1 white fallback for t0 (always-bound SRV) ----
+// ---- 1x1 fallback for t0 (always-bound SRV, contents undefined) ----
 void ColorGradingLUTBaker::CreateFallbackSRV()
 {
 	D3D12_HEAP_PROPERTIES prop{};
@@ -228,8 +218,10 @@ void ColorGradingLUTBaker::CreateFallbackSRV()
 	d.SampleDesc.Count = 1;
 	d.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
 
+	// ベイク CS (コンピュート) が t0 で読むため NON_PIXEL を含む読み取り状態で生成する
+	// (PIXEL_SHADER_RESOURCE のみだとコンピュートからの読み取りが状態不一致になる)
 	HRESULT hr = Device()->CreateCommittedResource(&prop, D3D12_HEAP_FLAG_NONE,
-		&d, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, nullptr,
+		&d, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, nullptr,
 		IID_PPV_ARGS(&m_FallbackTex));
 	assert(SUCCEEDED(hr));
 	m_FallbackTex->SetName(L"ArtistLUTFallback");
@@ -255,6 +247,14 @@ void ColorGradingLUTBaker::LoadArtistLUT(const char* ddsFile)
 	m_ArtistLUT = m_Owner->LoadTexture(ddsFile, false);
 	assert(m_ArtistLUT && m_ArtistLUT->Resource);
 
+	// LoadTexture は PIXEL_SHADER_RESOURCE で終わるが、Artist LUT はベイク CS
+	// (コンピュート, t0) が読むため NON_PIXEL を含む読み取り状態へ遷移しておく
+	// (記録中のコマンドリストへ積む。LoadTexture の COPY_DEST -> PSR の直後)
+	CommandList()->ResourceBarrier(1,
+		&CD3DX12_RESOURCE_BARRIER::Transition(m_ArtistLUT->Resource.Get(),
+			D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+			D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE));
+
 	m_ArtistLUTPath = ddsFile;
 
 	D3D12_RESOURCE_DESC desc = m_ArtistLUT->Resource->GetDesc();
@@ -263,7 +263,7 @@ void ColorGradingLUTBaker::LoadArtistLUT(const char* ddsFile)
 
 	// Standard unwrapped strip: width = tile*tile, height = tile.
 	// So tile edge = height, and width should equal height*height.
-	m_ArtistTileSize = m_ArtistPixelsY;
+	// タイル辺長 = 高さ (UpdateIfDirty で ArtistLUTTileSize に使用)
 	// sanity: a 256x16 strip -> tile 16, 16*16=256 == width. If the strip is
 	// authored differently the tile size still follows height, which matches
 	// the Unreal convention used by SampleArtistLUT in the shader.
@@ -276,7 +276,6 @@ void ColorGradingLUTBaker::ClearArtistLUT()
 	if (!m_ArtistLUT) return;
 	m_ArtistLUT.reset();
 	m_ArtistLUTPath.clear();
-	m_ArtistTileSize = 0;
 	m_ArtistPixelsX = m_ArtistPixelsY = 0;
 	m_Dirty = true;
 }
@@ -305,7 +304,7 @@ void ColorGradingLUTBaker::UpdateIfDirty(const PP_SETTINGS& Settings)
 
 	// Artist LUT combine params.
 	p.ArtistLUTWeight = m_ArtistLUT ? m_ArtistWeight : 0.0f;
-	p.ArtistLUTTileSize = (float)(m_ArtistTileSize ? m_ArtistTileSize : 16);
+	p.ArtistLUTTileSize = (float)(m_ArtistPixelsY ? m_ArtistPixelsY : 16); // タイル辺長 = ストリップ高さ
 	p.ArtistLUTPixelsX = (float)(m_ArtistPixelsX ? m_ArtistPixelsX : 256);
 	p.ArtistLUTPixelsY = (float)(m_ArtistPixelsY ? m_ArtistPixelsY : 16);
 

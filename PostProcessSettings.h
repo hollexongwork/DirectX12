@@ -1,4 +1,5 @@
 #pragma once
+#include <cstddef>
 #include <DirectXMath.h>
 using namespace DirectX;
 
@@ -7,7 +8,7 @@ using namespace DirectX;
 //  GPU 側 POSTPROCESS と 1:1 ミラーなのでレイアウト変更は両側同時に行うこと。
 // ============================================================
 
-// Flags - MUST match PP_FLAG_* in Common.hlsl.
+// Flags - MUST match PP_FLAG_* in ConstantBuffers.hlsl.
 enum PP_FLAG : unsigned int
 {
     PP_FLAG_BLOOM = 1u << 0,
@@ -28,8 +29,7 @@ enum class TONEMAPPER : unsigned int
     None = 2,
 };
 
-// 16-byte-aligned, 1:1 with HLSL POSTPROCESS. Total = 5 float4 (groups)
-// + 5 float4 grading + 1 float4 misc-a + 1 float4 misc-b = check below.
+// 16-byte-aligned, 1:1 with HLSL POSTPROCESS (size: see static_assert below).
 struct PP_SETTINGS
 {
     // --- group 0 : Exposure / Tonemapper ---
@@ -65,16 +65,23 @@ struct PP_SETTINGS
 
     float MaxBlurSize = 16.0f;    // CoC=1 のときのブラー半径 (ハーフ解像度テクセル単位)
     float NearBlurScale = 1.0f;    // 手前ボケの強さ倍率 
-    float FarBlurScale = 1.0f;    // 奥ボケの強さ倍率,この距離以遠を完全遠景(奥最大ボケ)とみなすクランプ
+    float FarBlurScale = 1.0f;    // 奥ボケの強さ倍率
     float DofPad = 0.0f;
 
     // --- Flag ---
     unsigned int Flags = PP_FLAG_BLOOM | PP_FLAG_AUTO_EXPOSURE |
         PP_FLAG_COLOR_GRADING | PP_FLAG_WHITE_BALANCE;
-    float        _pp_pad0 = 0.0f;
-    float        _pp_pad1 = 0.0f;
-    float        _pp_pad2 = 0.0f;
+
+    // --- レンダラ専有 (旧パディング。永続化しない: Write/ReadPostProcess は触れない) ---
+    // FSceneRenderer がパスの直前に書く (ボリューム側の値は使われない)
+    float        UpscaleUnsharpAmount = 0.0f;   // 一次空間アップスケール (mode 5) のアンシャープ量
+                                                // = r.Upscale.Softness x max(0, 1 - (In.x*In.y)/(O.x*O.y))
+    unsigned int VisualizeMode = 0;             // Temporal AA デバッグ表示 (ETemporalAADebugView)
+    float        VisualizeScale = 1.0f;         // デバッグ表示の増幅 (FTemporalAADebugSettings::VisualizeScale)
 };
+static_assert(offsetof(PP_SETTINGS, UpscaleUnsharpAmount) == 164, "b4 UpscaleUnsharpAmount offset (was _pp_pad0)");
+static_assert(offsetof(PP_SETTINGS, VisualizeMode) == 168, "b4 VisualizeMode offset (was _pp_pad1)");
+static_assert(offsetof(PP_SETTINGS, VisualizeScale) == 172, "b4 VisualizeScale offset (was _pp_pad2)");
 
 // Compile-time guard: HLSL POSTPROCESS block layout must match.
 //   group0 16 + group1 16 + grading 5*16=80 + misc 16 + DOF 2*16=32 + flags-block 16

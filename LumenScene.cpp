@@ -6,6 +6,7 @@
 #include "PrimitiveSceneProxy.h"
 #include "FBXModel.h"
 #include "DistanceFieldAtlas.h"
+#include "Halton.h"
 
 #include "D3DX12.h"
 
@@ -22,7 +23,7 @@ FLumenSceneData::FLumenSceneData(RenderManager* RHI)
 
 FLumenSceneData::~FLumenSceneData()
 {
-	// ƒAƒbƒvƒ[ƒhƒoƒbƒtƒ@‚Ì‰i‘± Map ‚ğ‰ğœ
+	// ã‚¢ãƒƒãƒ—ãƒ­ãƒ¼ãƒ‰ãƒãƒƒãƒ•ã‚¡ã®æ°¸ç¶š Map ã‚’è§£é™¤
 	for (int i = 0; i < 2; i++)
 	{
 		if (m_ObjectBuffer[i]) { m_ObjectBuffer[i]->Unmap(0, nullptr); }
@@ -35,39 +36,18 @@ FLumenSceneData::~FLumenSceneData()
 
 	if (m_DepthAtlasSRVIndex) { m_RHI->ReleaseShaderResourceView(m_DepthAtlasSRVIndex); }
 
-	auto releaseComputeTexture = [this](FLumenComputeTexture& tex)
-		{
-			if (tex.Resource)
-			{
-				m_RHI->DeferredRelease(tex.Resource, (int)tex.SRVIndex, -1);
-				m_RHI->ReleaseShaderResourceView(tex.UAVIndex);
-				tex.Resource = nullptr;
-			}
-		};
-	releaseComputeTexture(m_DirectLightingAtlas);
-	releaseComputeTexture(m_IndirectLightingAtlas);
-	releaseComputeTexture(m_FinalLightingAtlas);
+	ReleaseComputeTexture(m_DirectLightingAtlas);
+	ReleaseComputeTexture(m_IndirectLightingAtlas);
+	ReleaseComputeTexture(m_FinalLightingAtlas);
 	for (unsigned int i = 0; i < LUMEN_GLOBAL_SDF_CLIPMAPS; i++)
 	{
-		releaseComputeTexture(m_GlobalSDF[i]);
+		ReleaseComputeTexture(m_GlobalSDF[i]);
 	}
-	releaseComputeTexture(m_ProbeGeo);
-	releaseComputeTexture(m_ProbeTraceRadiance);
-	releaseComputeTexture(m_ProbeFilteredRadiance);
-	for (int i = 0; i < 2; i++)
-	{
-		releaseComputeTexture(m_ProbeSH[i].SHR);
-		releaseComputeTexture(m_ProbeSH[i].SHG);
-		releaseComputeTexture(m_ProbeSH[i].SHB);
-		releaseComputeTexture(m_ProbeSH[i].Aux);
-	}
-	releaseComputeTexture(m_DiffuseIndirect[0]);
-	releaseComputeTexture(m_DiffuseIndirect[1]);
-	releaseComputeTexture(m_ReflectionTexture);
-	releaseComputeTexture(m_RCAtlas);
+	ReleaseScreenTextures();
+	ReleaseComputeTexture(m_RCAtlas);
 	for (int i = 0; i < 3; i++)
 	{
-		releaseComputeTexture(m_RCSH[i]);
+		ReleaseComputeTexture(m_RCSH[i]);
 	}
 
 	if (m_DepthAtlas)
@@ -102,13 +82,17 @@ bool FLumenSceneData::IsHardwareRayTracingSupported() const
 void FLumenSceneData::Init()
 {
 	InitAtlases();
-	InitScreenTextures();
+	// è§£åƒåº¦ã«ä¾å­˜ã—ãªã„ãƒ†ã‚¯ã‚¹ãƒãƒ£ (Global SDF / Radiance Cache SH) ã¨ã€
+	// ãƒ¬ãƒ³ãƒ€ãƒ¼è§£åƒåº¦ã®ã‚¹ã‚¯ãƒªãƒ¼ãƒ³ãƒ†ã‚¯ã‚¹ãƒãƒ£ (ãƒãƒƒã‚¯ãƒãƒƒãƒ•ã‚¡è§£åƒåº¦ã§é–‹å§‹ã€‚
+	// è§£åƒåº¦å¤‰æ›´æ™‚ã¯ FSceneRenderer::ResizeRenderTargets ãŒ Release / Create ã§ä½œã‚Šç›´ã™)
+	InitGlobalTextures();
+	CreateScreenTextures((unsigned int)m_RHI->GetBackBufferWidth(), (unsigned int)m_RHI->GetBackBufferHeight());
 	InitBuffers();
 	InitComputePipelines();
 
-	// Radiosity ƒeƒ“ƒ|ƒ‰ƒ‹’~Ï‚Í IndirectLightingAtlas (RGBA16F) ‚ğ
-	// “¯ˆêƒpƒX‚Å UAV ‚©‚ç“Ç‚İ–ß‚·BR32 ŒnˆÈŠO‚ÌŒ^•t‚« UAV ƒ[ƒh‚Í
-	// ƒIƒvƒVƒ‡ƒ“‹@”\‚È‚Ì‚ÅAƒtƒH[ƒ}ƒbƒg’PˆÊ‚ÅƒTƒ|[ƒg‚ğŠm”F‚·‚é
+	// Radiosity ãƒ†ãƒ³ãƒãƒ©ãƒ«è“„ç©ã¯ IndirectLightingAtlas (RGBA16F) ã‚’
+	// åŒä¸€ãƒ‘ã‚¹ã§ UAV ã‹ã‚‰èª­ã¿æˆ»ã™ã€‚R32 ç³»ä»¥å¤–ã®å‹ä»˜ã UAV ãƒ­ãƒ¼ãƒ‰ã¯
+	// ã‚ªãƒ—ã‚·ãƒ§ãƒ³æ©Ÿèƒ½ãªã®ã§ã€ãƒ•ã‚©ãƒ¼ãƒãƒƒãƒˆå˜ä½ã§ã‚µãƒãƒ¼ãƒˆã‚’ç¢ºèªã™ã‚‹
 	{
 		m_bRadiosityTemporalSupported = false;
 
@@ -132,18 +116,18 @@ void FLumenSceneData::Init()
 			: "[Lumen] Radiosity temporal accumulation: disabled (typed UAV load unsupported)\n");
 	}
 
-	// DXR TLAS (‘Î‰ŠÂ‹«‚Ì‚İ—LŒø‰»‚³‚ê‚é)
+	// DXR TLAS (å¯¾å¿œç’°å¢ƒã®ã¿æœ‰åŠ¹åŒ–ã•ã‚Œã‚‹)
 	m_HardwareRayTracing = std::make_unique<FLumenHardwareRayTracing>(m_RHI);
 	m_HardwareRayTracing->Init(MAX_LUMEN_OBJECTS);
 }
 
 
 // ------------------------------------------------------------
-//  ƒRƒ“ƒsƒ…[ƒgƒeƒNƒXƒ`ƒƒ¶¬ (2D: Depth=1 / 3D: Depth>1)
+//  ã‚³ãƒ³ãƒ”ãƒ¥ãƒ¼ãƒˆãƒ†ã‚¯ã‚¹ãƒãƒ£ç”Ÿæˆ (2D: Depth=1 / 3D: Depth>1)
 // ------------------------------------------------------------
 void FLumenSceneData::CreateComputeTexture(FLumenComputeTexture& Texture, const wchar_t* Name,
 	unsigned int Width, unsigned int Height, unsigned int Depth,
-	DXGI_FORMAT Format, bool bStartInReadState)
+	DXGI_FORMAT Format, D3D12_RESOURCE_STATES InitialState)
 {
 	const bool bVolume = (Depth > 1);
 
@@ -167,7 +151,7 @@ void FLumenSceneData::CreateComputeTexture(FLumenComputeTexture& Texture, const 
 		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
 		D3D12_HEAP_FLAG_NONE,
 		&desc,
-		bStartInReadState ? readState : D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+		InitialState,
 		nullptr,
 		IID_PPV_ARGS(&Texture.Resource));
 	assert(SUCCEEDED(hr));
@@ -208,18 +192,18 @@ void FLumenSceneData::CreateComputeTexture(FLumenComputeTexture& Texture, const 
 	Device()->CreateUnorderedAccessView(Texture.Resource.Get(), nullptr, &uavDesc,
 		m_RHI->GetCPUDescriptorHandle(Texture.UAVIndex));
 
-	Texture.bInReadState = bStartInReadState;
+	Texture.bInReadState = (InitialState == readState);
 }
 
 
 // ------------------------------------------------------------
-//  Surface Cache ƒAƒgƒ‰ƒXŒQ
+//  Surface Cache ã‚¢ãƒˆãƒ©ã‚¹ç¾¤
 // ------------------------------------------------------------
 void FLumenSceneData::InitAtlases()
 {
 	ID3D12GraphicsCommandList* cl = CommandList();
 
-	// ---- ƒLƒƒƒvƒ`ƒƒƒAƒgƒ‰ƒX (MRTBRHI ‚Ì RENDER_TARGET ‚ğ—˜—p) ----
+	// ---- ã‚­ãƒ£ãƒ—ãƒãƒ£ã‚¢ãƒˆãƒ©ã‚¹ (MRTã€‚RHI ã® RENDER_TARGET ã‚’åˆ©ç”¨) ----
 	m_AlbedoAtlas = m_RHI->CreateRenderTarget(LUMEN_ATLAS_WIDTH, LUMEN_ATLAS_HEIGHT, DXGI_FORMAT_R8G8B8A8_UNORM);
 	m_NormalAtlas = m_RHI->CreateRenderTarget(LUMEN_ATLAS_WIDTH, LUMEN_ATLAS_HEIGHT, DXGI_FORMAT_R8G8B8A8_UNORM);
 	m_EmissiveAtlas = m_RHI->CreateRenderTarget(LUMEN_ATLAS_WIDTH, LUMEN_ATLAS_HEIGHT, DXGI_FORMAT_R11G11B10_FLOAT);
@@ -228,8 +212,8 @@ void FLumenSceneData::InitAtlases()
 	m_NormalAtlas->Resource->SetName(L"LumenNormalAtlas");
 	m_EmissiveAtlas->Resource->SetName(L"LumenEmissiveAtlas");
 
-	// ¶¬’¼Œã‚Í PIXEL_SHADER_RESOURCEBƒRƒ“ƒsƒ…[ƒg‚©‚ç‚à“Ç‚Ş‚½‚ß
-	// (PIXEL | NON_PIXEL) ‚ğíİ‚Ì“Ç‚İæ‚èó‘Ô‚É‚·‚éB
+	// ç”Ÿæˆç›´å¾Œã¯ PIXEL_SHADER_RESOURCEã€‚ã‚³ãƒ³ãƒ”ãƒ¥ãƒ¼ãƒˆã‹ã‚‰ã‚‚èª­ã‚€ãŸã‚
+	// (PIXEL | NON_PIXEL) ã‚’å¸¸åœ¨ã®èª­ã¿å–ã‚ŠçŠ¶æ…‹ã«ã™ã‚‹ã€‚
 	{
 		D3D12_RESOURCE_BARRIER barriers[3] = {
 			CD3DX12_RESOURCE_BARRIER::Transition(m_AlbedoAtlas->Resource.Get(),
@@ -245,7 +229,7 @@ void FLumenSceneData::InitAtlases()
 		cl->ResourceBarrier(_countof(barriers), barriers);
 	}
 
-	// ---- [“xƒAƒgƒ‰ƒX (R32_TYPELESS -> DSV D32 / SRV R32) ----
+	// ---- æ·±åº¦ã‚¢ãƒˆãƒ©ã‚¹ (R32_TYPELESS -> DSV D32 / SRV R32) ----
 	{
 		D3D12_RESOURCE_DESC desc{};
 		desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
@@ -272,7 +256,7 @@ void FLumenSceneData::InitAtlases()
 		assert(SUCCEEDED(hr));
 		m_DepthAtlas->SetName(L"LumenDepthAtlas");
 
-		// DSV (ê—Lƒq[ƒv)
+		// DSV (å°‚æœ‰ãƒ’ãƒ¼ãƒ—)
 		D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
 		heapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
 		heapDesc.NumDescriptors = 1;
@@ -299,71 +283,33 @@ void FLumenSceneData::InitAtlases()
 		Device()->CreateShaderResourceView(m_DepthAtlas.Get(), &srvDesc,
 			m_RHI->GetCPUDescriptorHandle(m_DepthAtlasSRVIndex));
 
-		// ‰Šúó‘Ô DEPTH_WRITE -> íİ‚Ì“Ç‚İæ‚èó‘Ô‚Ö
+		// åˆæœŸçŠ¶æ…‹ DEPTH_WRITE -> å¸¸åœ¨ã®èª­ã¿å–ã‚ŠçŠ¶æ…‹ã¸
 		cl->ResourceBarrier(1,
 			&CD3DX12_RESOURCE_BARRIER::Transition(m_DepthAtlas.Get(),
 				D3D12_RESOURCE_STATE_DEPTH_WRITE,
 				D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE));
 	}
 
-	// ---- ƒ‰ƒCƒeƒBƒ“ƒOƒAƒgƒ‰ƒX (RGBA16F, UAV) ----
-	// COPY_DEST ‚Å¶¬ -> ƒ[ƒ[“U -> ŠeƒpƒX‚ÌŠú‘Òó‘Ô‚Ö‘JˆÚB
-	// (–¢‘‚«‚İƒ^ƒCƒ‹‚Ì•s’è’l (NaN “™) ‚ª Radiosity ‚ÌƒtƒB[ƒhƒoƒbƒN‚Å
-	//  “`”d‚·‚é‚Ì‚ğ–h‚®‚½‚ßA‰Šú‰»‚Í•K{)
-	auto createZeroFilledTexture = [this](FLumenComputeTexture& tex, const wchar_t* name,
-		unsigned int width, unsigned int height)
-		{
-			D3D12_RESOURCE_DESC desc{};
-			desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-			desc.Width = width;
-			desc.Height = height;
-			desc.DepthOrArraySize = 1;
-			desc.MipLevels = 1;
-			desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
-			desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-			desc.SampleDesc.Count = 1;
-			desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+	// ---- ãƒ©ã‚¤ãƒ†ã‚£ãƒ³ã‚°ã‚¢ãƒˆãƒ©ã‚¹ (RGBA16F, UAV) ----
+	// COPY_DEST ã§ç”Ÿæˆ -> ã‚¼ãƒ­å……å¡« -> å„ãƒ‘ã‚¹ã®æœŸå¾…çŠ¶æ…‹ã¸é·ç§»ã€‚
+	// (æœªæ›¸ãè¾¼ã¿ã‚¿ã‚¤ãƒ«ã®ä¸å®šå€¤ (NaN ç­‰) ãŒ Radiosity ã®ãƒ•ã‚£ãƒ¼ãƒ‰ãƒãƒƒã‚¯ã§
+	//  ä¼æ’­ã™ã‚‹ã®ã‚’é˜²ããŸã‚ã€åˆæœŸåŒ–ã¯å¿…é ˆ)
+	CreateComputeTexture(m_DirectLightingAtlas, L"LumenDirectLightingAtlas",
+		LUMEN_ATLAS_WIDTH, LUMEN_ATLAS_HEIGHT, 1,
+		DXGI_FORMAT_R16G16B16A16_FLOAT, D3D12_RESOURCE_STATE_COPY_DEST);
+	CreateComputeTexture(m_IndirectLightingAtlas, L"LumenIndirectLightingAtlas",
+		LUMEN_ATLAS_WIDTH, LUMEN_ATLAS_HEIGHT, 1,
+		DXGI_FORMAT_R16G16B16A16_FLOAT, D3D12_RESOURCE_STATE_COPY_DEST);
+	CreateComputeTexture(m_FinalLightingAtlas, L"LumenFinalLightingAtlas",
+		LUMEN_ATLAS_WIDTH, LUMEN_ATLAS_HEIGHT, 1,
+		DXGI_FORMAT_R16G16B16A16_FLOAT, D3D12_RESOURCE_STATE_COPY_DEST);
+	CreateComputeTexture(m_RCAtlas, L"LumenRadianceCacheAtlas",
+		LUMEN_RC_ATLAS_SIZE, LUMEN_RC_ATLAS_SIZE, 1,
+		DXGI_FORMAT_R16G16B16A16_FLOAT, D3D12_RESOURCE_STATE_COPY_DEST);
 
-			HRESULT hr = Device()->CreateCommittedResource(
-				&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
-				D3D12_HEAP_FLAG_NONE,
-				&desc,
-				D3D12_RESOURCE_STATE_COPY_DEST,
-				nullptr,
-				IID_PPV_ARGS(&tex.Resource));
-			assert(SUCCEEDED(hr));
-			tex.Resource->SetName(name);
-
-			tex.SRVIndex = m_RHI->AllocateDescriptor();
-			D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
-			srvDesc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
-			srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-			srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-			srvDesc.Texture2D.MipLevels = 1;
-			Device()->CreateShaderResourceView(tex.Resource.Get(), &srvDesc,
-				m_RHI->GetCPUDescriptorHandle(tex.SRVIndex));
-			tex.SRVHandle = m_RHI->GetGPUDescriptorHandle(tex.SRVIndex);
-
-			tex.UAVIndex = m_RHI->AllocateDescriptor();
-			D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc{};
-			uavDesc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
-			uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
-			Device()->CreateUnorderedAccessView(tex.Resource.Get(), nullptr, &uavDesc,
-				m_RHI->GetCPUDescriptorHandle(tex.UAVIndex));
-		};
-
-	createZeroFilledTexture(m_DirectLightingAtlas, L"LumenDirectLightingAtlas",
-		LUMEN_ATLAS_WIDTH, LUMEN_ATLAS_HEIGHT);
-	createZeroFilledTexture(m_IndirectLightingAtlas, L"LumenIndirectLightingAtlas",
-		LUMEN_ATLAS_WIDTH, LUMEN_ATLAS_HEIGHT);
-	createZeroFilledTexture(m_FinalLightingAtlas, L"LumenFinalLightingAtlas",
-		LUMEN_ATLAS_WIDTH, LUMEN_ATLAS_HEIGHT);
-	createZeroFilledTexture(m_RCAtlas, L"LumenRadianceCacheAtlas",
-		LUMEN_RC_ATLAS_SIZE, LUMEN_RC_ATLAS_SIZE);
-
-	// ---- ƒ[ƒ[“U (ƒAƒbƒvƒ[ƒhƒXƒNƒ‰ƒbƒ`‚©‚çƒRƒs[) ----
+	// ---- ã‚¼ãƒ­å……å¡« (ã‚¢ãƒƒãƒ—ãƒ­ãƒ¼ãƒ‰ã‚¹ã‚¯ãƒ©ãƒƒãƒã‹ã‚‰ã‚³ãƒ”ãƒ¼) ----
 	{
-		const unsigned int rowPitch = LUMEN_ATLAS_WIDTH * 8;	// RGBA16F (8192B, 256 ƒAƒ‰ƒCƒ“Ï‚İ)
+		const unsigned int rowPitch = LUMEN_ATLAS_WIDTH * 8;	// RGBA16F (8192B, 256 ã‚¢ãƒ©ã‚¤ãƒ³æ¸ˆã¿)
 		const UINT64 scratchSize = (UINT64)rowPitch * LUMEN_ATLAS_HEIGHT;
 
 		ComPtr<ID3D12Resource> scratch;
@@ -400,7 +346,7 @@ void FLumenSceneData::InitAtlases()
 		zeroFill(m_FinalLightingAtlas, LUMEN_ATLAS_WIDTH, LUMEN_ATLAS_HEIGHT);
 		zeroFill(m_RCAtlas, LUMEN_RC_ATLAS_SIZE, LUMEN_RC_ATLAS_SIZE);
 
-		// ŠeƒpƒX‚ÌŠú‘Òó‘Ô‚Ö: Direct / Indirect / RCAtlas = UAV, Final = READ
+		// å„ãƒ‘ã‚¹ã®æœŸå¾…çŠ¶æ…‹ã¸: Direct / Indirect / RCAtlas = UAV, Final = READ
 		D3D12_RESOURCE_BARRIER barriers[4] = {
 			CD3DX12_RESOURCE_BARRIER::Transition(m_DirectLightingAtlas.Resource.Get(),
 				D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
@@ -419,143 +365,185 @@ void FLumenSceneData::InitAtlases()
 		m_FinalLightingAtlas.bInReadState = true;
 		m_RCAtlas.bInReadState = false;
 
-		// ƒRƒs[‚ğ‘¦Š®—¹‚³‚¹‚Ä‚©‚çƒXƒNƒ‰ƒbƒ`‚ğ‰ğ•ú‚·‚é
+		// ã‚³ãƒ”ãƒ¼ã‚’å³æ™‚å®Œäº†ã•ã›ã¦ã‹ã‚‰ã‚¹ã‚¯ãƒ©ãƒƒãƒã‚’è§£æ”¾ã™ã‚‹
 		m_RHI->FlushAndResetCommandList();
 	}
 }
 
 
 // ------------------------------------------------------------
-//  Global SDF / ƒXƒNƒŠ[ƒ“ƒvƒ[ƒu / ”½Ë / Radiance Cache
+//  ã‚³ãƒ³ãƒ”ãƒ¥ãƒ¼ãƒˆãƒ†ã‚¯ã‚¹ãƒãƒ£ã®è§£æ”¾ (ãƒªã‚½ãƒ¼ã‚¹ + SRV / UAV æ ã‚’é…å»¶å‰Šé™¤ã‚­ãƒ¥ãƒ¼ã¸)
 // ------------------------------------------------------------
-void FLumenSceneData::InitScreenTextures()
+void FLumenSceneData::ReleaseComputeTexture(FLumenComputeTexture& Texture)
 {
-	const unsigned int width = (unsigned int)m_RHI->GetBackBufferWidth();
-	const unsigned int height = (unsigned int)m_RHI->GetBackBufferHeight();
+	if (Texture.Resource)
+	{
+		m_RHI->DeferredRelease(Texture.Resource, (int)Texture.SRVIndex, -1);
+		m_RHI->ReleaseShaderResourceView(Texture.UAVIndex);
+	}
+	Texture = FLumenComputeTexture{};
+}
+
+
+// ------------------------------------------------------------
+//  è§£åƒåº¦ã«ä¾å­˜ã—ãªã„ãƒ†ã‚¯ã‚¹ãƒãƒ£: Global SDF / Radiance Cache SH ãƒœãƒªãƒ¥ãƒ¼ãƒ 
+// ------------------------------------------------------------
+void FLumenSceneData::InitGlobalTextures()
+{
+	const D3D12_RESOURCE_STATES readState =
+		D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
 
 	// ---- Global Distance Field (128^3 R16F x2) ----
 	CreateComputeTexture(m_GlobalSDF[0], L"LumenGlobalSDF0",
 		LUMEN_GLOBAL_SDF_RESOLUTION, LUMEN_GLOBAL_SDF_RESOLUTION, LUMEN_GLOBAL_SDF_RESOLUTION,
-		DXGI_FORMAT_R16_FLOAT, true);
+		DXGI_FORMAT_R16_FLOAT, readState);
 	CreateComputeTexture(m_GlobalSDF[1], L"LumenGlobalSDF1",
 		LUMEN_GLOBAL_SDF_RESOLUTION, LUMEN_GLOBAL_SDF_RESOLUTION, LUMEN_GLOBAL_SDF_RESOLUTION,
-		DXGI_FORMAT_R16_FLOAT, true);
+		DXGI_FORMAT_R16_FLOAT, readState);
 
-	// ---- Screen Probe Gather ----
-	m_NumProbesX = (width + LUMEN_PROBE_DOWNSAMPLE - 1) / LUMEN_PROBE_DOWNSAMPLE;
-	m_NumProbesY = (height + LUMEN_PROBE_DOWNSAMPLE - 1) / LUMEN_PROBE_DOWNSAMPLE;
-
-	CreateComputeTexture(m_ProbeGeo, L"LumenProbeGeo",
-		m_NumProbesX, m_NumProbesY, 1, DXGI_FORMAT_R16G16B16A16_FLOAT, false);
-	CreateComputeTexture(m_ProbeTraceRadiance, L"LumenProbeTraceRadiance",
-		m_NumProbesX * LUMEN_PROBE_OCTA_RES, m_NumProbesY * LUMEN_PROBE_OCTA_RES, 1,
-		DXGI_FORMAT_R16G16B16A16_FLOAT, false);
-	CreateComputeTexture(m_ProbeFilteredRadiance, L"LumenProbeFilteredRadiance",
-		m_NumProbesX * LUMEN_PROBE_OCTA_RES, m_NumProbesY * LUMEN_PROBE_OCTA_RES, 1,
-		DXGI_FORMAT_R16G16B16A16_FLOAT, false);
-
-	for (int i = 0; i < 2; i++)
-	{
-		CreateComputeTexture(m_ProbeSH[i].SHR, L"LumenProbeSHR",
-			m_NumProbesX, m_NumProbesY, 1, DXGI_FORMAT_R16G16B16A16_FLOAT, false);
-		CreateComputeTexture(m_ProbeSH[i].SHG, L"LumenProbeSHG",
-			m_NumProbesX, m_NumProbesY, 1, DXGI_FORMAT_R16G16B16A16_FLOAT, false);
-		CreateComputeTexture(m_ProbeSH[i].SHB, L"LumenProbeSHB",
-			m_NumProbesX, m_NumProbesY, 1, DXGI_FORMAT_R16G16B16A16_FLOAT, false);
-		CreateComputeTexture(m_ProbeSH[i].Aux, L"LumenProbeAux",
-			m_NumProbesX, m_NumProbesY, 1, DXGI_FORMAT_R16G16B16A16_FLOAT, false);
-	}
-
-	for (unsigned int i = 0; i < 2; i++)
-	{
-		CreateComputeTexture(m_DiffuseIndirect[i], L"LumenDiffuseIndirect",
-			width, height, 1, DXGI_FORMAT_R16G16B16A16_FLOAT, true);
-	}
-	m_DiffuseIndirectFrame = 0;
-	m_DiffuseIndirectCurrent = 0;
-
-	// ---- Reflections ----
-	CreateComputeTexture(m_ReflectionTexture, L"LumenReflections",
-		width, height, 1, DXGI_FORMAT_R16G16B16A16_FLOAT, true);
-
-	// ---- Radiance Cache SH ƒ{ƒŠƒ…[ƒ€ (16^3 x3) ----
+	// ---- Radiance Cache SH ãƒœãƒªãƒ¥ãƒ¼ãƒ  (16^3 x3) ----
 	for (int i = 0; i < 3; i++)
 	{
 		static const wchar_t* names[3] = {
 			L"LumenRCSH_R", L"LumenRCSH_G", L"LumenRCSH_B" };
 		CreateComputeTexture(m_RCSH[i], names[i],
 			LUMEN_RC_PROBES_PER_AXIS, LUMEN_RC_PROBES_PER_AXIS, LUMEN_RC_PROBES_PER_AXIS,
-			DXGI_FORMAT_R16G16B16A16_FLOAT, true);
+			DXGI_FORMAT_R16G16B16A16_FLOAT, readState);
 	}
 }
 
 
 // ------------------------------------------------------------
-//  ƒIƒuƒWƒFƒNƒg / ƒJ[ƒh / ƒpƒXƒpƒ‰ƒ[ƒ^‚ÌƒAƒbƒvƒ[ƒhƒoƒbƒtƒ@
+//  ãƒ¬ãƒ³ãƒ€ãƒ¼è§£åƒåº¦ (Width x Height = R) ã®ã‚¹ã‚¯ãƒªãƒ¼ãƒ³ãƒ†ã‚¯ã‚¹ãƒãƒ£:
+//  ã‚¹ã‚¯ãƒªãƒ¼ãƒ³ãƒ—ãƒ­ãƒ¼ãƒ– / ãƒ—ãƒ­ãƒ¼ãƒ– SH å±¥æ­´ / DiffuseIndirect å±¥æ­´ / åå°„ã€‚
+//  ä¸­èº«ã¯æœªå®šç¾©ãªã®ã§ã€ä½œã‚Šç›´ã—ãŸç›´å¾Œã®ãƒ•ãƒ¬ãƒ¼ãƒ ã¯å‘¼ã³å‡ºã—å´ãŒ
+//  FLumenFrameInputs::bHistoryValid = false ã‚’æ¸¡ã™ (ViewRectSize è¦å‰‡, Â§4.9)ã€‚
+//  ãƒ—ãƒ­ãƒ¼ãƒ–ã‚¸ãƒƒã‚¿ã®ä½ç›¸ (m_ProbeJitterIndex) ã¨ SH ã®ãƒ”ãƒ³ãƒãƒ³ (m_ProbeSHFrame) ã¯
+//  ä¿æŒã™ã‚‹ (å†ç¢ºä¿ã®æœ‰ç„¡ã§åŒã˜ã‚¸ãƒƒã‚¿åˆ—ã‚’ä¿ã¤)ã€‚å…ˆã« ReleaseScreenTextures ã‚’å‘¼ã‚“ã§ãŠãã“ã¨
+// ------------------------------------------------------------
+void FLumenSceneData::CreateScreenTextures(unsigned int Width, unsigned int Height)
+{
+	assert(m_ProbeGeo.Resource == nullptr && "FLumenSceneData::CreateScreenTextures: ReleaseScreenTextures first");
+
+	const unsigned int width = (Width < 1u) ? 1u : Width;
+	const unsigned int height = (Height < 1u) ? 1u : Height;
+
+	const D3D12_RESOURCE_STATES readState =
+		D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+
+	// ---- Screen Probe Gather ----
+	m_NumProbesX = (width + LUMEN_PROBE_DOWNSAMPLE - 1) / LUMEN_PROBE_DOWNSAMPLE;
+	m_NumProbesY = (height + LUMEN_PROBE_DOWNSAMPLE - 1) / LUMEN_PROBE_DOWNSAMPLE;
+
+	CreateComputeTexture(m_ProbeGeo, L"LumenProbeGeo",
+		m_NumProbesX, m_NumProbesY, 1, DXGI_FORMAT_R16G16B16A16_FLOAT, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+	CreateComputeTexture(m_ProbeTraceRadiance, L"LumenProbeTraceRadiance",
+		m_NumProbesX * LUMEN_PROBE_OCTA_RES, m_NumProbesY * LUMEN_PROBE_OCTA_RES, 1,
+		DXGI_FORMAT_R16G16B16A16_FLOAT, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+	CreateComputeTexture(m_ProbeFilteredRadiance, L"LumenProbeFilteredRadiance",
+		m_NumProbesX * LUMEN_PROBE_OCTA_RES, m_NumProbesY * LUMEN_PROBE_OCTA_RES, 1,
+		DXGI_FORMAT_R16G16B16A16_FLOAT, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+	for (int i = 0; i < 2; i++)
+	{
+		CreateComputeTexture(m_ProbeSH[i].SHR, L"LumenProbeSHR",
+			m_NumProbesX, m_NumProbesY, 1, DXGI_FORMAT_R16G16B16A16_FLOAT, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		CreateComputeTexture(m_ProbeSH[i].SHG, L"LumenProbeSHG",
+			m_NumProbesX, m_NumProbesY, 1, DXGI_FORMAT_R16G16B16A16_FLOAT, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		CreateComputeTexture(m_ProbeSH[i].SHB, L"LumenProbeSHB",
+			m_NumProbesX, m_NumProbesY, 1, DXGI_FORMAT_R16G16B16A16_FLOAT, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		CreateComputeTexture(m_ProbeSH[i].Aux, L"LumenProbeAux",
+			m_NumProbesX, m_NumProbesY, 1, DXGI_FORMAT_R16G16B16A16_FLOAT, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+	}
+
+	for (unsigned int i = 0; i < 2; i++)
+	{
+		CreateComputeTexture(m_DiffuseIndirect[i], L"LumenDiffuseIndirect",
+			width, height, 1, DXGI_FORMAT_R16G16B16A16_FLOAT, readState);
+	}
+	// ãƒ”ãƒ³ãƒãƒ³æ·»å­—ã®ã¿ (ä¸¡æ–¹ã¨ã‚‚æ–°è¦ã§ä¸­èº«ã¯æœªå®šç¾©ã€‚å±¥æ­´ã¯ bHistoryValid = false ã§èª­ã¾ã‚Œãªã„)
+	m_DiffuseIndirectFrame = 0;
+	m_DiffuseIndirectCurrent = 0;
+
+	// ---- Reflections ----
+	CreateComputeTexture(m_ReflectionTexture, L"LumenReflections",
+		width, height, 1, DXGI_FORMAT_R16G16B16A16_FLOAT, readState);
+
+	// çµ±è¨ˆ (UpdateLumenScene ã‚‚æ¯ãƒ•ãƒ¬ãƒ¼ãƒ  m_NumProbesX/Y ã‹ã‚‰æ›¸ãç›´ã™)
+	m_Stats.NumProbesX = m_NumProbesX;
+	m_Stats.NumProbesY = m_NumProbesY;
+}
+
+
+// ------------------------------------------------------------
+//  ã‚¹ã‚¯ãƒªãƒ¼ãƒ³ãƒ†ã‚¯ã‚¹ãƒãƒ£ã®è§£æ”¾ (CreateScreenTextures ã®å¯¾ã€‚Global SDF / RC / ã‚¢ãƒˆãƒ©ã‚¹ã¯ä¿æŒ)
+//  ãƒªã‚½ãƒ¼ã‚¹ã¨ SRV / UAV æ ã¯é…å»¶å‰Šé™¤ã‚­ãƒ¥ãƒ¼ã¸ (å®Ÿè§£æ”¾ã¯å‘¼ã³å‡ºã—å´ã® WaitGPU)
+// ------------------------------------------------------------
+void FLumenSceneData::ReleaseScreenTextures()
+{
+	ReleaseComputeTexture(m_ProbeGeo);
+	ReleaseComputeTexture(m_ProbeTraceRadiance);
+	ReleaseComputeTexture(m_ProbeFilteredRadiance);
+	for (int i = 0; i < 2; i++)
+	{
+		ReleaseComputeTexture(m_ProbeSH[i].SHR);
+		ReleaseComputeTexture(m_ProbeSH[i].SHG);
+		ReleaseComputeTexture(m_ProbeSH[i].SHB);
+		ReleaseComputeTexture(m_ProbeSH[i].Aux);
+	}
+	ReleaseComputeTexture(m_DiffuseIndirect[0]);
+	ReleaseComputeTexture(m_DiffuseIndirect[1]);
+	ReleaseComputeTexture(m_ReflectionTexture);
+}
+
+
+// ------------------------------------------------------------
+//  ã‚ªãƒ–ã‚¸ã‚§ã‚¯ãƒˆ / ã‚«ãƒ¼ãƒ‰ / ãƒ‘ã‚¹ãƒ‘ãƒ©ãƒ¡ãƒ¼ã‚¿ã®ã‚¢ãƒƒãƒ—ãƒ­ãƒ¼ãƒ‰ãƒãƒƒãƒ•ã‚¡
 // ------------------------------------------------------------
 void FLumenSceneData::InitBuffers()
 {
+	// æ°¸ç¶š Map ã•ã‚ŒãŸã‚¢ãƒƒãƒ—ãƒ­ãƒ¼ãƒ‰ StructuredBuffer (ã‚¼ãƒ­åˆæœŸåŒ–) + SRV ã‚’ç”Ÿæˆã™ã‚‹
+	auto createStructuredUploadBuffer = [this](ComPtr<ID3D12Resource>& Buffer, void** OutMapped,
+		unsigned int& OutSRVIndex, unsigned int Stride, unsigned int Count)
+		{
+			const UINT64 size = (UINT64)Stride * Count;
+
+			HRESULT hr = Device()->CreateCommittedResource(
+				&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+				D3D12_HEAP_FLAG_NONE,
+				&CD3DX12_RESOURCE_DESC::Buffer(size),
+				D3D12_RESOURCE_STATE_GENERIC_READ,
+				nullptr,
+				IID_PPV_ARGS(&Buffer));
+			assert(SUCCEEDED(hr));
+
+			hr = Buffer->Map(0, nullptr, OutMapped);
+			assert(SUCCEEDED(hr));
+			memset(*OutMapped, 0, (size_t)size);
+
+			OutSRVIndex = m_RHI->AllocateDescriptor();
+
+			D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
+			srvDesc.Format = DXGI_FORMAT_UNKNOWN;
+			srvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+			srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+			srvDesc.Buffer.NumElements = Count;
+			srvDesc.Buffer.StructureByteStride = Stride;
+			Device()->CreateShaderResourceView(Buffer.Get(), &srvDesc,
+				m_RHI->GetCPUDescriptorHandle(OutSRVIndex));
+		};
+
 	for (int i = 0; i < 2; i++)
 	{
-		// ---- ƒIƒuƒWƒFƒNƒgƒoƒbƒtƒ@ (t24) ----
-		{
-			const UINT64 size = sizeof(FLumenSceneObjectData) * MAX_LUMEN_OBJECTS;
+		// ---- ã‚ªãƒ–ã‚¸ã‚§ã‚¯ãƒˆãƒãƒƒãƒ•ã‚¡ (t24) ----
+		createStructuredUploadBuffer(m_ObjectBuffer[i], (void**)&m_ObjectBufferPointer[i],
+			m_ObjectBufferSRVIndex[i], sizeof(FLumenSceneObjectData), MAX_LUMEN_OBJECTS);
 
-			HRESULT hr = Device()->CreateCommittedResource(
-				&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
-				D3D12_HEAP_FLAG_NONE,
-				&CD3DX12_RESOURCE_DESC::Buffer(size),
-				D3D12_RESOURCE_STATE_GENERIC_READ,
-				nullptr,
-				IID_PPV_ARGS(&m_ObjectBuffer[i]));
-			assert(SUCCEEDED(hr));
+		// ---- ã‚«ãƒ¼ãƒ‰ãƒãƒƒãƒ•ã‚¡ (t25) ----
+		createStructuredUploadBuffer(m_CardBuffer[i], (void**)&m_CardBufferPointer[i],
+			m_CardBufferSRVIndex[i], sizeof(FLumenCardGPUData), MAX_LUMEN_CARDS);
 
-			hr = m_ObjectBuffer[i]->Map(0, nullptr, (void**)&m_ObjectBufferPointer[i]);
-			assert(SUCCEEDED(hr));
-			memset(m_ObjectBufferPointer[i], 0, (size_t)size);
-
-			m_ObjectBufferSRVIndex[i] = m_RHI->AllocateDescriptor();
-
-			D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
-			srvDesc.Format = DXGI_FORMAT_UNKNOWN;
-			srvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
-			srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-			srvDesc.Buffer.NumElements = MAX_LUMEN_OBJECTS;
-			srvDesc.Buffer.StructureByteStride = sizeof(FLumenSceneObjectData);
-			Device()->CreateShaderResourceView(m_ObjectBuffer[i].Get(), &srvDesc,
-				m_RHI->GetCPUDescriptorHandle(m_ObjectBufferSRVIndex[i]));
-		}
-
-		// ---- ƒJ[ƒhƒoƒbƒtƒ@ (t25) ----
-		{
-			const UINT64 size = sizeof(FLumenCardGPUData) * MAX_LUMEN_CARDS;
-
-			HRESULT hr = Device()->CreateCommittedResource(
-				&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
-				D3D12_HEAP_FLAG_NONE,
-				&CD3DX12_RESOURCE_DESC::Buffer(size),
-				D3D12_RESOURCE_STATE_GENERIC_READ,
-				nullptr,
-				IID_PPV_ARGS(&m_CardBuffer[i]));
-			assert(SUCCEEDED(hr));
-
-			hr = m_CardBuffer[i]->Map(0, nullptr, (void**)&m_CardBufferPointer[i]);
-			assert(SUCCEEDED(hr));
-			memset(m_CardBufferPointer[i], 0, (size_t)size);
-
-			m_CardBufferSRVIndex[i] = m_RHI->AllocateDescriptor();
-
-			D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
-			srvDesc.Format = DXGI_FORMAT_UNKNOWN;
-			srvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
-			srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-			srvDesc.Buffer.NumElements = MAX_LUMEN_CARDS;
-			srvDesc.Buffer.StructureByteStride = sizeof(FLumenCardGPUData);
-			Device()->CreateShaderResourceView(m_CardBuffer[i].Get(), &srvDesc,
-				m_RHI->GetCPUDescriptorHandle(m_CardBufferSRVIndex[i]));
-		}
-
-		// ---- ƒpƒXƒpƒ‰ƒ[ƒ^ (b0, PASS_PARAM_SLOTS x PASS_PARAM_STRIDE) ----
+		// ---- ãƒ‘ã‚¹ãƒ‘ãƒ©ãƒ¡ãƒ¼ã‚¿ (b0, PASS_PARAM_SLOTS x PASS_PARAM_STRIDE) ----
 		{
 			HRESULT hr = Device()->CreateCommittedResource(
 				&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
@@ -575,12 +563,12 @@ void FLumenSceneData::InitBuffers()
 
 
 // ------------------------------------------------------------
-//  ƒRƒ“ƒsƒ…[ƒgƒ‹[ƒgƒVƒOƒlƒ`ƒƒ + PSO ŒQ
-//  (HLSL LumenSceneLightingCommon.hlsl ‚ÌƒŒƒCƒAƒEƒg‚Æ 1:1)
-//    [0]      b0      ƒ‹[ƒg CBV
-//    [1..28]  t0..t27 SRV ƒe[ƒuƒ‹
-//    [29..36] u0..u7  UAV ƒe[ƒuƒ‹
-//    [37]     t28     TLAS (ƒ‹[ƒg SRV)
+//  ã‚³ãƒ³ãƒ”ãƒ¥ãƒ¼ãƒˆãƒ«ãƒ¼ãƒˆã‚·ã‚°ãƒãƒãƒ£ + PSO ç¾¤
+//  (HLSL LumenSceneLightingCommon.hlsl ã®ãƒ¬ã‚¤ã‚¢ã‚¦ãƒˆã¨ 1:1)
+//    [0]      b0      ãƒ«ãƒ¼ãƒˆ CBV
+//    [1..28]  t0..t27 SRV ãƒ†ãƒ¼ãƒ–ãƒ«
+//    [29..36] u0..u7  UAV ãƒ†ãƒ¼ãƒ–ãƒ«
+//    [37]     t28     TLAS (ãƒ«ãƒ¼ãƒˆ SRV)
 // ------------------------------------------------------------
 void FLumenSceneData::InitComputePipelines()
 {
@@ -590,12 +578,12 @@ void FLumenSceneData::InitComputePipelines()
 	D3D12_ROOT_PARAMETER  rootParameters[1 + NUM_SRV + NUM_UAV + 1]{};
 	D3D12_DESCRIPTOR_RANGE ranges[NUM_SRV + NUM_UAV]{};
 
-	// [0] ƒ‹[ƒg CBV (b0)
+	// [0] ãƒ«ãƒ¼ãƒˆ CBV (b0)
 	rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
 	rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 	rootParameters[0].Descriptor.ShaderRegister = 0;
 
-	// [1..28] SRV ƒe[ƒuƒ‹ (t0..t27)
+	// [1..28] SRV ãƒ†ãƒ¼ãƒ–ãƒ« (t0..t27)
 	for (unsigned int i = 0; i < NUM_SRV; i++)
 	{
 		ranges[i].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
@@ -609,7 +597,7 @@ void FLumenSceneData::InitComputePipelines()
 		rootParameters[1 + i].DescriptorTable.pDescriptorRanges = &ranges[i];
 	}
 
-	// [29..36] UAV ƒe[ƒuƒ‹ (u0..u7)
+	// [29..36] UAV ãƒ†ãƒ¼ãƒ–ãƒ« (u0..u7)
 	for (unsigned int i = 0; i < NUM_UAV; i++)
 	{
 		ranges[NUM_SRV + i].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
@@ -623,12 +611,12 @@ void FLumenSceneData::InitComputePipelines()
 		rootParameters[1 + NUM_SRV + i].DescriptorTable.pDescriptorRanges = &ranges[NUM_SRV + i];
 	}
 
-	// [37] TLAS (ƒ‹[ƒg SRV t28BHWRT ƒoƒŠƒAƒ“ƒg‚Ì‚İQÆ)
+	// [37] TLAS (ãƒ«ãƒ¼ãƒˆ SRV t28ã€‚HWRT ãƒãƒªã‚¢ãƒ³ãƒˆã®ã¿å‚ç…§)
 	rootParameters[1 + NUM_SRV + NUM_UAV].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
 	rootParameters[1 + NUM_SRV + NUM_UAV].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 	rootParameters[1 + NUM_SRV + NUM_UAV].Descriptor.ShaderRegister = NUM_SRV; // t28
 
-	// s0: ƒŠƒjƒAƒNƒ‰ƒ“ƒv (ƒAƒgƒ‰ƒX / SDF / ƒLƒ…[ƒu‹¤—p)
+	// s0: ãƒªãƒ‹ã‚¢ã‚¯ãƒ©ãƒ³ãƒ— (ã‚¢ãƒˆãƒ©ã‚¹ / SDF / ã‚­ãƒ¥ãƒ¼ãƒ–å…±ç”¨)
 	D3D12_STATIC_SAMPLER_DESC samplerDesc{};
 	samplerDesc.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
 	samplerDesc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
@@ -658,7 +646,7 @@ void FLumenSceneData::InitComputePipelines()
 		IID_PPV_ARGS(&m_ComputeRootSignature));
 	assert(SUCCEEDED(hr));
 
-	// ---- SWRT PSO ŒQ ----
+	// ---- SWRT PSO ç¾¤ ----
 	m_PSODirectLighting = CreateComputePipeline("Shader/cso/LumenSceneDirectLighting_CS.cso");
 	m_PSORadiosity = CreateComputePipeline("Shader/cso/LumenRadiosity_CS.cso");
 	m_PSOCombine = CreateComputePipeline("Shader/cso/LumenSceneCombine_CS.cso");
@@ -672,8 +660,8 @@ void FLumenSceneData::InitComputePipelines()
 	m_PSORCTrace = CreateComputePipeline("Shader/cso/LumenRadianceCache_CS.cso");
 	m_PSORCSH = CreateComputePipeline("Shader/cso/LumenRadianceCacheSH_CS.cso");
 
-	// ---- HWRT (RayQuery, SM 6.5) ƒoƒŠƒAƒ“ƒg ----
-	// DXR ”ñ‘Î‰ŠÂ‹« / cso •sİ / ¶¬¸”s‚Í null ‚Ì‚Ü‚Ü SWRT ‚ğg‚¤B
+	// ---- HWRT (RayQuery, SM 6.5) ãƒãƒªã‚¢ãƒ³ãƒˆ ----
+	// DXR éå¯¾å¿œç’°å¢ƒ / cso ä¸åœ¨ / ç”Ÿæˆå¤±æ•—æ™‚ã¯ null ã®ã¾ã¾ SWRT ã‚’ä½¿ã†ã€‚
 	if (m_RHI->IsRayTracingSupported())
 	{
 		m_PSODirectLightingRT = TryCreateComputePipeline("Shader/cso/LumenSceneDirectLightingRT_CS.cso");
@@ -687,26 +675,8 @@ void FLumenSceneData::InitComputePipelines()
 
 ComPtr<ID3D12PipelineState> FLumenSceneData::CreateComputePipeline(const char* csoFile)
 {
-	std::vector<char> cs;
-	{
-		std::ifstream file(csoFile, std::ios_base::in | std::ios_base::binary);
-		assert(file);
-		file.seekg(0, std::ios_base::end);
-		int filesize = (int)file.tellg();
-		file.seekg(0, std::ios_base::beg);
-		cs.resize(filesize);
-		file.read(&cs[0], filesize);
-		file.close();
-	}
-
-	D3D12_COMPUTE_PIPELINE_STATE_DESC desc{};
-	desc.pRootSignature = m_ComputeRootSignature.Get();
-	desc.CS.pShaderBytecode = cs.data();
-	desc.CS.BytecodeLength = cs.size();
-
-	ComPtr<ID3D12PipelineState> pso;
-	HRESULT hr = Device()->CreateComputePipelineState(&desc, IID_PPV_ARGS(&pso));
-	assert(SUCCEEDED(hr));
+	ComPtr<ID3D12PipelineState> pso = TryCreateComputePipeline(csoFile);
+	assert(pso && "Lumen compute PSO creation failed");
 	return pso;
 }
 
@@ -719,7 +689,7 @@ ComPtr<ID3D12PipelineState> FLumenSceneData::TryCreateComputePipeline(const char
 		if (!file)
 		{
 			char msg[256];
-			sprintf_s(msg, "[LumenScene] HWRT cso not found (fallback to SWRT): %s\n", csoFile);
+			sprintf_s(msg, "[LumenScene] cso not found: %s\n", csoFile);
 			OutputDebugStringA(msg);
 			return nullptr;
 		}
@@ -741,7 +711,7 @@ ComPtr<ID3D12PipelineState> FLumenSceneData::TryCreateComputePipeline(const char
 	if (FAILED(hr))
 	{
 		char msg[256];
-		sprintf_s(msg, "[LumenScene] HWRT PSO creation failed (fallback to SWRT): %s (hr=0x%08X)\n",
+		sprintf_s(msg, "[LumenScene] PSO creation failed: %s (hr=0x%08X)\n",
 			csoFile, (unsigned int)hr);
 		OutputDebugStringA(msg);
 		return nullptr;
@@ -751,7 +721,7 @@ ComPtr<ID3D12PipelineState> FLumenSceneData::TryCreateComputePipeline(const char
 
 
 // ============================================================
-//  MeshCards ¶¬
+//  MeshCards ç”Ÿæˆ
 // ============================================================
 void FLumenSceneData::BuildMeshCards(const FPrimitiveSceneProxy* Proxy, FLumenObjectSlot& Slot) const
 {
@@ -772,9 +742,9 @@ void FLumenSceneData::BuildMeshCards(const FPrimitiveSceneProxy* Proxy, FLumenOb
 		FLumenCardLocal& card = Slot.Cards[i];
 
 		const XMVECTOR normal = XMLoadFloat3(&directions[i]);
-		const XMVECTOR forward = XMVectorNegate(normal);	// ƒJƒƒ‰‚Í–Ê‚ÌŠO‘¤‚©‚ç“à‘¤‚ğŒ©‚é
+		const XMVECTOR forward = XMVectorNegate(normal);	// ã‚«ãƒ¡ãƒ©ã¯é¢ã®å¤–å´ã‹ã‚‰å†…å´ã‚’è¦‹ã‚‹
 
-		// }Y ƒJ[ƒh‚Í up ‚ğ Z ‚Ö‘Ş”ğ (LookTo ‚Ìk‘Ş–h~)
+		// Â±Y ã‚«ãƒ¼ãƒ‰ã¯ up ã‚’ Z ã¸é€€é¿ (LookTo ã®ç¸®é€€é˜²æ­¢)
 		XMVECTOR up = (fabsf(directions[i].y) > 0.5f)
 			? XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f)
 			: XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
@@ -782,12 +752,12 @@ void FLumenSceneData::BuildMeshCards(const FPrimitiveSceneProxy* Proxy, FLumenOb
 		const XMVECTOR right = XMVector3Normalize(XMVector3Cross(up, forward));
 		const XMVECTOR realUp = XMVector3Cross(forward, right);
 
-		// ƒJ[ƒh”¼• = ‹«ŠE”¼•‚ğŠeƒJ[ƒh²‚ÖË‰e (²®—ñ‚È‚Ì‚Åâ‘Î’l‚Ì“àÏ)
+		// ã‚«ãƒ¼ãƒ‰åŠå¹… = å¢ƒç•ŒåŠå¹…ã‚’å„ã‚«ãƒ¼ãƒ‰è»¸ã¸å°„å½± (è»¸æ•´åˆ—ãªã®ã§çµ¶å¯¾å€¤ã®å†…ç©)
 		const float ex = XMVectorGetX(XMVector3Dot(XMVectorAbs(right), boxExtent));
 		const float ey = XMVectorGetX(XMVector3Dot(XMVectorAbs(realUp), boxExtent));
 		const float ez = XMVectorGetX(XMVector3Dot(XMVectorAbs(forward), boxExtent));
 
-		// ‹«ŠE‚¿‚å‚¤‚Ç‚ÌƒWƒIƒƒgƒŠ‚ªƒNƒŠƒbƒv / Œ‡‚¯‚µ‚È‚¢‚æ‚¤ƒ}[ƒWƒ“‚ğ•t—^
+		// å¢ƒç•Œã¡ã‚‡ã†ã©ã®ã‚¸ã‚ªãƒ¡ãƒˆãƒªãŒã‚¯ãƒªãƒƒãƒ— / æ¬ ã‘ã—ãªã„ã‚ˆã†ãƒãƒ¼ã‚¸ãƒ³ã‚’ä»˜ä¸
 		const float exM = ex * 1.02f + 0.005f;
 		const float eyM = ey * 1.02f + 0.005f;
 		const float ezM = ez * 1.05f + 0.01f;
@@ -806,7 +776,7 @@ void FLumenSceneData::BuildMeshCards(const FPrimitiveSceneProxy* Proxy, FLumenOb
 
 
 // ============================================================
-//  ƒXƒƒbƒgŠÇ—
+//  ã‚¹ãƒ­ãƒƒãƒˆç®¡ç†
 // ============================================================
 int FLumenSceneData::AllocateSlot(const UPrimitiveComponent* Component,
 	const FPrimitiveSceneProxy* Proxy)
@@ -821,7 +791,7 @@ int FLumenSceneData::AllocateSlot(const UPrimitiveComponent* Component,
 
 			BuildMeshCards(Proxy, m_Slots[i]);
 
-			// ‘SƒJ[ƒh‚ÌƒLƒƒƒvƒ`ƒƒ‚ğ—\–ñ
+			// å…¨ã‚«ãƒ¼ãƒ‰ã®ã‚­ãƒ£ãƒ—ãƒãƒ£ã‚’äºˆç´„
 			for (unsigned int c = 0; c < LUMEN_CARDS_PER_OBJECT; c++)
 			{
 				m_CaptureQueue.push_back({ i, c });
@@ -829,7 +799,7 @@ int FLumenSceneData::AllocateSlot(const UPrimitiveComponent* Component,
 			return (int)i;
 		}
 	}
-	return -1;	// ƒXƒƒbƒgŒÍŠ‰ (‚±‚ÌƒvƒŠƒ~ƒeƒBƒu‚Í Lumen ‚ÉQ‰Á‚µ‚È‚¢)
+	return -1;	// ã‚¹ãƒ­ãƒƒãƒˆæ¯æ¸‡ (ã“ã®ãƒ—ãƒªãƒŸãƒ†ã‚£ãƒ–ã¯ Lumen ã«å‚åŠ ã—ãªã„)
 }
 
 
@@ -839,7 +809,7 @@ void FLumenSceneData::FreeSlot(unsigned int SlotIndex)
 	m_Slots[SlotIndex].Proxy = nullptr;
 	memset(m_Slots[SlotIndex].bCaptured, 0, sizeof(m_Slots[SlotIndex].bCaptured));
 
-	// ‹ŒƒvƒƒLƒV‚ÌƒLƒƒƒvƒ`ƒƒ—v‹‚ğ”jŠü (ƒXƒƒbƒgÄ—˜—p‚ÌŒëƒLƒƒƒvƒ`ƒƒ–h~)
+	// æ—§ãƒ—ãƒ­ã‚­ã‚·ã®ã‚­ãƒ£ãƒ—ãƒãƒ£è¦æ±‚ã‚’ç ´æ£„ (ã‚¹ãƒ­ãƒƒãƒˆå†åˆ©ç”¨æ™‚ã®èª¤ã‚­ãƒ£ãƒ—ãƒãƒ£é˜²æ­¢)
 	for (auto it = m_CaptureQueue.begin(); it != m_CaptureQueue.end();)
 	{
 		it = (it->SlotIndex == SlotIndex) ? m_CaptureQueue.erase(it) : (it + 1);
@@ -868,11 +838,9 @@ void FLumenSceneData::UpdateLumenScene(FScene* Scene)
 	m_BufferFrame ^= 1;
 	m_FrameNumber++;
 
-	const unsigned int prevProbesX = m_Stats.NumProbesX;
 	m_Stats = Stats{};
 	m_Stats.NumProbesX = m_NumProbesX;
 	m_Stats.NumProbesY = m_NumProbesY;
-	(void)prevProbesX;
 
 	bool slotSeen[MAX_LUMEN_OBJECTS] = {};
 
@@ -887,9 +855,9 @@ void FLumenSceneData::UpdateLumenScene(FScene* Scene)
 				continue;
 			}
 
-			// Šù‘¶ƒXƒƒbƒg‚ğŒŸõ ((ƒRƒ“ƒ|[ƒlƒ“ƒg, ƒvƒƒLƒV) ƒyƒAˆê’vB
-			// ƒvƒƒLƒVÄ¶¬ = ƒ}ƒeƒŠƒAƒ‹•ÏX‚ÍƒvƒƒLƒVƒ|ƒCƒ“ƒ^‚ª
-			// •Ï‚í‚é‚½‚ß©“®“I‚ÉÄŠ„“– -> ÄƒLƒƒƒvƒ`ƒƒ‚³‚ê‚é)
+			// æ—¢å­˜ã‚¹ãƒ­ãƒƒãƒˆã‚’æ¤œç´¢ ((ã‚³ãƒ³ãƒãƒ¼ãƒãƒ³ãƒˆ, ãƒ—ãƒ­ã‚­ã‚·) ãƒšã‚¢ä¸€è‡´ã€‚
+			// ãƒ—ãƒ­ã‚­ã‚·å†ç”Ÿæˆ = ãƒãƒ†ãƒªã‚¢ãƒ«å¤‰æ›´æ™‚ã¯ãƒ—ãƒ­ã‚­ã‚·ãƒã‚¤ãƒ³ã‚¿ãŒ
+			// å¤‰ã‚ã‚‹ãŸã‚è‡ªå‹•çš„ã«å†å‰²å½“ -> å†ã‚­ãƒ£ãƒ—ãƒãƒ£ã•ã‚Œã‚‹)
 			int slotIndex = -1;
 			for (unsigned int i = 0; i < MAX_LUMEN_OBJECTS; i++)
 			{
@@ -912,7 +880,7 @@ void FLumenSceneData::UpdateLumenScene(FScene* Scene)
 		}
 	}
 
-	// Á‚¦‚½ƒvƒƒLƒV‚ÌƒXƒƒbƒg‚ğ‰ğ•ú
+	// æ¶ˆãˆãŸãƒ—ãƒ­ã‚­ã‚·ã®ã‚¹ãƒ­ãƒƒãƒˆã‚’è§£æ”¾
 	for (unsigned int i = 0; i < MAX_LUMEN_OBJECTS; i++)
 	{
 		if (m_Slots[i].Proxy != nullptr && !slotSeen[i])
@@ -921,7 +889,7 @@ void FLumenSceneData::UpdateLumenScene(FScene* Scene)
 		}
 	}
 
-	// ---- GPU ƒf[ƒ^‹l‚ß’¼‚µ ----
+	// ---- GPU ãƒ‡ãƒ¼ã‚¿è©°ã‚ç›´ã— ----
 	unsigned int highestUsed = 0;
 
 	for (unsigned int i = 0; i < MAX_LUMEN_OBJECTS; i++)
@@ -945,8 +913,8 @@ void FLumenSceneData::UpdateLumenScene(FScene* Scene)
 		const FBXModel* mesh = slot.Proxy->GetDistanceFieldMesh();
 		const FDistanceFieldMeshInfo& df = mesh->GetDistanceField();
 
-		// ---- SDF: ƒ[ƒ‹ƒh -> ƒ{ƒŠƒ…[ƒ€ [-1,1] ----
-		// (FShadowSceneRenderer::UpdateDistanceFieldObjects ‚Æ“¯ˆê‚Ì•ÏŠ·)
+		// ---- SDF: ãƒ¯ãƒ¼ãƒ«ãƒ‰ -> ãƒœãƒªãƒ¥ãƒ¼ãƒ  [-1,1] ----
+		// (FShadowSceneRenderer::UpdateDistanceFieldObjects ã¨åŒä¸€ã®å¤‰æ›)
 		const XMMATRIX localToWorld = XMLoadFloat4x4(&slot.Proxy->GetLocalToWorld());
 		const XMMATRIX volumeToLocal =
 			XMMatrixScaling(df.LocalBoundsExtent.x, df.LocalBoundsExtent.y, df.LocalBoundsExtent.z) *
@@ -962,8 +930,8 @@ void FLumenSceneData::UpdateLumenScene(FScene* Scene)
 		XMStoreFloat4x4(&obj.WorldToVolume, XMMatrixTranspose(worldToVolume));
 		obj.VolumeUVScaleAndDistance = {
 			df.UVScale.x, df.UVScale.y, df.UVScale.z, distanceScaleWorld };
-		// w = SDF 1 ƒ{ƒNƒZƒ‹‚Ìƒ[ƒ‹ƒh• (DistanceFieldShadowing.hlsl ‚Ì
-		//     voxelWorld = distanceScale / 128 ‚Æ“¯‚¶Š·Z)
+		// w = SDF 1 ãƒœã‚¯ã‚»ãƒ«ã®ãƒ¯ãƒ¼ãƒ«ãƒ‰å¹… (DistanceFieldShadowing.hlsl ã®
+		//     voxelWorld = distanceScale / 128 ã¨åŒã˜æ›ç®—)
 		obj.VolumeUVAdd = {
 			df.UVAdd.x, df.UVAdd.y, df.UVAdd.z, distanceScaleWorld * 0.0078125f };
 		obj.bValid = 1;
@@ -971,7 +939,7 @@ void FLumenSceneData::UpdateLumenScene(FScene* Scene)
 		highestUsed = i + 1;
 		m_Stats.NumObjects++;
 
-		// ---- ƒJ[ƒh: ƒ[ƒJƒ‹ƒJ[ƒh x LocalToWorld ----
+		// ---- ã‚«ãƒ¼ãƒ‰: ãƒ­ãƒ¼ã‚«ãƒ«ã‚«ãƒ¼ãƒ‰ x LocalToWorld ----
 		for (unsigned int c = 0; c < LUMEN_CARDS_PER_OBJECT; c++)
 		{
 			const unsigned int globalCard = i * LUMEN_CARDS_PER_OBJECT + c;
@@ -985,7 +953,7 @@ void FLumenSceneData::UpdateLumenScene(FScene* Scene)
 			XMStoreFloat4x4(&gpu.WorldToCard, XMMatrixTranspose(worldToCard));
 			XMStoreFloat4x4(&gpu.CardToWorld, XMMatrixTranspose(cardToWorld));
 
-			// ƒJ[ƒh–@ü (–Ê‚ÌŠOŒü‚«) = ƒJ[ƒh‹óŠÔ -Z ‚Ìƒ[ƒ‹ƒh•ûŒü
+			// ã‚«ãƒ¼ãƒ‰æ³•ç·š (é¢ã®å¤–å‘ã) = ã‚«ãƒ¼ãƒ‰ç©ºé–“ -Z ã®ãƒ¯ãƒ¼ãƒ«ãƒ‰æ–¹å‘
 			const XMVECTOR worldNormal = XMVector3Normalize(
 				XMVector3TransformNormal(XMVectorSet(0.0f, 0.0f, -1.0f, 0.0f), cardToWorld));
 			XMFLOAT3 dir;
@@ -1007,20 +975,20 @@ void FLumenSceneData::UpdateLumenScene(FScene* Scene)
 	m_NumObjects = highestUsed;
 	m_Stats.NumPendingCaptures = (unsigned int)m_CaptureQueue.size();
 
-	// ---- ƒAƒbƒvƒ[ƒh ----
+	// ---- ã‚¢ãƒƒãƒ—ãƒ­ãƒ¼ãƒ‰ ----
 	memcpy(m_ObjectBufferPointer[m_BufferFrame], m_ObjectData, sizeof(m_ObjectData));
 	memcpy(m_CardBufferPointer[m_BufferFrame], m_CardData, sizeof(m_CardData));
 
-	// ---- HWRT: TLAS Ä\’z ----
+	// ---- HWRT: TLAS å†æ§‹ç¯‰ ----
 	UpdateTLAS();
 }
 
 
 // ============================================================
 //  UpdateTLAS (HWRT)
-//  ƒXƒƒbƒg—ñ‚©‚ç D3D12_RAYTRACING_INSTANCE_DESC ‚ğ‹l‚ß’¼‚µA
-//  TLAS ‚ÌƒCƒ“ƒvƒŒ[ƒXÄ\’z‚ğ‹L˜^‚·‚éBInstanceID = Lumen
-//  ƒXƒƒbƒg”Ô† (= Surface Cache ÌŒõ‚ÌƒIƒuƒWƒFƒNƒgƒCƒ“ƒfƒbƒNƒX)B
+//  ã‚¹ãƒ­ãƒƒãƒˆåˆ—ã‹ã‚‰ D3D12_RAYTRACING_INSTANCE_DESC ã‚’è©°ã‚ç›´ã—ã€
+//  TLAS ã®ã‚¤ãƒ³ãƒ—ãƒ¬ãƒ¼ã‚¹å†æ§‹ç¯‰ã‚’è¨˜éŒ²ã™ã‚‹ã€‚InstanceID = Lumen
+//  ã‚¹ãƒ­ãƒƒãƒˆç•ªå· (= Surface Cache æ¡å…‰ã®ã‚ªãƒ–ã‚¸ã‚§ã‚¯ãƒˆã‚¤ãƒ³ãƒ‡ãƒƒã‚¯ã‚¹)ã€‚
 // ============================================================
 void FLumenSceneData::UpdateTLAS()
 {
@@ -1031,7 +999,7 @@ void FLumenSceneData::UpdateTLAS()
 	{
 		if (m_HardwareRayTracing && m_HardwareRayTracing->IsAvailable())
 		{
-			m_HardwareRayTracing->BuildTLAS(0);	// –³ŒøƒtƒŒ[ƒ€: TLAS ‚È‚µ
+			m_HardwareRayTracing->BuildTLAS(0);	// ç„¡åŠ¹ãƒ•ãƒ¬ãƒ¼ãƒ : TLAS ãªã—
 		}
 		return;
 	}
@@ -1061,8 +1029,8 @@ void FLumenSceneData::UpdateTLAS()
 		D3D12_RAYTRACING_INSTANCE_DESC& inst = instances[numInstances];
 		memset(&inst, 0, sizeof(inst));
 
-		// D3D12 ‚Ì Transform3x4 ‚Íu—ñƒxƒNƒgƒ‹‚ğ•ÏŠ·‚·‚és—Dæ 3x4vB
-		// –{ƒGƒ“ƒWƒ“‚ÌsƒxƒNƒgƒ‹‹K–ñ (v x M) ‚Æ‚Í“]’uŠÖŒW:
+		// D3D12 ã® Transform3x4 ã¯ã€Œåˆ—ãƒ™ã‚¯ãƒˆãƒ«ã‚’å¤‰æ›ã™ã‚‹è¡Œå„ªå…ˆ 3x4ã€ã€‚
+		// æœ¬ã‚¨ãƒ³ã‚¸ãƒ³ã®è¡Œãƒ™ã‚¯ãƒˆãƒ«è¦ç´„ (v x M) ã¨ã¯è»¢ç½®é–¢ä¿‚:
 		//   Transform[r][c] = LocalToWorld[c][r]
 		const XMFLOAT4X4& m = slot.Proxy->GetLocalToWorld();
 		for (int r = 0; r < 3; r++)
@@ -1073,9 +1041,9 @@ void FLumenSceneData::UpdateTLAS()
 			}
 		}
 
-		inst.InstanceID = i;	// Lumen ƒXƒƒbƒg”Ô† (ƒVƒF[ƒ_‚Ì HitObject)
+		inst.InstanceID = i;	// Lumen ã‚¹ãƒ­ãƒƒãƒˆç•ªå· (ã‚·ã‚§ãƒ¼ãƒ€ã® HitObject)
 		inst.InstanceMask = 0xFF;
-		// SDF Œo˜H‚Æ“¯‚¶‚­—¼–Ê‚ğÕ•Á‚³‚¹‚é (ƒLƒƒƒvƒ`ƒƒ‚à—¼–Ê)
+		// SDF çµŒè·¯ã¨åŒã˜ãä¸¡é¢ã‚’é®è”½ã•ã›ã‚‹ (ã‚­ãƒ£ãƒ—ãƒãƒ£ã‚‚ä¸¡é¢)
 		inst.Flags = D3D12_RAYTRACING_INSTANCE_FLAG_TRIANGLE_CULL_DISABLE;
 		inst.AccelerationStructure = mesh->GetBLASAddress();
 
@@ -1118,7 +1086,7 @@ void FLumenSceneData::RenderCardCaptures()
 		cl->ResourceBarrier(_countof(barriers), barriers);
 	}
 
-	// MRT: Albedo / Normal / Emissive + [“xƒAƒgƒ‰ƒX
+	// MRT: Albedo / Normal / Emissive + æ·±åº¦ã‚¢ãƒˆãƒ©ã‚¹
 	D3D12_CPU_DESCRIPTOR_HANDLE rtvs[3] = {
 		m_AlbedoAtlas->RTVHandle, m_NormalAtlas->RTVHandle, m_EmissiveAtlas->RTVHandle };
 	cl->OMSetRenderTargets(3, rtvs, FALSE, &m_DepthAtlasDSV);
@@ -1133,13 +1101,13 @@ void FLumenSceneData::RenderCardCaptures()
 		FLumenObjectSlot& slot = m_Slots[request.SlotIndex];
 		if (slot.Proxy == nullptr)
 		{
-			continue;	// ‰ğ•úÏ‚İƒXƒƒbƒg (—\Z‚ÍÁ”ï‚µ‚È‚¢)
+			continue;	// è§£æ”¾æ¸ˆã¿ã‚¹ãƒ­ãƒƒãƒˆ (äºˆç®—ã¯æ¶ˆè²»ã—ãªã„)
 		}
 
 		const FLumenCardLocal& card = slot.Cards[request.CardIndex];
 		const unsigned int globalCard = request.SlotIndex * LUMEN_CARDS_PER_OBJECT + request.CardIndex;
 
-		// ---- ƒ^ƒCƒ‹‚Ìƒrƒ…[ƒ|[ƒg / ƒVƒU[ / ƒNƒŠƒA ----
+		// ---- ã‚¿ã‚¤ãƒ«ã®ãƒ“ãƒ¥ãƒ¼ãƒãƒ¼ãƒˆ / ã‚·ã‚¶ãƒ¼ / ã‚¯ãƒªã‚¢ ----
 		const LONG x = (LONG)((globalCard % LUMEN_ATLAS_TILES_X) * LUMEN_CARD_RESOLUTION);
 		const LONG y = (LONG)((globalCard / LUMEN_ATLAS_TILES_X) * LUMEN_CARD_RESOLUTION);
 
@@ -1149,14 +1117,14 @@ void FLumenSceneData::RenderCardCaptures()
 		cl->RSSetViewports(1, &vp);
 		cl->RSSetScissorRects(1, &sc);
 
-		// ƒNƒŠƒA: a=0 = –³ŒøƒeƒNƒZƒ‹ (ƒLƒƒƒvƒ`ƒƒ PS ‚ª a=1 ‚ğ‘‚­)
+		// ã‚¯ãƒªã‚¢: a=0 = ç„¡åŠ¹ãƒ†ã‚¯ã‚»ãƒ« (ã‚­ãƒ£ãƒ—ãƒãƒ£ PS ãŒ a=1 ã‚’æ›¸ã)
 		const FLOAT clearColor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 		cl->ClearRenderTargetView(m_AlbedoAtlas->RTVHandle, clearColor, 1, &sc);
 		cl->ClearRenderTargetView(m_NormalAtlas->RTVHandle, clearColor, 1, &sc);
 		cl->ClearRenderTargetView(m_EmissiveAtlas->RTVHandle, clearColor, 1, &sc);
 		cl->ClearDepthStencilView(m_DepthAtlasDSV, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 1, &sc);
 
-		// ---- b0 = ƒJ[ƒhƒrƒ…[ (ƒ[ƒJƒ‹‹óŠÔƒIƒ‹ƒ\) ----
+		// ---- b0 = ã‚«ãƒ¼ãƒ‰ãƒ“ãƒ¥ãƒ¼ (ãƒ­ãƒ¼ã‚«ãƒ«ç©ºé–“ã‚ªãƒ«ã‚½) ----
 		VIEW_CONSTANT viewConstant{};
 		XMStoreFloat4x4(&viewConstant.View,
 			XMMatrixTranspose(XMLoadFloat4x4(&card.LocalViewMatrix)));
@@ -1165,7 +1133,7 @@ void FLumenSceneData::RenderCardCaptures()
 		m_RHI->SetConstant(RenderManager::CONSTANT_TYPE::VIEW,
 			&viewConstant, sizeof(viewConstant));
 
-		// ---- •`‰æ (b1 = ’PˆÊs—ñ‚ÍƒvƒƒLƒV‘¤‚ÅÏ‚Ş) ----
+		// ---- æç”» (b1 = å˜ä½è¡Œåˆ—ã¯ãƒ—ãƒ­ã‚­ã‚·å´ã§ç©ã‚€) ----
 		slot.Proxy->DrawCardCapture(m_RHI);
 
 		slot.bCaptured[request.CardIndex] = true;
@@ -1194,18 +1162,13 @@ void FLumenSceneData::RenderCardCaptures()
 		cl->ResourceBarrier(_countof(barriers), barriers);
 	}
 
-	// ---- ƒtƒ‹‰ğ‘œ“xƒrƒ…[ƒ|[ƒg / ƒVƒU[‚ğ•œŒ³ ----
-	D3D12_VIEWPORT fullVP{ 0.0f, 0.0f,
-		(FLOAT)m_RHI->GetBackBufferWidth(), (FLOAT)m_RHI->GetBackBufferHeight(), 0.0f, 1.0f };
-	D3D12_RECT fullSC{ 0, 0,
-		(LONG)m_RHI->GetBackBufferWidth(), (LONG)m_RHI->GetBackBufferHeight() };
-	cl->RSSetViewports(1, &fullVP);
-	cl->RSSetScissorRects(1, &fullSC);
+	// ---- æ—¢å®šãƒ“ãƒ¥ãƒ¼ãƒãƒ¼ãƒˆ / ã‚·ã‚¶ãƒ¼ã‚’å¾©å…ƒ (RHI ã®æ—¢å®šãƒ“ãƒ¥ãƒ¼ãƒãƒ¼ãƒˆ) ----
+	m_RHI->RestoreDefaultViewport();
 }
 
 
 // ============================================================
-//  ƒpƒXƒpƒ‰ƒ[ƒ^ / ó‘Ô‘JˆÚ / ƒoƒCƒ“ƒhƒwƒ‹ƒp[
+//  ãƒ‘ã‚¹ãƒ‘ãƒ©ãƒ¡ãƒ¼ã‚¿ / çŠ¶æ…‹é·ç§» / ãƒã‚¤ãƒ³ãƒ‰ãƒ˜ãƒ«ãƒ‘ãƒ¼
 // ============================================================
 D3D12_GPU_VIRTUAL_ADDRESS FLumenSceneData::WritePassParams(unsigned int SlotIndex,
 	const FLumenPassParams& Params)
@@ -1245,9 +1208,9 @@ FLumenSceneData::FLumenPassParams FLumenSceneData::MakeBasePassParams(
 	params.PassProbeParams0 = {
 		(float)m_NumProbesX, (float)m_NumProbesY,
 		(float)LUMEN_PROBE_DOWNSAMPLE, (float)LUMEN_PROBE_OCTA_RES };
-	// w = —š—ğ—LŒø (ƒeƒ“ƒ|ƒ‰ƒ‹’~Ï / ‘OƒtƒŒ[ƒ€ÌŒõ‚Ì‰Â”Û)B
-	// ƒXƒNƒŠ[ƒ“ƒgƒŒ[ƒX‚Ì—LŒøƒtƒ‰ƒO‚Í PassReflectionParams.w ‚É•ª—£
-	// (ƒXƒNƒŠ[ƒ“ƒgƒŒ[ƒX OFF ‚Å‚àƒeƒ“ƒ|ƒ‰ƒ‹’~Ï‚Í¶‚©‚·‚½‚ß)
+	// w = å±¥æ­´æœ‰åŠ¹ (ãƒ†ãƒ³ãƒãƒ©ãƒ«è“„ç© / å‰ãƒ•ãƒ¬ãƒ¼ãƒ æ¡å…‰ã®å¯å¦)ã€‚
+	// ã‚¹ã‚¯ãƒªãƒ¼ãƒ³ãƒˆãƒ¬ãƒ¼ã‚¹ã®æœ‰åŠ¹ãƒ•ãƒ©ã‚°ã¯ PassReflectionParams.w ã«åˆ†é›¢
+	// (ã‚¹ã‚¯ãƒªãƒ¼ãƒ³ãƒˆãƒ¬ãƒ¼ã‚¹ OFF ã§ã‚‚ãƒ†ãƒ³ãƒãƒ©ãƒ«è“„ç©ã¯ç”Ÿã‹ã™ãŸã‚)
 	params.PassProbeParams1 = {
 		(float)Inputs.ScreenWidth, (float)Inputs.ScreenHeight,
 		m_Params.TemporalAlpha,
@@ -1261,26 +1224,26 @@ FLumenSceneData::FLumenPassParams FLumenSceneData::MakeBasePassParams(
 	params.PassRCParams0 = m_RCVolumeParams0;
 	params.PassRCParams1 = {
 		(float)LUMEN_RC_PROBES_PER_AXIS, 0.0f, 0.0f, m_Params.SkySampleMip };
-	// ƒXƒNƒŠ[ƒ“ƒgƒŒ[ƒX‚Í DebugMode ’†‚Í–³Œø‰»‚·‚éBƒfƒoƒbƒO•\¦‚Í
-	// DeferredPS ‚ª SceneColor ©‘Ì‚ğ GI ƒ‰ƒfƒBƒAƒ“ƒX“™‚Å’u‚«Š·‚¦‚é‚½‚ßA
-	// ‚»‚Ì—š—ğ (PrevSceneColor) ‚ğÌŒõ‚·‚é‚ÆuGI ‚Ì‰Â‹‰»‰æ‘œv‚ğ
-	// –Ê‚Ì•úË‹P“x‚Æ‚µ‚ÄE‚¤‹AŠÒƒ‹[ƒv‚É‚È‚èAƒJƒƒ‰‚ğ“®‚©‚·‚Æ
-	// ‰æ–ÊƒgƒŒ[ƒX‚Ìƒqƒbƒg / ƒ~ƒX‚ª“ü‚ê‘Ö‚í‚é‚½‚Ñ‚É‹­‚­–¾–Å‚·‚éB
+	// ã‚¹ã‚¯ãƒªãƒ¼ãƒ³ãƒˆãƒ¬ãƒ¼ã‚¹ã¯ DebugMode ä¸­ã¯ç„¡åŠ¹åŒ–ã™ã‚‹ã€‚ãƒ‡ãƒãƒƒã‚°è¡¨ç¤ºã¯
+	// DeferredPS ãŒ SceneColor è‡ªä½“ã‚’ GI ãƒ©ãƒ‡ã‚£ã‚¢ãƒ³ã‚¹ç­‰ã§ç½®ãæ›ãˆã‚‹ãŸã‚ã€
+	// ãã®å±¥æ­´ (PrevSceneColor) ã‚’æ¡å…‰ã™ã‚‹ã¨ã€ŒGI ã®å¯è¦–åŒ–ç”»åƒã€ã‚’
+	// é¢ã®æ”¾å°„è¼åº¦ã¨ã—ã¦æ‹¾ã†å¸°é‚„ãƒ«ãƒ¼ãƒ—ã«ãªã‚Šã€ã‚«ãƒ¡ãƒ©ã‚’å‹•ã‹ã™ã¨
+	// ç”»é¢ãƒˆãƒ¬ãƒ¼ã‚¹ã®ãƒ’ãƒƒãƒˆ / ãƒŸã‚¹ãŒå…¥ã‚Œæ›¿ã‚ã‚‹ãŸã³ã«å¼·ãæ˜æ»…ã™ã‚‹ã€‚
 	const bool bScreenTrace = m_Params.bScreenSpaceTrace && (m_Params.DebugMode == 0);
 	params.PassReflectionParams = {
 		m_Params.ReflectionMaxRoughness, m_Params.ReflectionFadeStart,
 		m_Params.ReflectionIntensity,
 		bScreenTrace ? 1.0f : 0.0f };
 
-	// Radiosity ƒeƒ“ƒ|ƒ‰ƒ‹’~Ï‚Í©•ª©g (RGBA16F UAV) ‚Ì“Ç‚İ–ß‚µ‚ª•K—vB
-	// Œ^•t‚« UAV ƒ[ƒh”ñ‘Î‰ŠÂ‹«‚Å‚Í 1.0 (’u‚«Š·‚¦) ‚ÉŒÅ’è‚·‚é
+	// Radiosity ãƒ†ãƒ³ãƒãƒ©ãƒ«è“„ç©ã¯è‡ªåˆ†è‡ªèº« (RGBA16F UAV) ã®èª­ã¿æˆ»ã—ãŒå¿…è¦ã€‚
+	// å‹ä»˜ã UAV ãƒ­ãƒ¼ãƒ‰éå¯¾å¿œç’°å¢ƒã§ã¯ 1.0 (ç½®ãæ›ãˆ) ã«å›ºå®šã™ã‚‹
 	const float radiosityAlpha = m_bRadiosityTemporalSupported
 		? min(max(m_Params.RadiosityTemporalAlpha, 0.02f), 1.0f)
 		: 1.0f;
 	const float screenAlpha = min(max(m_Params.ScreenTemporalAlpha, 0.02f), 1.0f);
 	params.PassRadiosityParams = {
 		radiosityAlpha, screenAlpha,
-		(m_Params.DebugMode == 4u) ? 1.0f : 0.0f,				// Short Range AO ƒfƒoƒbƒO•\¦
+		(m_Params.DebugMode == 4u) ? 1.0f : 0.0f,				// Short Range AO ãƒ‡ãƒãƒƒã‚°è¡¨ç¤º
 		m_Params.bShortRangeAOBentNormal ? 1.0f : 0.0f };
 
 	params.PassViewProjection = Inputs.ViewProjectionT;
@@ -1291,8 +1254,8 @@ FLumenSceneData::FLumenPassParams FLumenSceneData::MakeBasePassParams(
 	params.PassProbeJitter = {
 		m_ProbeJitter.x, m_ProbeJitter.y, m_PrevProbeJitter.x, m_PrevProbeJitter.y };
 
-	// Short Range AO (x = 0 ‚Å–³ŒøBIntegrate_CS ‚ªƒsƒNƒZƒ‹–ˆ‚É’Z‚¢ƒXƒNƒŠ[ƒ“
-	// ƒXƒy[ƒXƒŒƒC‚ÅÚG•”‚ÌÕ•Á‚ğŒvZ‚·‚é)
+	// Short Range AO (x = 0 ã§ç„¡åŠ¹ã€‚Integrate_CS ãŒãƒ”ã‚¯ã‚»ãƒ«æ¯ã«çŸ­ã„ã‚¹ã‚¯ãƒªãƒ¼ãƒ³
+	// ã‚¹ãƒšãƒ¼ã‚¹ãƒ¬ã‚¤ã§æ¥è§¦éƒ¨ã®é®è”½ã‚’è¨ˆç®—ã™ã‚‹)
 	params.PassShortRangeAO = {
 		m_Params.bShortRangeAO ? min(max(m_Params.ShortRangeAOMaxDistance, 0.05f), 2.0f) : 0.0f,
 		(float)min(max(m_Params.ShortRangeAORays, 1), 8),
@@ -1330,9 +1293,9 @@ ID3D12PipelineState* FLumenSceneData::SelectTracePSO(
 }
 
 
-// ‹¤’Ê SRV/UAV ƒe[ƒuƒ‹‚ÌƒoƒCƒ“ƒhBƒ‹[ƒgƒpƒ‰ƒ[ƒ^ = ƒŒƒWƒXƒ^ + 1
-// (SRV) / ƒŒƒWƒXƒ^ + 29 (UAV)BƒpƒXŒÅ—L (t19.. / u4..) ‚ÍŠeƒpƒX‚ª
-// ƒfƒBƒXƒpƒbƒ`’¼‘O‚Éã‘‚«‚·‚éB
+// å…±é€š SRV/UAV ãƒ†ãƒ¼ãƒ–ãƒ«ã®ãƒã‚¤ãƒ³ãƒ‰ã€‚ãƒ«ãƒ¼ãƒˆãƒ‘ãƒ©ãƒ¡ãƒ¼ã‚¿ = ãƒ¬ã‚¸ã‚¹ã‚¿ + 1
+// (SRV) / ãƒ¬ã‚¸ã‚¹ã‚¿ + 29 (UAV)ã€‚ãƒ‘ã‚¹å›ºæœ‰ (t19..t24, t26, t27 / u4..) ã¯å„ãƒ‘ã‚¹ãŒ
+// ãƒ‡ã‚£ã‚¹ãƒ‘ãƒƒãƒç›´å‰ã«ä¸Šæ›¸ãã™ã‚‹ã€‚
 void FLumenSceneData::BindCommonComputeState(const FLumenFrameInputs& Inputs)
 {
 	ID3D12GraphicsCommandList* cl = CommandList();
@@ -1359,7 +1322,7 @@ void FLumenSceneData::BindCommonComputeState(const FLumenFrameInputs& Inputs)
 	bindSRV(8, m_DirectLightingAtlas.SRVIndex);						// t8
 	bindSRV(9, m_IndirectLightingAtlas.SRVIndex);					// t9
 	bindSRV(10, m_FinalLightingAtlas.SRVIndex);						// t10
-	bindSRV(11, Inputs.IrradianceSRVIndex);							// t11
+	bindSRV(11, Inputs.IrradianceSRVIndex);							// t11 (ç¾çŠ¶æœªã‚µãƒ³ãƒ—ãƒ«ã€‚ã‚¹ã‚«ã‚¤ãƒ©ã‚¤ãƒ†ã‚£ãƒ³ã‚°ç”¨ã«äºˆç´„)
 	bindSRV(12, m_GlobalSDF[0].SRVIndex);							// t12
 	bindSRV(13, m_GlobalSDF[1].SRVIndex);							// t13
 	bindSRV(14, Inputs.PrefilterSRVIndex);							// t14
@@ -1372,10 +1335,10 @@ void FLumenSceneData::BindCommonComputeState(const FLumenFrameInputs& Inputs)
 	bindUAV(0, m_DirectLightingAtlas.UAVIndex);						// u0
 	bindUAV(1, m_IndirectLightingAtlas.UAVIndex);					// u1
 	bindUAV(2, m_FinalLightingAtlas.UAVIndex);						// u2
-	bindUAV(3, m_GlobalSDF[0].UAVIndex);							// u3 (GDF ƒrƒ‹ƒh‚ªã‘‚«)
+	bindUAV(3, m_GlobalSDF[0].UAVIndex);							// u3 (GDF ãƒ“ãƒ«ãƒ‰ãŒä¸Šæ›¸ã)
 
-	// TLAS (ƒ‹[ƒg SRV t28)BHWRT ƒAƒNƒeƒBƒu‚Ì‚İƒoƒCƒ“ƒh
-	// (RT ƒoƒŠƒAƒ“ƒg PSO ‚ğg‚¤ƒfƒBƒXƒpƒbƒ`‚¾‚¯‚ªQÆ‚·‚é)
+	// TLAS (ãƒ«ãƒ¼ãƒˆ SRV t28)ã€‚HWRT ã‚¢ã‚¯ãƒ†ã‚£ãƒ–æ™‚ã®ã¿ãƒã‚¤ãƒ³ãƒ‰
+	// (RT ãƒãƒªã‚¢ãƒ³ãƒˆ PSO ã‚’ä½¿ã†ãƒ‡ã‚£ã‚¹ãƒ‘ãƒƒãƒã ã‘ãŒå‚ç…§ã™ã‚‹)
 	if (m_bHWRTActiveThisFrame && m_HardwareRayTracing)
 	{
 		cl->SetComputeRootShaderResourceView(37, m_HardwareRayTracing->GetTLASAddress());
@@ -1401,13 +1364,13 @@ void FLumenSceneData::DispatchRadiosityRange(unsigned int StartCard, unsigned in
 
 
 // ============================================================
-//  Global Distance Field Ä\’z
-//  ƒJƒƒ‰’Ç]‚ÌƒNƒŠƒbƒvƒ}ƒbƒv x2 ‚ğ–ˆƒtƒŒ[ƒ€ƒtƒ‹ƒrƒ‹ƒh‚·‚é
-//  (128^3 x ƒIƒuƒWƒFƒNƒgƒ‹[ƒvBƒ{ƒNƒZƒ‹ƒXƒiƒbƒv‚Å‚¿‚ç‚Â‚«–h~)B
+//  Global Distance Field å†æ§‹ç¯‰
+//  ã‚«ãƒ¡ãƒ©è¿½å¾“ã®ã‚¯ãƒªãƒƒãƒ—ãƒãƒƒãƒ— x2 ã‚’æ¯ãƒ•ãƒ¬ãƒ¼ãƒ ãƒ•ãƒ«ãƒ“ãƒ«ãƒ‰ã™ã‚‹
+//  (128^3 x ã‚ªãƒ–ã‚¸ã‚§ã‚¯ãƒˆãƒ«ãƒ¼ãƒ—ã€‚ãƒœã‚¯ã‚»ãƒ«ã‚¹ãƒŠãƒƒãƒ—ã§ã¡ã‚‰ã¤ãé˜²æ­¢)ã€‚
 // ============================================================
 void FLumenSceneData::UpdateGlobalDistanceField(const FLumenFrameInputs& Inputs)
 {
-	// –³Œø‚ÍƒgƒŒ[ƒX‘¤‚Ì•ªŠò—p‚É”¼Œa 0 ‚ğ“`‚¦‚é
+	// ç„¡åŠ¹æ™‚ã¯ãƒˆãƒ¬ãƒ¼ã‚¹å´ã®åˆ†å²ç”¨ã«åŠå¾„ 0 ã‚’ä¼ãˆã‚‹
 	if (!m_Params.bGlobalSDF || m_NumObjects == 0)
 	{
 		m_GlobalSDFParams[0] = { 0.0f, 0.0f, 0.0f, 0.0f };
@@ -1425,7 +1388,7 @@ void FLumenSceneData::UpdateGlobalDistanceField(const FLumenFrameInputs& Inputs)
 
 	for (unsigned int i = 0; i < LUMEN_GLOBAL_SDF_CLIPMAPS; i++)
 	{
-		// ƒ{ƒNƒZƒ‹ƒOƒŠƒbƒh‚ÖƒXƒiƒbƒv (ƒJƒƒ‰ˆÚ“®‚É‚æ‚é‚¿‚ç‚Â‚«–h~)
+		// ãƒœã‚¯ã‚»ãƒ«ã‚°ãƒªãƒƒãƒ‰ã¸ã‚¹ãƒŠãƒƒãƒ— (ã‚«ãƒ¡ãƒ©ç§»å‹•ã«ã‚ˆã‚‹ã¡ã‚‰ã¤ãé˜²æ­¢)
 		const float voxel = (2.0f * halfExtents[i]) / (float)LUMEN_GLOBAL_SDF_RESOLUTION;
 		XMFLOAT4 params = {
 			floorf(Inputs.CameraOrigin.x / voxel + 0.5f) * voxel,
@@ -1436,29 +1399,26 @@ void FLumenSceneData::UpdateGlobalDistanceField(const FLumenFrameInputs& Inputs)
 
 		TransitionComputeTexture(m_GlobalSDF[i], false);	// -> UAV
 
-		// u3 = ƒrƒ‹ƒh‘ÎÛƒNƒŠƒbƒvƒ}ƒbƒv
+		// u3 = ãƒ“ãƒ«ãƒ‰å¯¾è±¡ã‚¯ãƒªãƒƒãƒ—ãƒãƒƒãƒ—
 		cl->SetComputeRootDescriptorTable(29 + 3,
 			m_RHI->GetGPUDescriptorHandle(m_GlobalSDF[i].UAVIndex));
 
+		// m_GlobalSDFParams[i] ã¯ä¸Šã§ç¢ºå®šæ¸ˆã¿ãªã®ã§ MakeBasePassParams ãŒãã®ã¾ã¾åæ˜ ã™ã‚‹
 		FLumenPassParams passParams = MakeBasePassParams(Inputs);
-		passParams.CardStartIndex = i;	// ƒNƒŠƒbƒvƒ}ƒbƒv”Ô†
-		// ƒrƒ‹ƒh‘ÎÛ©g‚Ì’†S / ”¼Œa (MakeBasePassParams ‚ÍƒXƒiƒbƒv‘O‚Ì
-		// ’l‚ğ‚¿“¾‚é‚½‚ßAŠm’è’l‚Åã‘‚«‚·‚é)
-		if (i == 0) { passParams.PassGlobalSDF0 = params; }
-		else { passParams.PassGlobalSDF1 = params; }
+		passParams.CardStartIndex = i;	// ã‚¯ãƒªãƒƒãƒ—ãƒãƒƒãƒ—ç•ªå·
 
 		cl->SetComputeRootConstantBufferView(0, WritePassParams(4 + i, passParams));
 
 		const unsigned int groups = LUMEN_GLOBAL_SDF_RESOLUTION / 8;
 		cl->Dispatch(groups, groups, groups);
 
-		TransitionComputeTexture(m_GlobalSDF[i], true);		// ƒgƒŒ[ƒX‚ª“Ç‚Ş
+		TransitionComputeTexture(m_GlobalSDF[i], true);		// ãƒˆãƒ¬ãƒ¼ã‚¹ãŒèª­ã‚€
 	}
 }
 
 
 // ============================================================
-//  Radiance Cache XV (ƒgƒŒ[ƒX [—\Z§] -> SH ƒ{ƒŠƒ…[ƒ€‰»)
+//  Radiance Cache æ›´æ–° (ãƒˆãƒ¬ãƒ¼ã‚¹ [äºˆç®—åˆ¶] -> SH ãƒœãƒªãƒ¥ãƒ¼ãƒ åŒ–)
 // ============================================================
 void FLumenSceneData::UpdateRadianceCache(const FLumenFrameInputs& Inputs)
 {
@@ -1469,7 +1429,7 @@ void FLumenSceneData::UpdateRadianceCache(const FLumenFrameInputs& Inputs)
 
 	ID3D12GraphicsCommandList* cl = CommandList();
 
-	// ---- ƒ{ƒŠƒ…[ƒ€”z’u (ƒJƒƒ‰’†S, ƒvƒ[ƒuŠÔŠuƒXƒiƒbƒv) ----
+	// ---- ãƒœãƒªãƒ¥ãƒ¼ãƒ é…ç½® (ã‚«ãƒ¡ãƒ©ä¸­å¿ƒ, ãƒ—ãƒ­ãƒ¼ãƒ–é–“éš”ã‚¹ãƒŠãƒƒãƒ—) ----
 	const float spacing = fmaxf(m_Params.RadianceCacheSpacing, 0.1f);
 	const float half = spacing * (float)LUMEN_RC_PROBES_PER_AXIS * 0.5f;
 	m_RCVolumeParams0 = {
@@ -1484,12 +1444,11 @@ void FLumenSceneData::UpdateRadianceCache(const FLumenFrameInputs& Inputs)
 		min(m_Params.RadianceCacheProbesPerFrame, (int)totalProbes));
 
 	FLumenPassParams params = MakeBasePassParams(Inputs);
-	params.PassRCParams0 = m_RCVolumeParams0;
 	params.PassRCParams1 = {
 		(float)LUMEN_RC_PROBES_PER_AXIS, (float)m_RCCursor, (float)budget,
 		m_Params.SkySampleMip };
 
-	// ---- 1. ƒvƒ[ƒuƒgƒŒ[ƒX (—\Z•ªBƒ‰ƒbƒv‚ÍƒVƒF[ƒ_‘¤‚Ìè—]) ----
+	// ---- 1. ãƒ—ãƒ­ãƒ¼ãƒ–ãƒˆãƒ¬ãƒ¼ã‚¹ (äºˆç®—åˆ†ã€‚ãƒ©ãƒƒãƒ—ã¯ã‚·ã‚§ãƒ¼ãƒ€å´ã®å‰°ä½™) ----
 	TransitionComputeTexture(m_RCAtlas, false);		// -> UAV
 
 	cl->SetPipelineState(SelectTracePSO(m_PSORCTrace.Get(), m_PSORCTraceRT.Get()));
@@ -1500,9 +1459,9 @@ void FLumenSceneData::UpdateRadianceCache(const FLumenFrameInputs& Inputs)
 
 	m_RCCursor = (m_RCCursor + budget) % totalProbes;
 
-	TransitionComputeTexture(m_RCAtlas, true);		// SH ‰»‚ª“Ç‚Ş
+	TransitionComputeTexture(m_RCAtlas, true);		// SH åŒ–ãŒèª­ã‚€
 
-	// ---- 2. SH L1 ƒ{ƒŠƒ…[ƒ€‰» (‘Sƒvƒ[ƒu) ----
+	// ---- 2. SH L1 ãƒœãƒªãƒ¥ãƒ¼ãƒ åŒ– (å…¨ãƒ—ãƒ­ãƒ¼ãƒ–) ----
 	for (int i = 0; i < 3; i++)
 	{
 		TransitionComputeTexture(m_RCSH[i], false);	// -> UAV
@@ -1521,14 +1480,14 @@ void FLumenSceneData::UpdateRadianceCache(const FLumenFrameInputs& Inputs)
 
 	for (int i = 0; i < 3; i++)
 	{
-		TransitionComputeTexture(m_RCSH[i], true);	// ”¼“§–¾ƒpƒX‚ª“Ç‚Ş
+		TransitionComputeTexture(m_RCSH[i], true);	// åŠé€æ˜ãƒ‘ã‚¹ãŒèª­ã‚€
 	}
 }
 
 
 // ============================================================
 //  RenderLumenSceneLighting
-//  GDF Ä\’z -> Direct -> Radiosity -> Combine -> Radiance Cache
+//  GDF å†æ§‹ç¯‰ -> Direct -> Radiosity -> Combine -> Radiance Cache
 // ============================================================
 void FLumenSceneData::RenderLumenSceneLighting(const FLumenFrameInputs& Inputs)
 {
@@ -1537,10 +1496,10 @@ void FLumenSceneData::RenderLumenSceneLighting(const FLumenFrameInputs& Inputs)
 		return;
 	}
 
-	// HWRT ‚Ì—LŒø”»’è (TLAS ‚Í‚±‚ÌƒtƒŒ[ƒ€‚Ì UpdateTLAS ‚Å\’zÏ‚İ)
-	// RT ƒoƒŠƒAƒ“ƒg PSO ‚ª 1 ‚Â‚à–³‚¢ (SM 6.5 ‚Ì cso •sİ / ¶¬¸”s) ê‡‚Í
-	// TLAS ‚ª‚ ‚Á‚Ä‚à SWRT ‚É‚µ‚©‚È‚ç‚È‚¢‚½‚ß ACTIVE ‚É‚µ‚È‚¢
-	// (ImGui ‚Ì•\¦‚ªÀ‘Ô‚ÆH‚¢ˆá‚¤‚Ì‚ÆATLAS Ä\’z‚ª–³‘Ê‚É‚È‚é‚Ì‚ğ–h‚®)
+	// HWRT ã®æœ‰åŠ¹åˆ¤å®š (TLAS ã¯ã“ã®ãƒ•ãƒ¬ãƒ¼ãƒ ã® UpdateTLAS ã§æ§‹ç¯‰æ¸ˆã¿)
+	// RT ãƒãƒªã‚¢ãƒ³ãƒˆ PSO ãŒ 1 ã¤ã‚‚ç„¡ã„ (SM 6.5 ã® cso ä¸åœ¨ / ç”Ÿæˆå¤±æ•—) å ´åˆã¯
+	// TLAS ãŒã‚ã£ã¦ã‚‚ SWRT ã«ã—ã‹ãªã‚‰ãªã„ãŸã‚ ACTIVE ã«ã—ãªã„
+	// (ImGui ã®è¡¨ç¤ºãŒå®Ÿæ…‹ã¨é£Ÿã„é•ã†ã®ã¨ã€TLAS å†æ§‹ç¯‰ãŒç„¡é§„ã«ãªã‚‹ã®ã‚’é˜²ã)
 	const bool bHasAnyRTPSO =
 		m_PSODirectLightingRT || m_PSORadiosityRT || m_PSOProbeTraceRT ||
 		m_PSOReflectionsRT || m_PSORCTraceRT;
@@ -1552,10 +1511,10 @@ void FLumenSceneData::RenderLumenSceneLighting(const FLumenFrameInputs& Inputs)
 
 	ID3D12GraphicsCommandList* cl = CommandList();
 
-	// ---- ‹¤’ÊƒoƒCƒ“ƒh ----
+	// ---- å…±é€šãƒã‚¤ãƒ³ãƒ‰ ----
 	BindCommonComputeState(Inputs);
 
-	// ---- Global Distance Field Ä\’z ----
+	// ---- Global Distance Field å†æ§‹ç¯‰ ----
 	UpdateGlobalDistanceField(Inputs);
 
 	if (m_NumObjects > 0)
@@ -1563,7 +1522,7 @@ void FLumenSceneData::RenderLumenSceneLighting(const FLumenFrameInputs& Inputs)
 		FLumenPassParams baseParams = MakeBasePassParams(Inputs);
 
 		//======================================================
-		// Pass 1: ’¼ÚŒõ (‘SƒJ[ƒhBÕ•ÁƒgƒŒ[ƒX•t‚«)
+		// Pass 1: ç›´æ¥å…‰ (å…¨ã‚«ãƒ¼ãƒ‰ã€‚é®è”½ãƒˆãƒ¬ãƒ¼ã‚¹ä»˜ã)
 		//======================================================
 		TransitionComputeTexture(m_DirectLightingAtlas, false);	// -> UAV
 
@@ -1571,11 +1530,11 @@ void FLumenSceneData::RenderLumenSceneLighting(const FLumenFrameInputs& Inputs)
 		cl->SetComputeRootConstantBufferView(0, WritePassParams(0, baseParams));
 		cl->Dispatch(LUMEN_CARD_RESOLUTION / 8, LUMEN_CARD_RESOLUTION / 8, MAX_LUMEN_CARDS);
 
-		TransitionComputeTexture(m_DirectLightingAtlas, true);	// Combine ‚ª t8 ‚Å“Ç‚Ş
+		TransitionComputeTexture(m_DirectLightingAtlas, true);	// Combine ãŒ t8 ã§èª­ã‚€
 
 		//======================================================
-		// Pass 2: Radiosity (ƒ‰ƒEƒ“ƒhƒƒrƒ“—\ZB‘OƒtƒŒ[ƒ€‚Ì
-		//         FinalLighting (t10, READ ó‘Ô) ‚ğÌŒõ -> ‘½ƒoƒEƒ“ƒX)
+		// Pass 2: Radiosity (ãƒ©ã‚¦ãƒ³ãƒ‰ãƒ­ãƒ“ãƒ³äºˆç®—ã€‚å‰ãƒ•ãƒ¬ãƒ¼ãƒ ã®
+		//         FinalLighting (t10, READ çŠ¶æ…‹) ã‚’æ¡å…‰ -> å¤šãƒã‚¦ãƒ³ã‚¹)
 		//======================================================
 		{
 			TransitionComputeTexture(m_IndirectLightingAtlas, false);	// -> UAV
@@ -1588,18 +1547,18 @@ void FLumenSceneData::RenderLumenSceneLighting(const FLumenFrameInputs& Inputs)
 			const unsigned int firstCount = min(budget, MAX_LUMEN_CARDS - start);
 
 			DispatchRadiosityRange(start, firstCount, 1, baseParams);
-			DispatchRadiosityRange(0, budget - firstCount, 2, baseParams);	// ƒŠƒ“ƒOƒ‰ƒbƒv•ª
+			DispatchRadiosityRange(0, budget - firstCount, 2, baseParams);	// ãƒªãƒ³ã‚°ãƒ©ãƒƒãƒ—åˆ†
 
 			m_RadiosityCardCursor = (start + budget) % MAX_LUMEN_CARDS;
 
-			TransitionComputeTexture(m_IndirectLightingAtlas, true);	// Combine ‚ª t9 ‚Å“Ç‚Ş
+			TransitionComputeTexture(m_IndirectLightingAtlas, true);	// Combine ãŒ t9 ã§èª­ã‚€
 		}
 
 		//======================================================
-		// Pass 3: ‡¬ (‘SƒJ[ƒh)
-		//   FinalLighting = (Direct + Indirect) * Albedo / ƒÎ
+		// Pass 3: åˆæˆ (å…¨ã‚«ãƒ¼ãƒ‰)
+		//   FinalLighting = (Direct + Indirect) * Albedo / Ï€
 		//                 + Emissive * EmissiveBoost
-		//   š ‚±‚±‚Å Emissive ‚ªŒõŒ¹‚Æ‚µ‚Ä Surface Cache ‚Éæ‚é š
+		//   â˜… ã“ã“ã§ Emissive ãŒå…‰æºã¨ã—ã¦ Surface Cache ã«ä¹—ã‚‹ â˜…
 		//======================================================
 		TransitionComputeTexture(m_FinalLightingAtlas, false);	// -> UAV
 
@@ -1607,11 +1566,11 @@ void FLumenSceneData::RenderLumenSceneLighting(const FLumenFrameInputs& Inputs)
 		cl->SetComputeRootConstantBufferView(0, WritePassParams(3, baseParams));
 		cl->Dispatch(LUMEN_CARD_RESOLUTION / 8, LUMEN_CARD_RESOLUTION / 8, MAX_LUMEN_CARDS);
 
-		// ƒfƒtƒ@[ƒh (t26) / ŸƒtƒŒ[ƒ€‚Ì Radiosity (t10) ‚ª“Ç‚Ş
+		// ãƒ‡ãƒ•ã‚¡ãƒ¼ãƒ‰ (t26) / æ¬¡ãƒ•ãƒ¬ãƒ¼ãƒ ã® Radiosity (t10) ãŒèª­ã‚€
 		TransitionComputeTexture(m_FinalLightingAtlas, true);
 	}
 
-	// ---- Radiance Cache (”¼“§–¾ GI / ƒXƒJƒCƒLƒƒƒbƒVƒ…) ----
+	// ---- Radiance Cache (åŠé€æ˜ GI / ã‚¹ã‚«ã‚¤ã‚­ãƒ£ãƒƒã‚·ãƒ¥) ----
 	UpdateRadianceCache(Inputs);
 }
 
@@ -1619,8 +1578,8 @@ void FLumenSceneData::RenderLumenSceneLighting(const FLumenFrameInputs& Inputs)
 // ============================================================
 //  RenderLumenScreenGI
 //  Screen Probe Gather (Setup -> Trace -> Filter -> SH+Temporal ->
-//  Integrate) + ReflectionsBRenderLighting “à (G-Buffer / [“x‚ª
-//  “Ç‚İæ‚èó‘ÔAFinalLighting Šm’èŒã) ‚ÉŒÄ‚Ô‚±‚ÆB
+//  Integrate) + Reflectionsã€‚RenderLighting å†… (G-Buffer / æ·±åº¦ãŒ
+//  èª­ã¿å–ã‚ŠçŠ¶æ…‹ã€FinalLighting ç¢ºå®šå¾Œ) ã«å‘¼ã¶ã“ã¨ã€‚
 // ============================================================
 void FLumenSceneData::RenderLumenScreenGI(const FLumenFrameInputs& Inputs)
 {
@@ -1639,34 +1598,22 @@ void FLumenSceneData::RenderLumenScreenGI(const FLumenFrameInputs& Inputs)
 
 	ID3D12GraphicsCommandList* cl = CommandList();
 
-	// ---- ƒvƒ[ƒu”z’uƒWƒbƒ^ (Halton(2,3) x 16 ƒtƒŒ[ƒ€üŠú‚ÅƒZƒ‹“à‚ğ„‰ñ) ----
-	// ŒÅ’èŠiq‚¾‚ÆƒJƒƒ‰ˆÚ“®‚Åƒvƒ[ƒu‚ª–Ê‚Ìã‚ğŠŠ‚èA16px •âŠÔ‚ÌˆÊ‘Š‚ª
-	// ‚¤‚Ë‚è (—h‚ç‚¬) ‚Æ‚µ‚ÄŒ©‚¦‚éBƒWƒbƒ^‚ÅƒtƒŒ[ƒ€ŠÔƒmƒCƒY‚É•Ï‚¦A
-	// ƒvƒ[ƒu SH + ƒtƒ‹‰ğ‘œ“x‚Ìƒeƒ“ƒ|ƒ‰ƒ‹’~Ï‚Å•½‹Ï‚·‚éB
+	// ---- ãƒ—ãƒ­ãƒ¼ãƒ–é…ç½®ã‚¸ãƒƒã‚¿ (Halton(2,3) x 16 ãƒ•ãƒ¬ãƒ¼ãƒ å‘¨æœŸã§ã‚»ãƒ«å†…ã‚’å·¡å›) ----
+	// å›ºå®šæ ¼å­ã ã¨ã‚«ãƒ¡ãƒ©ç§»å‹•ã§ãƒ—ãƒ­ãƒ¼ãƒ–ãŒé¢ã®ä¸Šã‚’æ»‘ã‚Šã€16px è£œé–“ã®ä½ç›¸ãŒ
+	// ã†ã­ã‚Š (æºã‚‰ã) ã¨ã—ã¦è¦‹ãˆã‚‹ã€‚ã‚¸ãƒƒã‚¿ã§ãƒ•ãƒ¬ãƒ¼ãƒ é–“ãƒã‚¤ã‚ºã«å¤‰ãˆã€
+	// ãƒ—ãƒ­ãƒ¼ãƒ– SH + ãƒ•ãƒ«è§£åƒåº¦ã®ãƒ†ãƒ³ãƒãƒ©ãƒ«è“„ç©ã§å¹³å‡ã™ã‚‹ã€‚
 	if (bProbeGather)
 	{
 		m_PrevProbeJitter = m_ProbeJitter;
 
 		if (m_Params.bProbeJitter)
 		{
-			auto halton = [](unsigned int index, unsigned int base)
-				{
-					float result = 0.0f;
-					float f = 1.0f / (float)base;
-					while (index > 0)
-					{
-						result += f * (float)(index % base);
-						index /= base;
-						f /= (float)base;
-					}
-					return result;
-				};
-
+			// Halton ã¯å…±é€šå®Ÿè£… (Halton.hã€‚VolumetricFog / TAA ã¨å…±æœ‰)
 			const unsigned int index = (m_ProbeJitterIndex % 16) + 1;
 			const float ds = (float)LUMEN_PROBE_DOWNSAMPLE;
 			m_ProbeJitter = {
-				floorf(halton(index, 2) * ds),
-				floorf(halton(index, 3) * ds) };
+				floorf(Halton(index, 2) * ds),
+				floorf(Halton(index, 3) * ds) };
 			m_ProbeJitterIndex++;
 		}
 		else
@@ -1675,7 +1622,7 @@ void FLumenSceneData::RenderLumenScreenGI(const FLumenFrameInputs& Inputs)
 		}
 	}
 
-	// ƒ‰ƒCƒgƒOƒŠƒbƒh“™‚ª•Ê‚ÌƒRƒ“ƒsƒ…[ƒg RS ‚ğİ’è‚µ‚Ä‚¢‚é‚½‚ßÄƒoƒCƒ“ƒh
+	// ãƒ©ã‚¤ãƒˆã‚°ãƒªãƒƒãƒ‰ç­‰ãŒåˆ¥ã®ã‚³ãƒ³ãƒ”ãƒ¥ãƒ¼ãƒˆ RS ã‚’è¨­å®šã—ã¦ã„ã‚‹ãŸã‚å†ãƒã‚¤ãƒ³ãƒ‰
 	BindCommonComputeState(Inputs);
 
 	FLumenPassParams params = MakeBasePassParams(Inputs);
@@ -1698,7 +1645,7 @@ void FLumenSceneData::RenderLumenScreenGI(const FLumenFrameInputs& Inputs)
 		const unsigned int probeGroupsY = (m_NumProbesY + 7) / 8;
 
 		//======================================================
-		// 1. ƒvƒ[ƒu”z’u (G-Buffer ‚©‚çƒWƒIƒƒgƒŠŠm’è)
+		// 1. ãƒ—ãƒ­ãƒ¼ãƒ–é…ç½® (G-Buffer ã‹ã‚‰ã‚¸ã‚ªãƒ¡ãƒˆãƒªç¢ºå®š)
 		//======================================================
 		TransitionComputeTexture(m_ProbeGeo, false);
 
@@ -1710,8 +1657,8 @@ void FLumenSceneData::RenderLumenScreenGI(const FLumenFrameInputs& Inputs)
 		TransitionComputeTexture(m_ProbeGeo, true);
 
 		//======================================================
-		// 2. ƒvƒ[ƒuƒgƒŒ[ƒX (hemi-octahedral 8x8:
-		//    ƒXƒNƒŠ[ƒ“ -> SDF/HWRT -> ƒXƒJƒC)
+		// 2. ãƒ—ãƒ­ãƒ¼ãƒ–ãƒˆãƒ¬ãƒ¼ã‚¹ (hemi-octahedral 8x8:
+		//    ã‚¹ã‚¯ãƒªãƒ¼ãƒ³ -> SDF/HWRTã€‚ãƒŸã‚¹ã¯ã‚¹ã‚«ã‚¤å¯è¦–ç‡ã®ã¿è¨˜éŒ²)
 		//======================================================
 		TransitionComputeTexture(m_ProbeTraceRadiance, false);
 
@@ -1724,7 +1671,7 @@ void FLumenSceneData::RenderLumenScreenGI(const FLumenFrameInputs& Inputs)
 		TransitionComputeTexture(m_ProbeTraceRadiance, true);
 
 		//======================================================
-		// 3. ‹óŠÔƒtƒBƒ‹ƒ^ (3x3 ƒvƒ[ƒu‹ß–T)
+		// 3. ç©ºé–“ãƒ•ã‚£ãƒ«ã‚¿ (3x3 ãƒ—ãƒ­ãƒ¼ãƒ–è¿‘å‚)
 		//======================================================
 		TransitionComputeTexture(m_ProbeFilteredRadiance, false);
 
@@ -1738,7 +1685,7 @@ void FLumenSceneData::RenderLumenScreenGI(const FLumenFrameInputs& Inputs)
 		TransitionComputeTexture(m_ProbeFilteredRadiance, true);
 
 		//======================================================
-		// 4. SH L1 Ë‰e + ƒeƒ“ƒ|ƒ‰ƒ‹’~Ï (‘OƒtƒŒ[ƒ€‚ğƒŠƒvƒƒWƒFƒNƒVƒ‡ƒ“)
+		// 4. SH L1 å°„å½± + ãƒ†ãƒ³ãƒãƒ©ãƒ«è“„ç© (å‰ãƒ•ãƒ¬ãƒ¼ãƒ ã‚’ãƒªãƒ—ãƒ­ã‚¸ã‚§ã‚¯ã‚·ãƒ§ãƒ³)
 		//======================================================
 		TransitionComputeTexture(curSH.SHR, false);
 		TransitionComputeTexture(curSH.SHG, false);
@@ -1769,7 +1716,7 @@ void FLumenSceneData::RenderLumenScreenGI(const FLumenFrameInputs& Inputs)
 		TransitionComputeTexture(curSH.Aux, true);
 
 		//======================================================
-		// 5. ƒtƒ‹‰ğ‘œ“xÏ•ª -> DiffuseIndirect (t28)
+		// 5. ãƒ•ãƒ«è§£åƒåº¦ç©åˆ† -> DiffuseIndirect (t28)
 		//======================================================
 		FLumenComputeTexture& curDI = m_DiffuseIndirect[m_DiffuseIndirectFrame];
 		FLumenComputeTexture& prevDI = m_DiffuseIndirect[m_DiffuseIndirectFrame ^ 1];
@@ -1784,19 +1731,19 @@ void FLumenSceneData::RenderLumenScreenGI(const FLumenFrameInputs& Inputs)
 		bindSRV(23, curSH.SHB.SRVIndex);						// t23
 		bindSRV(24, curSH.Aux.SRVIndex);						// t24
 		cl->SetComputeRootConstantBufferView(0, WritePassParams(12, params));
-		bindSRV(26, prevDI.SRVIndex);							// t26 (‘OƒtƒŒ[ƒ€ DiffuseIndirect)
+		bindSRV(26, prevDI.SRVIndex);							// t26 (å‰ãƒ•ãƒ¬ãƒ¼ãƒ  DiffuseIndirect)
 		bindUAV(4, curDI.UAVIndex);								// u4
 
 		const unsigned int screenGroupsX = (Inputs.ScreenWidth + 7) / 8;
 		const unsigned int screenGroupsY = (Inputs.ScreenHeight + 7) / 8;
 		cl->Dispatch(screenGroupsX, screenGroupsY, 1);
 
-		TransitionComputeTexture(curDI, true);					// ƒfƒtƒ@[ƒh‚ª t28 ‚Å“Ç‚Ş
+		TransitionComputeTexture(curDI, true);					// ãƒ‡ãƒ•ã‚¡ãƒ¼ãƒ‰ãŒ t28 ã§èª­ã‚€
 
 		m_DiffuseIndirectCurrent = m_DiffuseIndirectFrame;
-		m_DiffuseIndirectFrame ^= 1;							// ƒsƒ“ƒ|ƒ“
+		m_DiffuseIndirectFrame ^= 1;							// ãƒ”ãƒ³ãƒãƒ³
 
-		m_ProbeSHFrame ^= 1;	// ƒsƒ“ƒ|ƒ“
+		m_ProbeSHFrame ^= 1;	// ãƒ”ãƒ³ãƒãƒ³
 	}
 
 	//======================================================
@@ -1807,7 +1754,7 @@ void FLumenSceneData::RenderLumenScreenGI(const FLumenFrameInputs& Inputs)
 		TransitionComputeTexture(m_ReflectionTexture, false);
 
 		cl->SetPipelineState(SelectTracePSO(m_PSOReflections.Get(), m_PSOReflectionsRT.Get()));
-		bindSRV(19, Inputs.GBufferBSRVIndex);					// t19 (ƒ‰ƒtƒlƒX)
+		bindSRV(19, Inputs.GBufferBSRVIndex);					// t19 (ãƒ©ãƒ•ãƒã‚¹)
 		bindUAV(4, m_ReflectionTexture.UAVIndex);				// u4
 		cl->SetComputeRootConstantBufferView(0, WritePassParams(13, params));
 
@@ -1815,13 +1762,13 @@ void FLumenSceneData::RenderLumenScreenGI(const FLumenFrameInputs& Inputs)
 		const unsigned int screenGroupsY = (Inputs.ScreenHeight + 7) / 8;
 		cl->Dispatch(screenGroupsX, screenGroupsY, 1);
 
-		TransitionComputeTexture(m_ReflectionTexture, true);	// ƒfƒtƒ@[ƒh‚ª t29 ‚Å“Ç‚Ş
+		TransitionComputeTexture(m_ReflectionTexture, true);	// ãƒ‡ãƒ•ã‚¡ãƒ¼ãƒ‰ãŒ t29 ã§èª­ã‚€
 	}
 }
 
 
 // ============================================================
-//  BindLumenResources (ƒfƒtƒ@[ƒh: t24-t32)
+//  BindLumenResources (ãƒ‡ãƒ•ã‚¡ãƒ¼ãƒ‰: t24-t32)
 // ============================================================
 void FLumenSceneData::BindLumenResources()
 {
@@ -1878,8 +1825,8 @@ void FLumenSceneData::FillLumenConstant(LUMEN_CONSTANT& Out) const
 	Out.LumenGIIntensity = m_Params.GIIntensity;
 	Out.LumenMaxTraceDistance = m_Params.MaxTraceDistance;
 
-	// ”¼‹…‚ğ N ƒR[ƒ“‚É•ªŠ„‚µ‚½‚Æ‚«‚ÌƒR[ƒ“”¼Šp tan
-	// (—§‘ÌŠp 2ƒÎ/N -> cosƒÆ = 1 - 1/N)
+	// åŠçƒã‚’ N ã‚³ãƒ¼ãƒ³ã«åˆ†å‰²ã—ãŸã¨ãã®ã‚³ãƒ¼ãƒ³åŠè§’ tan
+	// (ç«‹ä½“è§’ 2Ï€/N -> cosÎ¸ = 1 - 1/N)
 	const float coneCos = fmaxf(1.0f - 1.0f / (float)Out.LumenNumScreenCones, 0.1f);
 	Out.LumenConeTanAngle = sqrtf(fmaxf(1.0f - coneCos * coneCos, 0.0f)) / coneCos;
 

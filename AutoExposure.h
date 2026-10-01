@@ -18,11 +18,12 @@
 //  whole loop stays GPU-side with no CPU readback stall -- exactly
 //  how EyeAdaptation works.
 //
-//  Mirrors IBLBaker / ColorGradingLUTBaker's dependency model:
-//  talks to RenderManager through its public accessors (device,
-//  command list, descriptor allocation). Unlike those one-shot
-//  bakers this dispatches per frame, so it does NOT flush the
-//  command list -- its work is recorded inside DrawEnd's list.
+//  Talks to RenderManager through its public accessors (device,
+//  command list, descriptor allocation), like IBLBaker /
+//  ColorGradingLUTBaker. Unlike IBLBaker (one-shot, flushes) this
+//  dispatches every frame and does NOT flush -- its work is
+//  recorded into the frame's command list from
+//  FSceneRenderer::RenderPostProcessing.
 // ============================================================
 
 class RenderManager;
@@ -46,7 +47,7 @@ public:
     };
 
 private:
-    // Matches EXPOSURE_PARAMS cbuffer in both compute shaders (b0).
+    // Matches the EXPOSURE_PARAMS cbuffer (b0) in Shader/AutoExposureCommon.hlsl.
     struct EXPOSURE_PARAMS
     {
         unsigned int SceneWidth;
@@ -80,7 +81,6 @@ private:
     // 256-bin uint histogram (cleared each frame before pass 1).
     ComPtr<ID3D12Resource>      m_Histogram;
     unsigned int                m_HistogramUAVIndex = 0;      // shader-visible UAV
-    unsigned int                m_HistogramClearUAVIndex = 0; // CPU-visible UAV (ClearUAV)
 
     // Persistent 2-float result: [0]=exposure scale, [1]=avg luminance.
     ComPtr<ID3D12Resource>      m_Result;
@@ -133,9 +133,23 @@ public:
         unsigned int width, unsigned int height,
         float deltaTime);
 
-    // SRV index of the 1-element exposure result buffer, bound
-    // to the tonemap pass on t11 (TEXTURE_TYPE::AUTO_EXPOSURE).
+    // SRV index of the 2-element ([0]=exposure scale, [1]=avg luminance)
+    // exposure result buffer, bound to the tonemap pass on t11
+    // (TEXTURE_TYPE::AUTO_EXPOSURE).
     unsigned int                GetExposureSRVIndex()  const { return m_ResultSRVIndex; }
+
+    // ---- 結果バッファの状態管理 ----
+    // m_Result はバッファなので、レガシーバリアでは ExecuteCommandLists 完了ごとに
+    // COMMON へ減衰する (フレームを跨いだ「PSR 常駐」は成立しない)。
+    // RenderPostProcessing の先頭 (結果を読む全パスより前) で呼び、
+    // COMMON -> 読み取り (PIXEL | NON_PIXEL) を明示遷移する。
+    // 初回 Dispatch 前 (IsResultValid() = false) は何もしない。
+    // フレーム内の遷移: COMMON -> RD -> UAV -> COPY_SOURCE -> RD (-> 減衰)
+    void PrepareResultForRead();
+
+    // 結果バッファに有効な露出値があるか (初回 Dispatch 以降 true)。
+    // false の間は前フレーム露出として読んではならない (TAA は手動露出へフォールバック)
+    bool IsResultValid() const { return m_ResultInitialised; }
 
     // Latest GPU-computed values read back to the CPU (for ImGui display).
     // These lag the GPU by a frame or two (readback is asynchronous) but are
@@ -150,7 +164,7 @@ public:
     // frame (e.g. from ImGui) before reading the getters above.
     void  UpdateReadback();
 
-    // ---- Tunable parameters (driven by ImGui / PostProcessVolume) ----
+    // ---- Tunable parameters (driven by ImGui / SettingsManager) ----
 
     Params& GetParams() { return m_Params; }
     const Params& GetParams() const { return m_Params; }

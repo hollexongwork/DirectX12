@@ -12,7 +12,8 @@
 //
 //  Mirrors IBLBaker's dependency model: talks to RenderManager
 //  through its public accessors (device, command list, descriptor
-//  allocation, immediate flush).
+//  allocation). Bakes are recorded into the current frame's
+//  command list (no flush).
 // ============================================================
 
 #include "PostProcessSettings.h"
@@ -51,7 +52,6 @@ private:
 	unsigned int                m_FallbackSRVIndex = 0;
 	ComPtr<ID3D12Resource>      m_FallbackTex;
 	float                       m_ArtistWeight = 1.0f;
-	unsigned int                m_ArtistTileSize = 0;   // 16, 32, ...
 	unsigned int                m_ArtistPixelsX = 0;
 	unsigned int                m_ArtistPixelsY = 0;
 
@@ -80,7 +80,7 @@ private:
 
 	ComPtr<ID3D12PipelineState> CreateComputePipeline(const char* csoFile);
 	bool ParamsChanged(const GRADING_PARAMS& p) const;
-	void CreateFallbackSRV();    // 1x1 white 2D texture for t0 when no artist LUT
+	void CreateFallbackSRV();    // 1x1 (uninitialized) 2D texture for t0 when no artist LUT
 
 public:
 	explicit ColorGradingLUTBaker(RenderManager* owner);
@@ -99,8 +99,8 @@ public:
 	// Cheap no-op when settings are unchanged.
 	void UpdateIfDirty(const PP_SETTINGS& Settings);
 
-	// Force a re-bake on the next UpdateIfDirty() (call when any
-	// grading-related ImGui control changes).
+	// Force a re-bake on the next UpdateIfDirty() even when the grading
+	// params are unchanged (param edits are already caught by ParamsChanged).
 	void MarkDirty() { m_Dirty = true; }
 
 	// SRV index of the baked LUT (Texture3D), for the tonemap pass.

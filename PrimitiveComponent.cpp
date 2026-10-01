@@ -1,5 +1,4 @@
 #include "Main.h"
-#include "RenderManager.h"
 #include "PrimitiveComponent.h"
 #include "PrimitiveSceneProxy.h"
 #include "World.h"

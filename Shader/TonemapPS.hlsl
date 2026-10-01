@@ -6,15 +6,18 @@
 //  Order :
 //    1. Chromatic aberration (lateral, scales toward edges)
 //    2. + Bloom (additive, intensity-weighted)
-//    3. * Exposure
-//    4. White balance (Temp/Tint)
+//    3. * Exposure (AutoExposureBuffer[0] when PP_FLAG_AUTO_EXPOSURE,
+//       otherwise manual PostProcess.Exposure)
+//    4. White balance (Temp/Tint) - only when the grading LUT is disabled;
+//       the LUT baked by ColorGradingLUT_CS already contains WB
 //    5. Tonemap operator (ACES Narkowicz / ACES Hill / None)
-//    6. Color grading (Sat / Contrast / Gamma / Gain / Offset)
-//    7. Vignette
-//    8. Film grain
-//    9. Linear -> sRGB
+//    6. Linear -> sRGB
+//    7. 3D color-grading LUT (display space, baked by ColorGradingLUT_CS)
+//    8. Vignette (display space)
+//    9. Film grain (display space)
 //
-//  Inputs: t0 = HDR SceneColor, t9 = bloom (full-res accumulated)
+//  Inputs: t0 = HDR SceneColor, t9 = bloom (accumulated),
+//          t10 = color grading LUT (33^3), t11 = auto exposure buffer
 // =============================================================
 
 PS_OUTPUT main(PS_INPUT input)
@@ -58,7 +61,7 @@ PS_OUTPUT main(PS_INPUT input)
     }
     hdr *= exposure;
 
-    // ---- 4. White balance ----
+    // ---- 4. White balance (LUT 無効時のみ。LUT は WB をベイク済み) ----
     if ((flags & PP_FLAG_WHITE_BALANCE) && !(flags & PP_FLAG_COLOR_GRADING))
     {
         hdr *= WhiteBalanceScale(PostProcess.WhiteTemp, PostProcess.WhiteTint);
@@ -67,7 +70,7 @@ PS_OUTPUT main(PS_INPUT input)
     // ---- 5. Tonemap ----
     float3 color = ApplyTonemap(hdr, PostProcess.TonemapperMode);
 
-    // ---- 6/9. Color grading LUT + sRGB encode (color-space correct) ----
+    // ---- 6/7. sRGB encode + Color grading LUT (display space) ----
     float3 sdr;
     if (flags & PP_FLAG_COLOR_GRADING)
     {
@@ -79,7 +82,7 @@ PS_OUTPUT main(PS_INPUT input)
         sdr = LinearToSRGB(saturate(color));
     }
 
-    // ---- 7. Vignette (display space) ----
+    // ---- 8. Vignette (display space) ----
     if (flags & PP_FLAG_VIGNETTE)
     {
         float2 c = uv - 0.5f;
@@ -87,7 +90,7 @@ PS_OUTPUT main(PS_INPUT input)
         sdr *= lerp(1.0f, v, saturate(PostProcess.VignetteIntensity));
     }
 
-    // ---- 8. Film grain (display space) ----
+    // ---- 9. Film grain (display space) ----
     if (flags & PP_FLAG_GRAIN)
     {
         float n = Hash21(uv * float2(2.0f, 2.0f) + PostProcess.FilmGrainTime);

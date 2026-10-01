@@ -1,6 +1,8 @@
 ﻿#pragma once
 #include <deque>
-#include "PostProcessSettings.h"
+#include <climits>
+#include <cstddef>
+#include <cstdint>
 
 // ============================================================
 //  RenderManager
@@ -14,7 +16,7 @@
 //    - ルートシグネチャ + PSO キャッシュ
 //    - リソース生成 (RT / テクスチャ / VB / IB) とバインド API
 //  ※ CONSTANT_TYPE / TEXTURE_TYPE の enum 値は HLSL レジスタと
-//    1:1 対応 (b0..b7 / t0..t34)。順序変更・挿入は禁止。
+//    1:1 対応 (b0..b7 / t0..t36)。順序変更・挿入は禁止。
 //    新規リソースは COUNT の直前に追加すること。
 // ============================================================
 
@@ -33,7 +35,7 @@ struct VERTEX_3D
 
 // ============================================================
 //  定数バッファ構造体
-//  3 系統に分離:
+//  系統別に分離:
 //    VIEW_CONSTANT          = FViewUniformShaderParameters 相当 (b0)
 //    FORWARD_LIGHT_CONSTANT = FForwardLightData 相当 (b3)
 //    PP_SETTINGS            = パス毎パラメータ (b4, PostProcessSettings.h)
@@ -43,32 +45,57 @@ struct VERTEX_3D
 //  ※ HLSL 側 (ConstantBuffers.hlsl) と 1:1 ミラー必須
 // ============================================================
 
-// b0 : View。ビュー行列群 + カメラ + 代表ディレクショナルライト。
-// 太陽ライトは View ユニフォームに常駐する。
+// b0 : View。ビュー行列群 + カメラ + 代表ディレクショナルライト + Temporal AA / TAAU。
+// 太陽ライトは View ユニフォームに常駐する。448 B (定数リング 1 スロット 512 B に収まる)。
+// 行列は転置して格納する (C++ 側は転置前で保持し、アップロード時に XMMatrixTranspose)。
+// 書き手: FSceneRenderer::PrepareViewStateForVisibility (カメラ + テンポラル全フィールド) と
+// SetupLightConstants (光源 2 フィールド)。シャドウ / Lumen カード / Polygon2D は
+// ゼロ初期化の VIEW_CONSTANT{} を使うので、追加フィールドはすべて 0 (ミップバイアス 0 / テンポラル情報無し)
 struct VIEW_CONSTANT
 {
-	XMFLOAT4X4		View;
-	XMFLOAT4X4		Projection;
-	XMFLOAT4X4		InvViewProjection;
-	XMFLOAT4		WorldCameraOrigin;	// xyz = カメラワールド位置 [m]
-	XMFLOAT4		NearFar;			// x=Near, y=Far
+	XMFLOAT4X4		View;				//   0  ワールド -> ビュー
+	XMFLOAT4X4		Projection;			//  64  ジッタ込み (UE ViewToClip)
+	XMFLOAT4X4		InvViewProjection;	// 128  ジッタ込み (深度 + UV からのワールド復元。UE ClipToTranslatedWorld)
+	XMFLOAT4		WorldCameraOrigin;	// 192  xyz = カメラワールド位置 [m], w = 1
+	XMFLOAT4		NearFar;			// 208  x=Near, y=Far, zw=0
 
 	// ディレクショナルライト (FScene のライトリストから毎フレーム解決)
 	//   DirectionalLightDirection.xyz = 受光面からライトへ向かう方向 (発光方向の逆)
 	//   DirectionalLightColor.rgb     = 線形色 x 強度 (lux)
 	// ライト不在時は DirectionalLightColor = 0 (無光)
-	XMFLOAT4		DirectionalLightDirection;
-	XMFLOAT4		DirectionalLightColor;
+	XMFLOAT4		DirectionalLightDirection;	// 224
+	XMFLOAT4		DirectionalLightColor;		// 240
+
+	// ---- Temporal AA / TAAU (FViewUniformShaderParameters の同名メンバ) ----
+	XMFLOAT4X4		PrevViewProjection;	// 256  前フレーム View*Projection (前フレームのジッタ込み = UE PrevTranslatedWorldToClip)
+	XMFLOAT4X4		ClipToPrevClip;		// 320  InvVP_NoAA(cur) * VP_NoAA(prev) (UE ClipToPrevClip)
+	XMFLOAT4		TemporalAAJitter;	// 384  xy = 今フレーム NDC ジッタ, zw = 前フレーム NDC ジッタ
+	XMFLOAT4		TemporalAAParams;	// 400  x = SampleIndex, y = SampleCount, zw = TemporalJitterPixels (レンダー px)
+	XMFLOAT4		ViewSizeAndInvSize;	// 416  (R.x, R.y, 1/R.x, 1/R.y) (exact-size なので BufferSize と同一)
+	float			MaterialTextureMipBias;				// 432  マテリアルテクスチャの SampleBias (TemporalUpscale 時のみ非 0)
+	float			MaterialTextureDerivativeMultiply;	// 436  = 2^MipBias (予約。SampleGrad 用で現状未使用)
+	uint32_t		StateFrameIndexMod8;	// 440  TAA 有効時 FrameIndex & 7, それ以外 0 [PORT]
+	uint32_t		StateFrameIndex;		// 444
 };
-static_assert(sizeof(VIEW_CONSTANT) == 256, "VIEW_CONSTANT must mirror HLSL ViewConstantBuffer (b0)");
+static_assert(sizeof(VIEW_CONSTANT) == 448, "VIEW_CONSTANT must mirror HLSL ViewConstantBuffer (b0)");
+static_assert(offsetof(VIEW_CONSTANT, PrevViewProjection) == 256, "VIEW_CONSTANT::PrevViewProjection offset");
+static_assert(offsetof(VIEW_CONSTANT, ClipToPrevClip) == 320, "VIEW_CONSTANT::ClipToPrevClip offset");
+static_assert(offsetof(VIEW_CONSTANT, TemporalAAJitter) == 384, "VIEW_CONSTANT::TemporalAAJitter offset");
+static_assert(offsetof(VIEW_CONSTANT, MaterialTextureMipBias) == 432, "VIEW_CONSTANT::MaterialTextureMipBias offset");
+static_assert(sizeof(VIEW_CONSTANT) <= 512, "VIEW_CONSTANT must fit one constant ring slot");
 
 
-// b1 : Primitive (FPrimitiveUniformShaderParameters 相当)。per-draw。
+// b1 : Primitive (FPrimitiveUniformShaderParameters 相当)。per-draw。128 B。
+// 行列は転置して格納する。PreviousLocalToWorld は前フレームに描いた LocalToWorld で、
+// ベロシティパス (DrawVelocity) だけが別の値を書く。それ以外のパスは LocalToWorld と
+// 同値 (UploadPrimitiveConstant の既定)、ローカル空間描画 (Lumen カードキャプチャ /
+// Polygon2D) は単位行列
 struct PRIMITIVE_CONSTANT
 {
-	XMFLOAT4X4 LocalToWorld;
+	XMFLOAT4X4 LocalToWorld;			//  0 (転置)
+	XMFLOAT4X4 PreviousLocalToWorld;	// 64 (転置。ベロシティパス以外は LocalToWorld と同値)
 };
-static_assert(sizeof(PRIMITIVE_CONSTANT) == 64, "PRIMITIVE_CONSTANT must mirror HLSL PrimitiveConstantBuffer (b1)");
+static_assert(sizeof(PRIMITIVE_CONSTANT) == 128, "PRIMITIVE_CONSTANT must mirror HLSL PrimitiveConstantBuffer (b1)");
 
 
 // b3 : ForwardLightData (FForwardLightData 相当)。
@@ -81,7 +108,7 @@ static_assert(sizeof(PRIMITIVE_CONSTANT) == 64, "PRIMITIVE_CONSTANT must mirror 
 struct FORWARD_LIGHT_CONSTANT
 {
 	unsigned int	NumLocalLights = 0;			// ローカルライト有効数
-	unsigned int	NumGridCells = 0;			// グリッド総セル数 (X*Y*Z)
+	unsigned int	NumGridCells = 0;			// グリッド総セル数 (X*Y*Z)。現状どのシェーダーも読まない (将来用)
 	unsigned int	CulledGridSizeX = 1;		// 画面タイル数 X (= ceil(W / LightGridPixelSize))
 	unsigned int	CulledGridSizeY = 1;		// 画面タイル数 Y
 
@@ -113,6 +140,17 @@ struct RENDER_TARGET
 	unsigned int			RTVIndex;
 	D3D12_GPU_DESCRIPTOR_HANDLE SRVHandle;
 	D3D12_CPU_DESCRIPTOR_HANDLE RTVHandle;
+
+	// UAV (CreateRenderTarget の bAllowUnorderedAccess = true の時のみ。
+	// TAA 履歴などコンピュートが書くターゲット用)。UINT_MAX = UAV 無し
+	unsigned int				UAVIndex = UINT_MAX;
+	D3D12_GPU_DESCRIPTOR_HANDLE UAVHandle{};
+
+	// 生成時のサイズ / フォーマット (全ターゲットで記録。後段の実寸参照用)
+	unsigned int			Width = 0;
+	unsigned int			Height = 0;
+	DXGI_FORMAT				Format = DXGI_FORMAT_UNKNOWN;
+
 	~RENDER_TARGET();
 };
 
@@ -146,7 +184,7 @@ enum class EBlendStatePreset
 	Translucent,	// SrcAlpha / InvSrcAlpha (BLEND_Translucent)
 	Additive,		// SrcAlpha / One (BLEND_Additive)
 	NoColorWrite,	// カラー書き込み無効 (半透明深度プリパス用)
-	HeightFog,		// One / SrcAlpha, RGB のみ (フォグパス: Dst * 透過率 + インスキャッタ。
+	HeightFog,		// One / SrcAlpha, RGB のみ (フォグパス: Dst * 透過率 + インスキャッタ)
 };
 
 // bTwoSided -> ラスタライザカリング
@@ -164,6 +202,10 @@ enum class EDepthStatePreset
 	DepthReadEqual,	// 深度テストのみ + EQUAL 比較
 	// (半透明深度プリパスの着色パス: プリパスが書いた
 	//  最前面深度に一致するフラグメントだけ着色する)
+	None,			// 深度無効 (DepthEnable = FALSE, DSVFormat = UNKNOWN)。
+	// DSV をバインドしないフルスクリーンパス用。DSV 無しで
+	// DSVFormat = D32 の PSO を使うとデバッグレイヤー
+	// EXECUTION ERROR #615 (DEPTH_STENCIL_FORMAT_MISMATCH_PIPELINE_STATE) になる
 };
 
 
@@ -198,17 +240,23 @@ private:
 	D3D12_GPU_DESCRIPTOR_HANDLE OffsetGPUHandle(D3D12_GPU_DESCRIPTOR_HANDLE base, unsigned int index, D3D12_DESCRIPTOR_HEAP_TYPE type) const;
 
 	unsigned int                CreateShaderResourceView(ID3D12Resource* Resource);
-	D3D12_GPU_DESCRIPTOR_HANDLE GetShaderResourceViewHandle(unsigned int SRVIndex);
 	unsigned int                CreateRenderTargetView(ID3D12Resource* Resource, unsigned int MipLevel = 0);
 	D3D12_CPU_DESCRIPTOR_HANDLE GetRenderTargetViewHandle(unsigned int RTVIndex);
 
 	// DepthBias / SlopeScaledDepthBias はシャドウ深度 PSO 用 (既定値は従来通り 0)
 	// Blend / Cull / Depth プリセットでマテリアルの Blend Mode / Two Sided
 	// に対応する PSO バリアントを生成する (既定は従来の不透明上書き)
+	// bOptional = true: .cso が欠落 / 空なら 1 行ログを出して nullptr を返す (assert せず、
+	// PS 無しの「何も描かない PSO」も作らない)。呼び出し側は null を登録しないこと
 	ComPtr<ID3D12PipelineState> CreatePipeline(const char* VertexShaderFile, const char* PixelShaderFile, const DXGI_FORMAT* RTVFormats, unsigned int NumRenderTargets, int DepthBias = 0, float SlopeScaledDepthBias = 0.0f,
 		EBlendStatePreset BlendPreset = EBlendStatePreset::Opaque,
 		ECullModePreset CullPreset = ECullModePreset::Back,
-		EDepthStatePreset DepthPreset = EDepthStatePreset::DepthWrite);
+		EDepthStatePreset DepthPreset = EDepthStatePreset::DepthWrite,
+		bool bOptional = false);
+
+	// シェーダ可視ヒープ / ルートシグネチャ / ビューポート / シザーを設定する
+	// (BeginFrame と FlushAndResetCommandList の Reset 後の復帰で共通)
+	void SetDefaultGraphicsState();
 
 
 	// ------------------------------------------------------------
@@ -248,12 +296,20 @@ private:
 	D3D12_CPU_DESCRIPTOR_HANDLE  m_RenderTargetHandle[2]{};
 
 	// Depth buffer (DSV は RHI 所有。SRV は FSceneTextures 側で生成)
+	// DSV ヒープは 1 枠固定。解像度変更時はリソースだけを作り直し、
+	// 同じ CPU 枠 (m_DepthBufferHandle) へ DSV を再作成する。
 	ComPtr<ID3D12Resource>       m_DepthBuffer;
 	ComPtr<ID3D12DescriptorHeap> m_DepthBufferDescriptorHeap;
 	D3D12_CPU_DESCRIPTOR_HANDLE  m_DepthBufferHandle{};
+	unsigned int                 m_DepthBufferWidth = 0;
+	unsigned int                 m_DepthBufferHeight = 0;
 
+	// 既定ビューポート / シザー (SetDefaultGraphicsState と
+	// RestoreDefaultViewport が適用する。SetDefaultViewportSize で変更)
 	D3D12_RECT     m_ScissorRect{};
 	D3D12_VIEWPORT m_Viewport{};
+	unsigned int   m_DefaultViewportWidth = 0;
+	unsigned int   m_DefaultViewportHeight = 0;
 
 	// Descriptor heaps + free-lists
 	ComPtr<ID3D12DescriptorHeap> m_SRVDescriptorHeap;
@@ -322,7 +378,7 @@ public:
 		MSRA,             // t2  GBufferB (Metallic/Specular/Roughness/AO) / ARM
 		DEPTH,            // t3  非線形深度 SRV
 		LINEAR_DEPTH,     // t4  線形深度
-		ENVIRONMENT,      // t5  環境マップ (equirect)
+		ENVIRONMENT,      // t5  予約・未使用 (equirect 環境マップは IBL ベイク入力のみ。レジスタ順維持)
 		// ---- IBL precomputed ----
 		IRRADIANCE,       // t6
 		PREFILTER,        // t7
@@ -371,8 +427,12 @@ public:
 		FOG_INSCATTERING_CUBEMAP,  // t33 (TextureCube<float4>: Inscattering Color Cubemap = IBL prefilter キューブ)
 		VOLUMETRIC_FOG_INTEGRATED, // t34 (Texture3D<float4>: Volumetric Fog 積分結果 IntegratedLightScattering)
 
+		// ---- Temporal AA (VelocityRendering.h / TemporalAA.h) ----
+		VELOCITY,          // t35 (Texture2D<float2>: SceneVelocity R16G16_UNORM エンコード済み, 0 = 未書き込み)
+		TEMPORAL_AA_DEBUG, // t36 (Texture2D<float4>: TAA DebugOutput / TAA 出力 (TemporalUpscalerIO))
+
 		// ---- Count ----
-		COUNT,
+		COUNT,             // = 45 (b0..b7 + t0..t36。ルートシグネチャ 45 DWORD)
 	};
 
 	// ------------------------------------------------------------
@@ -384,7 +444,7 @@ public:
 	static RenderManager* GetInstance() { return m_Instance; }
 
 	// ------------------------------------------------------------
-	//  Frame (FSceneRenderer から呼ばれる)
+	//  Frame (BeginFrame / Present は FSceneRenderer、WaitGPU は終了時 / FlushAndResetCommandList から呼ばれる)
 	// ------------------------------------------------------------
 	void WaitGPU();
 	// フレーム先頭: ヒープ / ルートシグネチャ / 定数リング / ビューポート
@@ -395,7 +455,10 @@ public:
 	// ------------------------------------------------------------
 	//  Resource creation
 	// ------------------------------------------------------------
-	std::unique_ptr<RENDER_TARGET> CreateRenderTarget(unsigned int Width, unsigned int Height, DXGI_FORMAT Format, unsigned int MipLevels = 1);
+	// bAllowUnorderedAccess = true で ALLOW_UNORDERED_ACCESS フラグと
+	// ミップ 0 の UAV (UAVIndex / UAVHandle) を追加生成する (コンピュートの書き込み先用)。
+	// 初期状態は従来どおり PIXEL_SHADER_RESOURCE。
+	std::unique_ptr<RENDER_TARGET> CreateRenderTarget(unsigned int Width, unsigned int Height, DXGI_FORMAT Format, unsigned int MipLevels = 1, bool bAllowUnorderedAccess = false);
 	std::unique_ptr<TEXTURE>       LoadTexture(const char* FileName, bool sRGB = false);
 	std::unique_ptr<VERTEX_BUFFER> CreateVertexBuffer(unsigned int Stride, unsigned int Size);
 	std::unique_ptr<INDEX_BUFFER>  CreateIndexBuffer(unsigned int Size);
@@ -409,6 +472,9 @@ public:
 	void SetVertexBuffer(const VERTEX_BUFFER* VertexBuffer);
 	void SetIndexBuffer(const INDEX_BUFFER* IndexBuffer);
 	void SetPipelineState(const char* PipelineName);
+	// PipelineName が非 null の PSO として登録済みか。オプション PSO (PostProcessUpscale0..5 等) は
+	// .cso 欠落時に登録されないので、SetPipelineState の前にこれで確かめる (§3.8)
+	bool HasPipelineState(const char* PipelineName) const;
 
 	// Bind a descriptor-table root parameter directly from an SRV-heap index.
 	void BindRootTableBySRVIndex(unsigned int RootParameter, unsigned int SRVIndex);
@@ -448,6 +514,31 @@ public:
 	// 深度バッファ (DSV は RHI 所有 / SRV は FSceneTextures が生成)
 	ID3D12Resource* GetDepthBufferResource() { return m_DepthBuffer.Get(); }
 	D3D12_CPU_DESCRIPTOR_HANDLE GetDepthStencilViewHandle() { return m_DepthBufferHandle; }
+
+	// 深度バッファの再確保 (レンダー解像度変更用)。
+	//  ReleaseDepthBuffer : リソースを遅延削除キューへ (DSV 枠は保持)
+	//  CreateDepthBuffer  : R32_TYPELESS / DEPTH_WRITE で生成し、同一 DSV 枠へ DSV を再作成
+	void         ReleaseDepthBuffer();
+	void         CreateDepthBuffer(unsigned int Width, unsigned int Height);
+	unsigned int GetDepthBufferWidth() const { return m_DepthBufferWidth; }
+	unsigned int GetDepthBufferHeight() const { return m_DepthBufferHeight; }
+
+	// ---- 既定ビューポート / シザー ----
+	// SetDefaultViewportSize : m_Viewport / m_ScissorRect を書き換える
+	//                          (次の BeginFrame / FlushAndResetCommandList から適用)
+	// RestoreDefaultViewport : 既定値を現在のコマンドリストへ即時記録する
+	//                          (シャドウ / Lumen カードキャプチャ後の復帰用)
+	void         SetDefaultViewportSize(unsigned int Width, unsigned int Height);
+	void         RestoreDefaultViewport();
+	unsigned int GetDefaultViewportWidth() const { return m_DefaultViewportWidth; }
+	unsigned int GetDefaultViewportHeight() const { return m_DefaultViewportHeight; }
+
+	// ---- リソース / デスクリプタ計数 (リーク検査・統計表示用) ----
+	size_t GetNumFreeSRVDescriptors() const { return m_SRVDescriptorPool.size(); }
+	size_t GetNumFreeRTVDescriptors() const { return m_RTVDescriptorPool.size(); }
+	size_t GetDeferredReleaseQueueLength() const { return m_DeferredReleaseQueue.size(); }
+	// ローカル (ビデオ) メモリの現在使用量 [byte] (IDXGIAdapter3::QueryVideoMemoryInfo)。取得失敗時は 0
+	UINT64 QueryLocalVideoMemoryUsage();
 
 	// 現在のバックバッファ (Tonemap / ImGui の描画先)
 	ID3D12Resource* GetCurrentBackBufferResource() { return m_RenderTarget[m_RTIndex].Get(); }
