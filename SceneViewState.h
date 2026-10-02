@@ -1,5 +1,6 @@
 #pragma once
 #include <memory>
+#include <vector>
 #include <DirectXMath.h>
 #include "RenderManager.h"
 #include "AntiAliasingSettings.h"
@@ -82,6 +83,25 @@ public:
 	uint32_t GetFrameIndexMod8() const { return FrameIndex & 7u; }
 };
 
+class FLightSceneProxy;
+
+// ------------------------------------------------------------
+//  FVisibleLightViewInfo: UE FVisibleLightViewInfo (ビューごとのライトの可視情報)
+//  FSceneRenderer::ComputeLightVisibility が毎フレーム埋める。
+//  FViewInfo::VisibleLightInfos を FLightSceneInfo::Id で引く
+// ------------------------------------------------------------
+struct FVisibleLightViewInfo
+{
+	unsigned int bInViewFrustum : 1;	// ビューフラスタム内かつ描画距離内
+	unsigned int bInDrawRange : 1;		// 描画距離内 (フラスタム外でも真になり得る)
+
+	FVisibleLightViewInfo()
+		: bInViewFrustum(0)
+		, bInDrawRange(0)
+	{
+	}
+};
+
 // ------------------------------------------------------------
 //  FViewInfo: UE FViewInfo (1 フレーム分)
 // ------------------------------------------------------------
@@ -104,6 +124,13 @@ struct FViewInfo
 	DirectX::XMFLOAT4X4 ClipToPrevClip = kIdentity4x4; // 転置前 = InvVP_NoAA(cur) * VP_NoAA(prev)。ComputeClipToPrevClip (カメラ相対, double) で合成
 	float     NearClip = 0.1f, FarClip = 500.0f;
 	uint32_t  StateFrameIndex = 0;
+
+	// ---- ライト (LightRendering.h) ----
+	// FScene::Lights と同じ添字 (FLightSceneInfo::Id) のライト可視情報
+	std::vector<FVisibleLightViewInfo> VisibleLightInfos;
+	// フォワードシェーディング (半透明 / Volumetric Fog) と CSM が使うディレクショナルライト
+	// (UE FForwardLightingViewResources::SelectedForwardDirectionalLightProxy)。null = なし
+	const FLightSceneProxy* SelectedForwardDirectionalLightProxy = nullptr;
 };
 
 // UE の大きなカメラ移動判定 (FSceneRenderer::IsLargeCameraMovement 相当)。

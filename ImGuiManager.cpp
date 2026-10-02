@@ -17,6 +17,10 @@
 #include "AutoExposure.h"
 #include "World.h"
 #include "LightComponent.h"
+#include "DirectionalLightComponent.h"
+#include "PointLightComponent.h"
+#include "SpotLightComponent.h"
+#include "RectLightComponent.h"
 #include "ExponentialHeightFog.h"
 #include "ExponentialHeightFogComponent.h"
 #include "FogRendering.h"
@@ -275,6 +279,14 @@ void ImGuiManager::LightGridWindow()
 		grid->GetGridSizeX(), grid->GetGridSizeY(), grid->GetGridSizeZ(), grid->GetNumCells());
 	ImGui::Text("Tile      : %u px / Max %u lights per cell",
 		LIGHT_GRID_PIXEL_SIZE, MAX_CULLED_LIGHTS_PER_CELL);
+
+	// ライトの可視性 / バッファ (ComputeLightVisibility / ComputeLightGrid)
+	const FSceneRenderer::FLightStats& lightStats = m_SceneRenderer->GetLightStats();
+	ImGui::Text("Scene Lights : %d (frustum culled %d, distance culled %d)",
+		lightStats.NumSceneLights, lightStats.NumFrustumCulled, lightStats.NumDistanceCulled);
+	ImGui::Text("Light Buffer : %d local / %d directional (max %u / %u)",
+		lightStats.NumLocalLights, lightStats.NumDirectionalLights, MAX_LOCAL_LIGHTS, MAX_DIRECTIONAL_LIGHTS);
+	ImGui::Text("Lumen Lights : %d", lightStats.NumLumenLights);
 
 	ImGui::Separator();
 
@@ -1686,7 +1698,24 @@ void ImGuiManager::DrawPostProcessVolumeSection(APostProcessVolume* Volume)
 
 // ============================================================
 //  ライト共通プロパティ (Details の "Light" セクション)
+//  UE の ULightComponent / ULocalLightComponent / 各ライトの Details と
+//  同じプロパティ名で並べる。編集はすべて公開セッター経由
+//  (明るさ / 色は即時更新、それ以外は MarkRenderStateDirty -> プロキシ再生成)。
 // ============================================================
+
+// ライトの色は線形で保持する (UE の FLinearColor)。ピッカーは sRGB で編集する
+static float LightColorLinearToSRGB(float Linear)
+{
+	Linear = (Linear < 0.0f) ? 0.0f : Linear;
+	return (Linear <= 0.0031308f) ? Linear * 12.92f : 1.055f * powf(Linear, 1.0f / 2.4f) - 0.055f;
+}
+
+static float LightColorSRGBToLinear(float SRGB)
+{
+	SRGB = (SRGB < 0.0f) ? 0.0f : SRGB;
+	return (SRGB <= 0.04045f) ? SRGB / 12.92f : powf((SRGB + 0.055f) / 1.055f, 2.4f);
+}
+
 void ImGuiManager::DrawLightComponentSection(ULightComponent* Light)
 {
 	if (!Light)
@@ -1694,14 +1723,117 @@ void ImGuiManager::DrawLightComponentSection(ULightComponent* Light)
 
 	ULightComponent* light = Light;
 
-	// ---- 共通プロパティ ----
+	// ---- 可視性 / ワールドへの影響 (CreateRenderState の条件) ----
+	bool visible = light->IsVisible();
+	if (Checkbox("Visible", &visible))
+	{
+		light->SetVisibility(visible);
+	}
+
 	bool affectsWorld = light->GetAffectsWorld();
 	if (Checkbox("Affects World", &affectsWorld))
 	{
 		light->SetAffectsWorld(affectsWorld);
 	}
 
+	// ---- 明るさ / 色 ----
+	float intensity = light->GetIntensity();
+	if (DragFloat("Intensity", &intensity, 10.0f, 0.0f, 1000000.0f))
+	{
+		light->SetIntensity(intensity);
+	}
+
+	{
+		// 線形色を sRGB で編集する (UE の色ピッカーと同じ見え方)
+		XMFLOAT4 linearColor = light->GetLightColor();
+		float srgb[3] = {
+			LightColorLinearToSRGB(linearColor.x),
+			LightColorLinearToSRGB(linearColor.y),
+			LightColorLinearToSRGB(linearColor.z) };
+		if (ColorEdit3("Light Color", srgb))
+		{
+			light->SetLightColor({
+				LightColorSRGBToLinear(srgb[0]),
+				LightColorSRGBToLinear(srgb[1]),
+				LightColorSRGBToLinear(srgb[2]),
+				linearColor.w });
+		}
+	}
+
+	bool useTemperature = light->GetUseTemperature();
+	if (Checkbox("Use Temperature", &useTemperature))
+	{
+		light->SetUseTemperature(useTemperature);
+	}
+	if (useTemperature)
+	{
+		float temperature = light->GetTemperature();
+		if (SliderFloat("Temperature (K)", &temperature, 1500.0f, 15000.0f))
+		{
+			light->SetTemperature(temperature);
+		}
+	}
+
+	// ---- 直接光 / 間接光の倍率 ----
+	float specularScale = light->GetSpecularScale();
+	if (SliderFloat("Specular Scale", &specularScale, 0.0f, 1.0f))
+	{
+		light->SetSpecularScale(specularScale);
+	}
+
+	float diffuseScale = light->GetDiffuseScale();
+	if (SliderFloat("Diffuse Scale", &diffuseScale, 0.0f, 1.0f))
+	{
+		light->SetDiffuseScale(diffuseScale);
+	}
+
+	// Lumen の Surface Cache に積むときの倍率 (ULightComponentBase 同名)
+	float indirectIntensity = light->GetIndirectLightingIntensity();
+	if (DragFloat("Indirect Lighting Intensity", &indirectIntensity, 0.01f, 0.0f, 6.0f))
+	{
+		light->SetIndirectLightingIntensity(indirectIntensity);
+	}
+
+	// Volumetric Fog へのこのライトの散乱寄与 (ULightComponentBase 同名)
+	float volumetricScattering = light->GetVolumetricScatteringIntensity();
+	if (DragFloat("Volumetric Scattering Intensity", &volumetricScattering, 0.01f, 0.0f, 100.0f))
+	{
+		light->SetVolumetricScatteringIntensity(volumetricScattering);
+	}
+
+	bool affectTranslucent = light->GetAffectTranslucentLighting();
+	if (Checkbox("Affect Translucent Lighting", &affectTranslucent))
+	{
+		light->SetAffectTranslucentLighting(affectTranslucent);
+	}
+
+	bool affectGI = light->GetAffectGlobalIllumination();
+	if (Checkbox("Affect Global Illumination", &affectGI))
+	{
+		light->SetAffectGlobalIllumination(affectGI);
+	}
+
+	// ---- 描画距離 (Performance。ローカルライトのみ意味を持つ) ----
+	if (dynamic_cast<ULocalLightComponent*>(light))
+	{
+		float maxDrawDistance = light->GetMaxDrawDistance();
+		if (DragFloat("Max Draw Distance (m)", &maxDrawDistance, 0.1f, 0.0f, 10000.0f))
+		{
+			light->SetMaxDrawDistance(maxDrawDistance);
+		}
+		if (maxDrawDistance > 0.0f)
+		{
+			float fadeRange = light->GetMaxDistanceFadeRange();
+			if (DragFloat("Max Distance Fade Range (m)", &fadeRange, 0.1f, 0.0f, 10000.0f))
+			{
+				light->SetMaxDistanceFadeRange(fadeRange);
+			}
+		}
+	}
+
 	// ---- シャドウ (全ライト共通) ----
+	Separator();
+
 	bool castShadows = light->GetCastShadows();
 	if (Checkbox("Cast Shadows", &castShadows))
 	{
@@ -1709,6 +1841,12 @@ void ImGuiManager::DrawLightComponentSection(ULightComponent* Light)
 	}
 	if (castShadows)
 	{
+		bool castDynamicShadows = light->GetCastDynamicShadows();
+		if (Checkbox("Cast Dynamic Shadows", &castDynamicShadows))
+		{
+			light->SetCastDynamicShadows(castDynamicShadows);
+		}
+
 		float shadowBias = light->GetShadowBias();
 		if (DragFloat("Shadow Bias", &shadowBias, 0.01f, 0.0f, 10.0f))
 		{
@@ -1726,17 +1864,87 @@ void ImGuiManager::DrawLightComponentSection(ULightComponent* Light)
 		{
 			light->SetUseRayTracedDistanceFieldShadows(dfShadows);
 		}
+
+		// Volumetric Fog の中で影を落とすか (UE 既定: ディレクショナル = true, ローカル = false)
+		bool castVolumetricShadow = light->GetCastVolumetricShadow();
+		if (Checkbox("Cast Volumetric Shadow", &castVolumetricShadow))
+		{
+			light->SetCastVolumetricShadow(castVolumetricShadow);
+		}
+
+		// コンタクトシャドウ (デファードのスクリーン空間レイマーチ)
+		float contactLength = light->GetContactShadowLength();
+		if (DragFloat("Contact Shadow Length", &contactLength, 0.001f, 0.0f, 10.0f, "%.4f"))
+		{
+			light->SetContactShadowLength(contactLength);
+		}
+		if (contactLength > 0.0f)
+		{
+			bool contactInWS = light->GetContactShadowLengthInWS();
+			if (Checkbox("Contact Shadow Length In WS", &contactInWS))
+			{
+				light->SetContactShadowLengthInWS(contactInWS);
+			}
+
+			float castingIntensity = light->GetContactShadowCastingIntensity();
+			if (SliderFloat("Contact Shadow Casting Intensity", &castingIntensity, 0.0f, 1.0f))
+			{
+				light->SetContactShadowCastingIntensity(castingIntensity);
+			}
+
+			float nonCastingIntensity = light->GetContactShadowNonCastingIntensity();
+			if (SliderFloat("Contact Shadow Non Casting Intensity", &nonCastingIntensity, 0.0f, 1.0f))
+			{
+				light->SetContactShadowNonCastingIntensity(nonCastingIntensity);
+			}
+		}
 	}
 
-	// ---- Directional (CSM) ----
+	// ---- Directional ----
 	if (auto* directional = dynamic_cast<UDirectionalLightComponent*>(light))
 	{
+		Separator();
+
+		// 見かけの大きさ (スペキュラの広がり + DF シャドウの半影)
+		float srcAngle = directional->GetLightSourceAngle();
+		if (DragFloat("Light Source Angle (deg)", &srcAngle, 0.01f, 0.0f, 20.0f))
+		{
+			directional->SetLightSourceAngle(srcAngle);
+		}
+
+		float srcSoftAngle = directional->GetLightSourceSoftAngle();
+		if (DragFloat("Light Source Soft Angle (deg)", &srcSoftAngle, 0.01f, 0.0f, 20.0f))
+		{
+			directional->SetLightSourceSoftAngle(srcSoftAngle);
+		}
+
+		// フォワード (半透明 / Volumetric Fog) と CSM が使う 1 灯の選択順位
+		int priority = directional->GetForwardShadingPriority();
+		if (DragInt("Forward Shading Priority", &priority, 1.0f, -100, 100))
+		{
+			directional->SetForwardShadingPriority(priority);
+		}
+
+		bool atmosphereSun = directional->GetAtmosphereSunLight();
+		if (Checkbox("Atmosphere Sun Light", &atmosphereSun))
+		{
+			directional->SetAtmosphereSunLight(atmosphereSun);
+		}
+		if (atmosphereSun)
+		{
+			int sunIndex = (int)directional->GetAtmosphereSunLightIndex();
+			if (SliderInt("Atmosphere Sun Light Index", &sunIndex, 0, NUM_ATMOSPHERE_LIGHTS - 1))
+			{
+				directional->SetAtmosphereSunLightIndex(sunIndex);
+			}
+		}
+
 		if (directional->GetCastShadows())
 		{
-			float shadowDistance = directional->GetDynamicShadowDistance();
+			float shadowDistance = directional->GetDynamicShadowDistanceMovableLight();
 			if (DragFloat("Dynamic Shadow Distance (m)", &shadowDistance, 1.0f, 5.0f, 500.0f))
 			{
-				directional->SetDynamicShadowDistance(shadowDistance);
+				directional->SetDynamicShadowDistanceMovableLight(shadowDistance);
 			}
 
 			int cascades = directional->GetDynamicShadowCascades();
@@ -1765,58 +1973,13 @@ void ImGuiManager::DrawLightComponentSection(ULightComponent* Light)
 					directional->SetDistanceFieldShadowDistance(dfDistance);
 				}
 
-				float dfTrace = directional->GetDistanceFieldTraceDistance();
+				float dfTrace = directional->GetTraceDistance();
 				if (DragFloat("DF Trace Distance (m)", &dfTrace, 1.0f, 1.0f, 1000.0f))
 				{
-					directional->SetDistanceFieldTraceDistance(dfTrace);
-				}
-
-				float srcAngle = directional->GetLightSourceAngle();
-				if (DragFloat("Light Source Angle (deg)", &srcAngle, 0.05f, 0.05f, 20.0f))
-				{
-					directional->SetLightSourceAngle(srcAngle);
+					directional->SetTraceDistance(dfTrace);
 				}
 			}
 		}
-	}
-
-	float intensity = light->GetIntensity();
-	if (DragFloat("Intensity", &intensity, 10.0f, 0.0f, 1000000.0f))
-	{
-		light->SetIntensity(intensity);
-	}
-
-	XMFLOAT4 color = light->GetLightColor();
-	if (ColorEdit3("Light Color", &color.x))
-	{
-		light->SetLightColor(color);
-	}
-
-	bool useTemperature = light->GetUseTemperature();
-	if (Checkbox("Use Temperature", &useTemperature))
-	{
-		light->SetUseTemperature(useTemperature);
-	}
-	if (useTemperature)
-	{
-		float temperature = light->GetTemperature();
-		if (SliderFloat("Temperature (K)", &temperature, 1500.0f, 15000.0f))
-		{
-			light->SetTemperature(temperature);
-		}
-	}
-
-	float specularScale = light->GetSpecularScale();
-	if (SliderFloat("Specular Scale", &specularScale, 0.0f, 1.0f))
-	{
-		light->SetSpecularScale(specularScale);
-	}
-
-	// Volumetric Fog へのこのライトの散乱寄与 (ULightComponentBase 同名)
-	float volumetricScattering = light->GetVolumetricScatteringIntensity();
-	if (DragFloat("Volumetric Scattering Intensity", &volumetricScattering, 0.01f, 0.0f, 100.0f))
-	{
-		light->SetVolumetricScatteringIntensity(volumetricScattering);
 	}
 
 	// ---- ローカルライト共通 (Point / Spot / Rect) ----

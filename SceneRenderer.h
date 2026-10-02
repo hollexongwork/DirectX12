@@ -8,6 +8,7 @@
 #include "AntiAliasingSettings.h"
 #include "ScreenPercentage.h"
 #include "SceneViewState.h"
+#include "LightRendering.h"
 
 class FScene;
 class FShadowSceneRenderer;
@@ -148,28 +149,44 @@ private:
 	// Auto exposure / eye adaptation (histogram).
 	std::unique_ptr<class AutoExposure> m_AutoExposure;
 
-	// ---- ローカルライト GPU バッファ (StructuredBuffer, t13) ----
-	// FScene のライトプロキシから毎フレーム詰め直すアップロードヒープ。
+	// ---- ライト GPU バッファ (StructuredBuffer<FLocalLightData>, t13 ForwardLightBuffer) ----
+	// ComputeLightGrid が視界内のライトを毎フレーム詰め直すアップロードヒープ
+	// ([0, NumLocalLights) がローカルライト、続けてディレクショナルライト)。
 	// 2 フレームインフライト (Present の待ち方) に合わせて
 	// ダブルバッファ化し、GPU が読んでいる方への上書きを避ける。
 	ComPtr<ID3D12Resource>          m_LightBuffer[2];
-	struct FLightShaderParameters* m_LightBufferPointer[2] = {};	// 永続 Map 先
+	struct FForwardLocalLightData* m_LightBufferPointer[2] = {};	// 永続 Map 先
 	unsigned int                    m_LightBufferSRVIndex[2] = {};
 	unsigned int                    m_LightBufferFrame = 0;
 
+	// ---- Lumen 用ライトバッファ (UE FLumenGatheredLight 相当) ----
+	// Surface Cache の直接光は画面外のライトも要るので、ビューのライトバッファとは別に
+	// 「描画距離内 かつ bAffectGlobalIllumination」のライト (ディレクショナル含む) を
+	// IndirectLightingScale を掛けて積む。m_LightBufferFrame と同じ面を使う
+	ComPtr<ID3D12Resource>          m_LumenLightBuffer[2];
+	struct FForwardLocalLightData* m_LumenLightBufferPointer[2] = {};
+	unsigned int                    m_LumenLightBufferSRVIndex[2] = {};
+	unsigned int                    m_NumLumenLights = 0;
+
+	// ---- システムテクスチャ (LTC テーブル t37/t38。SystemTextures.h) ----
+	std::unique_ptr<class FSystemTextures> m_SystemTextures;
+
+	// ---- ソート済みライト (GatherAndSortLights の結果。LightRendering.h) ----
+	FSortedLightSetSceneInfo m_SortedLightSet;
+
 	// ---- ライトグリッド (タイルドライトカリング, LightGridInjection.h) ----
-	// SetupLightConstants が b3 のグリッドパラメータを解決し、
+	// ComputeLightGrid が b3 のグリッドパラメータを解決し、
 	// RenderLighting 先頭で Injection -> Compact の 2 パスを記録する。
 	// デファードパスは結果を t19/t20 で読む。
 	std::unique_ptr<class FLightGridInjection> m_LightGrid;
 
 	// ---- シャドウ (FShadowSceneRenderer, ShadowRendering.h) ----
-	// SetupLightConstants が集めた今フレームのプロキシ列。
+	// ComputeLightGrid が集めた今フレームのプロキシ列。
 	// m_FrameLocalLights はライトバッファ (t13) と同順 =
 	// シャドウパラメータ (t16) との 1:1 対応を保証する。
+	// CSM を持つディレクショナルライトは m_ViewInfo.SelectedForwardDirectionalLightProxy
 	std::unique_ptr<FShadowSceneRenderer> m_ShadowRenderer;
 	std::vector<const FLightSceneProxy*>  m_FrameLocalLights;
-	const FLightSceneProxy* m_FrameDirectionalLight = nullptr;
 
 	// ---- Lumen Surface Cache (FLumenSceneData, LumenScene.h) ----
 	// RenderLumenScene がカードキャプチャ + Surface Cache ライティングを
@@ -305,10 +322,19 @@ private:
 	// m_PrimitiveVisibilityMap と m_CullingStats を更新する。
 	void ComputeViewVisibility(FScene* Scene);
 
-	// FScene のライトリスト -> VIEW 定数 (directional) +
-	// FORWARD_LIGHT 定数 + ライトバッファ (local, t13)。
-	// RenderBasePass の先頭で毎フレーム実行。
-	void SetupLightConstants(FScene* Scene);
+	// ---- ライト (LightRendering.cpp / LightGridInjection.cpp) ----
+	// ライトの可視判定 (フラスタム / 描画距離) -> m_ViewInfo.VisibleLightInfos。
+	// ComputeViewVisibility (フラスタム構築) の後に呼ぶ
+	void ComputeLightVisibility(FScene* Scene);
+	// 視界内のライトを集めてソートキーの昇順に並べる
+	void GatherAndSortLights(FScene* Scene, FSortedLightSetSceneInfo& OutSortedLights);
+	// ソート済みライト -> ライトバッファ (t13) + FORWARD_LIGHT 定数 (b3) + VIEW 定数の代表ライト
+	// + フォワードディレクショナルライトの選択 + Lumen 用ライトバッファ。
+	// ライトグリッド本体の構築 (コンピュート) は RenderLighting 先頭の FLightGridInjection::Dispatch
+	void ComputeLightGrid(FScene* Scene, const FSortedLightSetSceneInfo& SortedLightSet);
+	// GatherAndSortLights + ComputeLightGrid (FSceneRenderer::GatherLightsAndComputeLightGrid)。
+	// RenderBasePass で毎フレーム実行
+	void GatherLightsAndComputeLightGrid(FScene* Scene);
 	// FSceneView の解決済み設定 -> m_FinalSettings (フル解像度テクセル付き)
 	void ResolvePostProcessSettings(const FSceneView& View);
 	// m_FinalSettings を POST_PROCESS 定数 (b4) にアップロード
@@ -386,12 +412,12 @@ public:
 	// 前フレームから動いたプリミティブを描き、m_bVelocityValid = true にする
 	void RenderVelocities(FScene* Scene);
 	// シャドウ深度パス (RenderShadowDepthMaps)。RenderBasePass の後、
-	// RenderLighting の前に呼ぶこと (SetupLightConstants の結果を使う)。
+	// RenderLighting の前に呼ぶこと (ComputeLightGrid の結果を使う)。
 	void RenderShadowDepths(FScene* Scene, const FSceneView& View);
 	// Lumen シーン更新 (カードキャプチャ + Surface Cache ライティング)。
 	// RenderShadowDepths の後 / RenderLighting の前に呼ぶこと
 	// (b0/b1 を上書きするため。カメラの b0 は RenderLighting 先頭で
-	//  積み直される。ライトバッファは SetupLightConstants の結果を使う)。
+	//  積み直される。ライトバッファは ComputeLightGrid の結果を使う)。
 	void RenderLumenScene(FScene* Scene);
 	void RenderLighting();
 	// トランスルーセンシーパス (RenderTranslucency 相当)。
@@ -472,6 +498,19 @@ public:
 	FCullingParams& GetCullingParams() { return m_CullingParams; }
 	const FCullingStats& GetCullingStats() const { return m_CullingStats; }
 
+	// ---- ライト統計 (毎フレーム ComputeLightVisibility / ComputeLightGrid が更新) ----
+	struct FLightStats
+	{
+		int NumSceneLights = 0;			// FScene::Lights に居るライト数
+		int NumFrustumCulled = 0;		// フラスタムで棄却されたローカルライト数
+		int NumDistanceCulled = 0;		// 描画距離 / 最小スクリーン半径で棄却されたローカルライト数
+		int NumLocalLights = 0;			// ライトバッファに積んだローカルライト数
+		int NumDirectionalLights = 0;	// ライトバッファに積んだディレクショナルライト数
+		int NumLumenLights = 0;			// Lumen 用ライトバッファに積んだライト数
+	};
+
+	const FLightStats& GetLightStats() const { return m_LightStats; }
+
 	// ---- トランスルーセンシーソートポリシー (ETranslucentSortPolicy) ----
 	// プロジェクト設定 Translucent Sort Policy 相当。
 	//   SortByDistance   : カメラ→境界原点の距離 (既定。全方位で自然)
@@ -499,4 +538,5 @@ private:
 	FCullingParams m_CullingParams;
 	FTranslucencyParams m_TranslucencyParams;
 	FCullingStats  m_CullingStats;
+	FLightStats    m_LightStats;
 };

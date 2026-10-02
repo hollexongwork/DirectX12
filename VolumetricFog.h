@@ -63,11 +63,7 @@ struct FVolumetricFogInputs
 	FShadowSceneRenderer* ShadowRenderer = nullptr;		// CSM / ローカルアトラス / b5 定数
 	unsigned int                  SkyIrradianceSRVIndex = 0;	// IBL irradiance キューブ (スカイ項)
 
-	// ディレクショナルライト (VIEW 定数の値 + プロキシの散乱強度)
-	XMFLOAT4                      DirectionalLightDirection{};	// xyz = 受光点 -> ライト
-	XMFLOAT4                      DirectionalLightColor{};		// rgb = 線形色 x lux
-	float                         DirectionalLightVolumetricScatteringIntensity = 1.0f;
-	bool                          bHasDirectionalLight = false;
+	// ディレクショナルライトは ForwardLightData (b3) の「選択されたフォワードディレクショナルライト」を使う
 
 	const FExponentialHeightFogSceneInfo* FogInfo = nullptr;	// 解決済みフォグ (null = 無効)
 };
@@ -122,7 +118,7 @@ private:
 		XMFLOAT4   FogInscatteringColor;			// rgb, w = bOverrideLightColors
 		XMFLOAT4   DirectionalInscatteringColor;	// rgb, w = StaticLightingScatteringIntensity
 
-		XMFLOAT4   DirectionalLightDirection;		// xyz, w = enabled
+		XMFLOAT4   DirectionalLightDirection;		// xyz, w = enabled (b3 の選択されたフォワードディレクショナルライト)
 		XMFLOAT4   DirectionalLightColor;			// rgb x VolumetricScatteringIntensity
 
 		unsigned int NumLocalLights;
@@ -156,7 +152,7 @@ private:
 
 	// 独立コンピュートルートシグネチャ (3 パス共通):
 	//  [0]  CBV  b0  (FVolumetricFogParams)
-	//  [1]  SRV  t0  ForwardLocalLights        [2]  SRV t1  LocalShadowParams
+	//  [1]  SRV  t0  ForwardLightBuffer        [2]  SRV t1  LocalShadowParams
 	//  [3]  SRV  t2  NumCulledLightsGrid       [4]  SRV t3  CulledLightDataGrid
 	//  [5]  SRV  t4  DirectionalShadowCascades [6]  SRV t5  LocalLightShadows
 	//  [7]  SRV  t6  VBufferA                  [8]  SRV t7  VBufferB

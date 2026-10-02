@@ -1,6 +1,9 @@
 #include "Main.h"
 #include "RenderManager.h"
 #include "LightGridInjection.h"
+#include "SceneRenderer.h"
+#include "Scene.h"
+#include "LightRendering.h"
 #include "D3DX12.h"
 #include <fstream>
 #include <vector>
@@ -142,7 +145,7 @@ void FLightGridInjection::Init(unsigned int CapacityWidth, unsigned int Capacity
 	// ------------------------------------------------------------
 	//  コンピュートルートシグネチャ (グラフィックス RS から独立):
 	//   [0] CBV  b0 (FLightGridParams)
-	//   [1] SRV table t0 (ForwardLocalLights)
+	//   [1] SRV table t0 (ForwardLightBuffer)
 	//   [2..6] UAV table u0..u4
 	//  デスクリプタはフリーリストから個別確保され連続性が無いため、
 	//  1 テーブル = 1 デスクリプタで分割する (AutoExposure と同じ)。
@@ -455,4 +458,210 @@ void FLightGridInjection::Dispatch(const VIEW_CONSTANT& ViewConstant,
 	}
 
 	m_bOutputsInSRVState = true;
+}
+
+
+// ============================================================
+//  FSceneRenderer::ComputeLightGrid
+//  LightGridInjection.cpp の FSceneRenderer::ComputeLightGrid に相当する
+//  「ライトデータの詰め込み」部分。ソート済みライトを巡回して
+//    - ローカルライト          -> ライトバッファ (t13) [0, NumLocalLights)
+//    - ディレクショナルライト  -> ライトバッファ (t13) [NumLocalLights, +NumDirectionalLights)
+//                                 + フォワードディレクショナルライトの選択 (b3)
+//                                 (ForwardShadingPriority が最大、同値なら最も明るいもの)
+//    - Lumen 用ライトバッファ  (描画距離内 かつ bAffectGlobalIllumination。ディレクショナル含む)
+//  を作り、FORWARD_LIGHT 定数 (b3) を解決する。
+//  グリッド本体の構築 (Injection -> Compact) は RenderLighting 先頭の
+//  FLightGridInjection::Dispatch [PORT: UE は同じ関数内で行う]。
+// ============================================================
+
+// FLightRenderParameters -> ライトバッファの 1 要素 (UE ComputeLightGrid の詰め方)
+static void PackForwardLocalLightData(const FLightSceneProxy* Proxy, const FLightRenderParameters& P, FForwardLocalLightData& Out)
+{
+	Out.LightPositionAndInvRadius = { P.WorldPosition.x, P.WorldPosition.y, P.WorldPosition.z, P.InvRadius };
+	// 逆二乗減衰は FalloffExponent = 0 で表す
+	const float FalloffExponent = Proxy->IsInverseSquared() ? 0.0f : P.FalloffExponent;
+	Out.LightColorAndFalloffExponent = { P.Color.x, P.Color.y, P.Color.z, FalloffExponent };
+	Out.LightDirectionAndSpecularScale = { P.Direction.x, P.Direction.y, P.Direction.z, P.SpecularScale };
+	Out.SpotAnglesAndSourceRadiusPacked = { P.SpotAngles.x, P.SpotAngles.y, P.SourceRadius, P.SourceLength };
+	Out.LightTangentAndSoftSourceRadius = { P.Tangent.x, P.Tangent.y, P.Tangent.z, P.SoftSourceRadius };
+	Out.RectBarnDoorAndScales = { P.RectLightBarnCosAngle, P.RectLightBarnLength, P.DiffuseScale, Proxy->GetVolumetricScatteringIntensity() };
+	// コンタクトシャドウ: 長さの符号でワールド空間 (負) / スクリーン空間 (正) を表す
+	const float ContactShadowLength = Proxy->GetContactShadowLength() * (Proxy->IsContactShadowLengthInWS() ? -1.0f : 1.0f);
+	Out.ContactShadowParams = { ContactShadowLength, Proxy->GetContactShadowCastingIntensity(), Proxy->GetContactShadowNonCastingIntensity(), 0.0f };
+	Out.LightType = (unsigned int)Proxy->GetLightType();
+	Out.Flags = (Proxy->CastsDynamicShadow() ? LIGHT_FLAG_CAST_DYNAMIC_SHADOW : 0u)
+		| (Proxy->AffectsTranslucentLighting() ? LIGHT_FLAG_AFFECT_TRANSLUCENT_LIGHTING : 0u)
+		| (Proxy->CastsVolumetricShadow() ? LIGHT_FLAG_CAST_VOLUMETRIC_SHADOW : 0u);
+	Out.Pad0 = 0u;
+	Out.Pad1 = 0u;
+}
+
+void FSceneRenderer::ComputeLightGrid(FScene* Scene, const FSortedLightSetSceneInfo& SortedLightSet)
+{
+	// 書き込み先をフリップ (GPU が読んでいる前フレーム分を避ける)
+	m_LightBufferFrame ^= 1;
+	FForwardLocalLightData* LightBuffer = m_LightBufferPointer[m_LightBufferFrame];
+	FForwardLocalLightData* LumenLightBuffer = m_LumenLightBufferPointer[m_LightBufferFrame];
+
+	// ---- 既定値: ディレクショナルライト不在 = 無光 ----
+	// 方向は normalize(0) の NaN を避けるため上向きを入れておく
+	m_ViewConstant.DirectionalLightDirection = { 0.0f, 1.0f, 0.0f, 0.0f };
+	m_ViewConstant.DirectionalLightColor = { 0.0f, 0.0f, 0.0f, 1.0f };
+
+	FORWARD_LIGHT_CONSTANT& ForwardLightData = m_ForwardLightConstant;
+	ForwardLightData.HasDirectionalLight = 0u;
+	ForwardLightData.DirectionalLightBufferIndex = 0xFFFFFFFFu;
+	ForwardLightData.DirectionalLightFlags = 0u;
+	ForwardLightData.DirectionalLightColor = { 0.0f, 0.0f, 0.0f };
+	ForwardLightData.DirectionalLightVolumetricScatteringIntensity = 0.0f;
+	ForwardLightData.DirectionalLightDirection = { 0.0f, 1.0f, 0.0f };
+	ForwardLightData.DirectionalLightSourceRadius = 0.0f;
+	ForwardLightData.DirectionalLightSoftSourceRadius = 0.0f;
+	ForwardLightData.DirectionalLightSpecularScale = 1.0f;
+	ForwardLightData.DirectionalLightDiffuseScale = 1.0f;
+
+	// シャドウ構築 (RenderShadowDepths) 用のプロキシ列を集め直す。
+	// m_FrameLocalLights はライトバッファ (t13) と必ず同順になる
+	m_FrameLocalLights.clear();
+	m_ViewInfo.SelectedForwardDirectionalLightProxy = nullptr;
+
+	const XMFLOAT3 ViewOrigin = { m_ViewConstant.WorldCameraOrigin.x, m_ViewConstant.WorldCameraOrigin.y, m_ViewConstant.WorldCameraOrigin.z };
+
+	// ディレクショナルライトはローカルライトの後ろに並べるので、いったん別に集める
+	struct FDirectionalLightEntry
+	{
+		const FLightSceneProxy* Proxy;
+		FLightRenderParameters  Parameters;
+	};
+	std::vector<FDirectionalLightEntry> DirectionalLights;
+
+	unsigned int NumLocalLights = 0;
+
+	for (const FSortedLightSceneInfo& SortedLightInfo : SortedLightSet.SortedLights)
+	{
+		const FLightSceneProxy* LightProxy = SortedLightInfo.LightSceneInfo->Proxy;
+
+		FLightRenderParameters LightParameters;
+		LightProxy->GetLightShaderParameters(LightParameters);
+
+		const unsigned int LightType = SortedLightInfo.SortKey.Fields.LightType;
+		if (LightType == LightType_Point || LightType == LightType_Spot || LightType == LightType_Rect)
+		{
+			if (NumLocalLights >= MAX_LOCAL_LIGHTS)
+			{
+				continue;	// バッファ満杯 [PORT: UE は可変長]
+			}
+
+			// 距離フェード (画面上のサイズ / MaxDrawDistance) を色に掛ける
+			const float LightFade = GetLightFadeFactor(ViewOrigin, LightProxy);
+			LightParameters.Color.x *= LightFade;
+			LightParameters.Color.y *= LightFade;
+			LightParameters.Color.z *= LightFade;
+
+			PackForwardLocalLightData(LightProxy, LightParameters, LightBuffer[NumLocalLights]);
+			m_FrameLocalLights.push_back(LightProxy);	// t16 との 1:1 対応用
+			NumLocalLights++;
+		}
+		else if (LightType == LightType_Directional && DirectionalLights.size() < MAX_DIRECTIONAL_LIGHTS)
+		{
+			DirectionalLights.push_back({ LightProxy, LightParameters });
+		}
+	}
+
+	// ---- ディレクショナルライト: ライトバッファの末尾 + フォワード用 1 灯の選択 ----
+	// フォワードシェーディング (半透明 / Volumetric Fog) と CSM が使う 1 灯を選ぶ。
+	// 優先度が高いもの、同じなら最も明るいもの (ライトを可視にした順に依らないようにする)
+	int   SelectedForwardDirectionalLightPriority = -1;
+	float SelectedForwardDirectionalLightIntensitySq = 0.0f;
+
+	for (unsigned int DirectionalIndex = 0; DirectionalIndex < (unsigned int)DirectionalLights.size(); ++DirectionalIndex)
+	{
+		const FLightSceneProxy* LightProxy = DirectionalLights[DirectionalIndex].Proxy;
+		const FLightRenderParameters& LightParameters = DirectionalLights[DirectionalIndex].Parameters;
+		const unsigned int BufferIndex = NumLocalLights + DirectionalIndex;
+
+		PackForwardLocalLightData(LightProxy, LightParameters, LightBuffer[BufferIndex]);
+
+		const float LightLuminance = GetLightColorLuminance(LightProxy->GetColor());
+		const int LightForwardShadingPriority = LightProxy->GetDirectionalLightForwardShadingPriority();
+		if (LightForwardShadingPriority > SelectedForwardDirectionalLightPriority
+			|| (LightForwardShadingPriority == SelectedForwardDirectionalLightPriority && LightLuminance > SelectedForwardDirectionalLightIntensitySq))
+		{
+			SelectedForwardDirectionalLightPriority = LightForwardShadingPriority;
+			SelectedForwardDirectionalLightIntensitySq = LightLuminance;
+			m_ViewInfo.SelectedForwardDirectionalLightProxy = LightProxy;
+
+			const FForwardLocalLightData& Packed = LightBuffer[BufferIndex];
+			ForwardLightData.HasDirectionalLight = 1u;
+			ForwardLightData.DirectionalLightBufferIndex = BufferIndex;
+			ForwardLightData.DirectionalLightFlags = Packed.Flags;
+			ForwardLightData.DirectionalLightColor = LightParameters.Color;
+			ForwardLightData.DirectionalLightVolumetricScatteringIntensity = LightProxy->GetVolumetricScatteringIntensity();
+			ForwardLightData.DirectionalLightDirection = LightParameters.Direction;
+			ForwardLightData.DirectionalLightSourceRadius = LightParameters.SourceRadius;
+			ForwardLightData.DirectionalLightSoftSourceRadius = LightParameters.SoftSourceRadius;
+			ForwardLightData.DirectionalLightSpecularScale = LightParameters.SpecularScale;
+			ForwardLightData.DirectionalLightDiffuseScale = LightParameters.DiffuseScale;
+
+			// b0 (View) の代表ディレクショナルライトも同じ 1 灯 (UE の View.DirectionalLightDirection / Color)。
+			// DirectionalLightDirection は「受光面 -> ライト」(LightParameters.Direction と同じ向き)
+			m_ViewConstant.DirectionalLightDirection = { LightParameters.Direction.x, LightParameters.Direction.y, LightParameters.Direction.z, 0.0f };
+			m_ViewConstant.DirectionalLightColor = { LightParameters.Color.x, LightParameters.Color.y, LightParameters.Color.z, 1.0f };
+		}
+	}
+
+	const unsigned int NumDirectionalLights = (unsigned int)DirectionalLights.size();
+
+	// ---- Lumen 用ライトリスト (UE FLumenGatheredLight) ----
+	// Surface Cache は画面外も照らされるので、フラスタムではなく描画距離で選ぶ (bOffscreen = true)。
+	// GI に寄与しないライトは除き、色に IndirectLightingScale を掛ける。
+	// ディレクショナルライトも同じバッファに LightType = Directional の要素として積む
+	unsigned int NumLumenLights = 0;
+	for (const FLightSceneInfoCompact& LightSceneInfoCompact : Scene->GetLights())
+	{
+		const FLightSceneInfo* LightSceneInfo = LightSceneInfoCompact.LightSceneInfo;
+		if (LightSceneInfo == nullptr)
+		{
+			continue;
+		}
+
+		const FLightSceneProxy* LightProxy = LightSceneInfo->Proxy;
+		if (NumLumenLights < MAX_FORWARD_LIGHT_BUFFER_ENTRIES
+			&& LightSceneInfo->ShouldRenderLightViewIndependent()
+			&& LightSceneInfo->ShouldRenderLight(m_ViewInfo, true)
+			&& LightProxy->AffectGlobalIllumination()
+			&& LightProxy->GetIndirectLightingScale() > 0.0f)
+		{
+			FLightRenderParameters LightParameters;
+			LightProxy->GetLightShaderParameters(LightParameters);
+
+			const float Scale = (LightProxy->IsLocalLight() ? GetLightFadeFactor(ViewOrigin, LightProxy) : 1.0f)
+				* LightProxy->GetIndirectLightingScale();
+			LightParameters.Color.x *= Scale;
+			LightParameters.Color.y *= Scale;
+			LightParameters.Color.z *= Scale;
+
+			PackForwardLocalLightData(LightProxy, LightParameters, LumenLightBuffer[NumLumenLights]);
+			NumLumenLights++;
+		}
+	}
+	m_NumLumenLights = NumLumenLights;
+
+	ForwardLightData.NumLocalLights = NumLocalLights;
+	ForwardLightData.NumDirectionalLights = NumDirectionalLights;
+
+	m_LightStats.NumLocalLights = (int)NumLocalLights;
+	m_LightStats.NumDirectionalLights = (int)NumDirectionalLights;
+	m_LightStats.NumLumenLights = (int)NumLumenLights;
+
+	// ---- ライトグリッド (タイルドライトカリング) パラメータ ----
+	// VIEW 定数は RenderBasePass 先頭で解決済みなので NearFar を参照できる。
+	// グリッド本体の構築 (Dispatch) は RenderLighting 先頭で行う。
+	if (m_LightGrid)
+	{
+		m_LightGrid->FillForwardLightData(
+			ForwardLightData,
+			m_ViewConstant.NearFar.x, m_ViewConstant.NearFar.y);
+	}
 }

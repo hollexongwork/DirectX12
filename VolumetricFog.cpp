@@ -479,12 +479,23 @@ void FVolumetricFog::Dispatch(const FVolumetricFogInputs& Inputs)
 	p.DirectionalInscatteringColor = { fog->DirectionalInscatteringColor.x, fog->DirectionalInscatteringColor.y, fog->DirectionalInscatteringColor.z,
 		fog->VolumetricFogStaticLightingScatteringIntensity };
 
-	// ディレクショナルライト
-	p.DirectionalLightDirection = { Inputs.DirectionalLightDirection.x, Inputs.DirectionalLightDirection.y, Inputs.DirectionalLightDirection.z,
-		Inputs.bHasDirectionalLight ? 1.0f : 0.0f };
-	const float dirScale = Inputs.DirectionalLightVolumetricScatteringIntensity;
-	p.DirectionalLightColor = { Inputs.DirectionalLightColor.x * dirScale, Inputs.DirectionalLightColor.y * dirScale,
-		Inputs.DirectionalLightColor.z * dirScale, 0.0f };
+	// ディレクショナルライト: b3 の「選択されたフォワードディレクショナルライト」(UE と同じ 1 灯)。
+	// 色には VolumetricScatteringIntensity を掛ける。bCastVolumetricShadow が偽なら
+	// CSM を無効 (NumCascades = 0) にして影なしで散乱させる
+	p.DirectionalLightDirection = { 0.0f, 1.0f, 0.0f, 0.0f };
+	p.DirectionalLightColor = { 0.0f, 0.0f, 0.0f, 0.0f };
+	if (Inputs.ForwardLightData && Inputs.ForwardLightData->HasDirectionalLight != 0u)
+	{
+		const FORWARD_LIGHT_CONSTANT& f = *Inputs.ForwardLightData;
+		const float dirScale = f.DirectionalLightVolumetricScatteringIntensity;
+		p.DirectionalLightDirection = { f.DirectionalLightDirection.x, f.DirectionalLightDirection.y, f.DirectionalLightDirection.z, 1.0f };
+		p.DirectionalLightColor = { f.DirectionalLightColor.x * dirScale, f.DirectionalLightColor.y * dirScale, f.DirectionalLightColor.z * dirScale, 0.0f };
+
+		if ((f.DirectionalLightFlags & LIGHT_FLAG_CAST_VOLUMETRIC_SHADOW) == 0u)
+		{
+			p.DirectionalShadowParams.x = 0.0f;
+		}
+	}
 
 	// ライトグリッド (b3 と同値)
 	if (Inputs.ForwardLightData)

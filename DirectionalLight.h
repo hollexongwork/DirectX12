@@ -1,10 +1,12 @@
-﻿#pragma once
+#pragma once
 #include "Light.h"
+#include "DirectionalLightComponent.h"
 
 // ============================================================
 //  ADirectionalLight
-//  UDirectionalLightComponent をRoot に持つ。発光方向はアクター
-//  の前方 (+Z)。強度は lux。
+//  ADirectionalLight (Engine/Classes/Engine/DirectionalLight.h) に相当。
+//  UDirectionalLightComponent を Root に持つ。発光方向はアクターの
+//  前方 (+Z)。強度は lux。
 //  向きの指定は SetActorRotation か、方向ベクトルからの変換に
 //  ULightComponentBase::DirectionToRotator を使う。
 // ============================================================

@@ -21,6 +21,25 @@ using namespace DirectX;
 // 2D オーバーレイなどカリング対象外のプリミティブが使う。
 constexpr float HALF_WORLD_MAX = 1.0e8f;
 
+// ============================================================
+//  FSphere
+//  FSphere (Math/Sphere.h) に相当する球 (中心 + 半径 W)。
+//  ライトの境界球 (FLightSceneProxy::GetBoundingSphere) が使う。
+// ============================================================
+struct FSphere
+{
+	XMFLOAT3 Center = { 0.0f, 0.0f, 0.0f };
+	float    W = 0.0f;	// 半径
+
+	FSphere() = default;
+
+	FSphere(const XMFLOAT3& InCenter, float InW)
+		: Center(InCenter)
+		, W(InW)
+	{
+	}
+};
+
 struct FBoxSphereBounds
 {
 	XMFLOAT3 Origin       = { 0.0f, 0.0f, 0.0f };	// ワールド中心

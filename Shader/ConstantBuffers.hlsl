@@ -139,28 +139,49 @@ cbuffer MaterialConstantBuffer : register(b2)
 };
 
 // -------------------------------------------------------------
-//  b3 : ForwardLightData (FForwardLightData 相当)
-//  ローカルライト (Point/Spot/Rect) の有効数 + タイルドライト
-//  カリング (ライトグリッド) のパラメータ。ライト本体は
-//  StructuredBuffer<FLightShaderParameters> (t13, ForwardLocalLights)、
+//  b3 : ForwardLightData (FForwardLightData 相当, 112 B)
+//  ライトの数 + タイルドライトカリング (ライトグリッド) のパラメータ +
+//  フォワードシェーディングが使う「選択されたディレクショナルライト」。
+//  ライト本体は StructuredBuffer<FLocalLightData> (t13, ForwardLightBuffer):
+//    [0, NumLocalLights)                              : 視界内のローカルライト (Point / Spot / Rect)
+//    [NumLocalLights, NumLocalLights + NumDirectionalLights) : ディレクショナルライト
 //  グリッド本体は NumCulledLightsGrid (t19) + CulledLightDataGrid (t20)。
 //  C++ 側 FORWARD_LIGHT_CONSTANT (RenderManager.h) と 1:1 ミラー必須。
-//  受光側ヘルパは LightGridCommon.hlsl。
+//  受光側ヘルパは LightGridCommon.hlsl (GetLocalLightData / GetDirectionalLightData)。
+//  UE と同じく ForwardLightData.<フィールド> で読む (b0 の DirectionalLight* と名前を分けるため)。
 // -------------------------------------------------------------
-cbuffer ForwardLightData : register(b3)
+cbuffer ForwardLightDataBuffer : register(b3)
 {
-    uint NumLocalLights; // ローカルライト有効数
-    uint NumGridCells; // グリッド総セル数 (X*Y*Z)。現状どのシェーダーも読まない (将来用)
-    uint CulledGridSizeX; // 画面タイル数 X (= ceil(W / LightGridPixelSize))
-    uint CulledGridSizeY; // 画面タイル数 Y
+    struct FForwardLightData
+    {
+        uint NumLocalLights; // 0   ローカルライト数
+        uint NumDirectionalLights; // 4   ディレクショナルライト数
+        uint NumGridCells; // 8   グリッド総セル数 (X*Y*Z)。現状どのシェーダーも読まない (将来用)
+        uint HasDirectionalLight; // 12  選択されたフォワードディレクショナルライトがあるか
 
-    uint CulledGridSizeZ; // Z スライス数 (LIGHT_GRID_SIZE_Z)
-    uint LightGridPixelSizeShift; // log2(LightGridPixelSize)
-    uint MaxCulledLightsPerCell; // セルあたり保持するライト数上限
-    uint LightGridDebugMode; // 0=off 1=複雑度ヒートマップ 2=Zスライス
+        uint CulledGridSizeX; // 16  画面タイル数 X (= ceil(W / LightGridPixelSize))
+        uint CulledGridSizeY; // 20  画面タイル数 Y
+        uint CulledGridSizeZ; // 24  Z スライス数 (LIGHT_GRID_SIZE_Z)
+        uint LightGridPixelSizeShift; // 28  log2(LightGridPixelSize)
 
-    float3 LightGridZParams; // (B, O, S): Slice = log2(Depth*B + O) * S
-    uint bUseLightGrid; // 0 = 全灯ループ (フォールバック)
+        float3 LightGridZParams; // 32  (B, O, S): Slice = log2(Depth*B + O) * S
+        uint MaxCulledLightsPerCell; // 44  セルあたり保持するライト数上限
+
+        uint LightGridDebugMode; // 48  0=off 1=複雑度ヒートマップ 2=Zスライス
+        uint bUseLightGrid; // 52  0 = 全灯ループ (フォールバック)
+        uint DirectionalLightBufferIndex; // 56  選択されたディレクショナルライトの t13 内の添字 (CSM / DF シャドウを持つライト)
+        uint DirectionalLightFlags; // 60  選択されたディレクショナルライトの LIGHT_FLAG_*
+
+        // ---- 選択されたフォワードディレクショナルライト (半透明 / Volumetric Fog が使う 1 灯) ----
+        float3 DirectionalLightColor; // 64  線形色 x 強度 (lux)
+        float DirectionalLightVolumetricScatteringIntensity; // 76
+        float3 DirectionalLightDirection; // 80  受光点 -> ライト方向
+        float DirectionalLightSourceRadius; // 92  sin(見かけの半角)
+        float DirectionalLightSoftSourceRadius; // 96
+        float DirectionalLightSpecularScale; // 100
+        float DirectionalLightDiffuseScale; // 104
+        float Pad; // 108
+    } ForwardLightData;
 };
 
 // -------------------------------------------------------------

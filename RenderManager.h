@@ -49,7 +49,7 @@ struct VERTEX_3D
 // 太陽ライトは View ユニフォームに常駐する。448 B (定数リング 1 スロット 512 B に収まる)。
 // 行列は転置して格納する (C++ 側は転置前で保持し、アップロード時に XMMatrixTranspose)。
 // 書き手: FSceneRenderer::PrepareViewStateForVisibility (カメラ + テンポラル全フィールド) と
-// SetupLightConstants (光源 2 フィールド)。シャドウ / Lumen カード / Polygon2D は
+// ComputeLightGrid (光源 2 フィールド)。シャドウ / Lumen カード / Polygon2D は
 // ゼロ初期化の VIEW_CONSTANT{} を使うので、追加フィールドはすべて 0 (ミップバイアス 0 / テンポラル情報無し)
 struct VIEW_CONSTANT
 {
@@ -98,29 +98,47 @@ struct PRIMITIVE_CONSTANT
 static_assert(sizeof(PRIMITIVE_CONSTANT) == 128, "PRIMITIVE_CONSTANT must mirror HLSL PrimitiveConstantBuffer (b1)");
 
 
-// b3 : ForwardLightData (FForwardLightData 相当)。
-// ローカルライト (Point/Spot/Rect) の有効数 + タイルドライトカリング
-// (ライトグリッド) のパラメータ。ライト本体は
-// StructuredBuffer<FLightShaderParameters> (t13, ForwardLocalLights)、
+// b3 : ForwardLightData (FForwardLightData 相当, 112 B)。
+// ライトの数 + タイルドライトカリング (ライトグリッド) のパラメータ +
+// フォワードシェーディング (半透明 / Volumetric Fog) が使う「選択されたディレクショナルライト」。
+// ライト本体は StructuredBuffer<FLocalLightData> (t13, ForwardLightBuffer。
+// C++ 側は FForwardLocalLightData, LightGridInjection.h):
+//   [0, NumLocalLights)                                    : 視界内のローカルライト (Point/Spot/Rect)
+//   [NumLocalLights, NumLocalLights + NumDirectionalLights) : ディレクショナルライト
 // グリッド本体は NumCulledLightsGrid (t19) + CulledLightDataGrid (t20)。
-// グリッドフィールドは FLightGridInjection::FillForwardLightData が
-// 毎フレーム解決する (LightGridInjection.h)。
+// グリッドフィールドは FLightGridInjection::FillForwardLightData、
+// ライトのフィールドは FSceneRenderer::ComputeLightGrid が毎フレーム解決する。
 struct FORWARD_LIGHT_CONSTANT
 {
-	unsigned int	NumLocalLights = 0;			// ローカルライト有効数
-	unsigned int	NumGridCells = 0;			// グリッド総セル数 (X*Y*Z)。現状どのシェーダーも読まない (将来用)
-	unsigned int	CulledGridSizeX = 1;		// 画面タイル数 X (= ceil(W / LightGridPixelSize))
-	unsigned int	CulledGridSizeY = 1;		// 画面タイル数 Y
+	unsigned int	NumLocalLights = 0;			//   0 ローカルライト数
+	unsigned int	NumDirectionalLights = 0;	//   4 ディレクショナルライト数
+	unsigned int	NumGridCells = 0;			//   8 グリッド総セル数 (X*Y*Z)。現状どのシェーダーも読まない (将来用)
+	unsigned int	HasDirectionalLight = 0;	//  12 選択されたフォワードディレクショナルライトがあるか
 
-	unsigned int	CulledGridSizeZ = 1;		// Z スライス数 (LIGHT_GRID_SIZE_Z)
-	unsigned int	LightGridPixelSizeShift = 6;// log2(LightGridPixelSize)
-	unsigned int	MaxCulledLightsPerCell = 32;// セルあたり保持するライト数上限
-	unsigned int	LightGridDebugMode = 0;		// 0=off 1=複雑度ヒートマップ 2=Zスライス
+	unsigned int	CulledGridSizeX = 1;		//  16 画面タイル数 X (= ceil(W / LightGridPixelSize))
+	unsigned int	CulledGridSizeY = 1;		//  20 画面タイル数 Y
+	unsigned int	CulledGridSizeZ = 1;		//  24 Z スライス数 (LIGHT_GRID_SIZE_Z)
+	unsigned int	LightGridPixelSizeShift = 6;//  28 log2(LightGridPixelSize)
 
-	XMFLOAT3		LightGridZParams = { 1.0f, 0.0f, 1.0f };	// (B, O, S): Slice = log2(Depth*B + O) * S
-	unsigned int	bUseLightGrid = 0;			// 0 = 全灯ループ (フォールバック)
+	XMFLOAT3		LightGridZParams = { 1.0f, 0.0f, 1.0f };	// 32 (B, O, S): Slice = log2(Depth*B + O) * S
+	unsigned int	MaxCulledLightsPerCell = 32;//  44 セルあたり保持するライト数上限
+
+	unsigned int	LightGridDebugMode = 0;		//  48 0=off 1=複雑度ヒートマップ 2=Zスライス
+	unsigned int	bUseLightGrid = 0;			//  52 0 = 全灯ループ (フォールバック)
+	unsigned int	DirectionalLightBufferIndex = 0;	// 56 選択されたディレクショナルライトの t13 内の添字 (CSM / DF シャドウを持つライト)
+	unsigned int	DirectionalLightFlags = 0;	//  60 選択されたディレクショナルライトの LIGHT_FLAG_*
+
+	// ---- 選択されたフォワードディレクショナルライト ----
+	XMFLOAT3		DirectionalLightColor = { 0.0f, 0.0f, 0.0f };	// 64 線形色 x 強度 (lux)
+	float			DirectionalLightVolumetricScatteringIntensity = 0.0f;	// 76
+	XMFLOAT3		DirectionalLightDirection = { 0.0f, 1.0f, 0.0f };	// 80 受光点 -> ライト方向
+	float			DirectionalLightSourceRadius = 0.0f;	//  92 sin(見かけの半角)
+	float			DirectionalLightSoftSourceRadius = 0.0f;	// 96
+	float			DirectionalLightSpecularScale = 1.0f;	// 100
+	float			DirectionalLightDiffuseScale = 1.0f;	// 104
+	float			Pad = 0.0f;					// 108
 };
-static_assert(sizeof(FORWARD_LIGHT_CONSTANT) == 48, "FORWARD_LIGHT_CONSTANT must mirror HLSL ForwardLightData (b3)");
+static_assert(sizeof(FORWARD_LIGHT_CONSTANT) == 112, "FORWARD_LIGHT_CONSTANT must mirror HLSL ForwardLightData (b3)");
 
 
 
@@ -389,7 +407,7 @@ public:
 		AUTO_EXPOSURE,    // t11  (eye-adaptation exposure scale buffer)
 		DOF,              // t12  (half-res DOF blur, premultiplied + CoC)
 		// ---- Lights ----
-		LIGHTS,           // t13  (StructuredBuffer<FLightShaderParameters> ForwardLocalLights)
+		LIGHTS,           // t13  (StructuredBuffer<FLocalLightData> ForwardLightBuffer: ローカル + ディレクショナル)
 		// ---- Shadows ----
 		DIRECTIONAL_SHADOW, // t14 (Texture2DArray: CSM カスケード深度)
 		LOCAL_SHADOW,     // t15  (Texture2DArray: ローカルライトシャドウアトラス)
@@ -431,8 +449,12 @@ public:
 		VELOCITY,          // t35 (Texture2D<float2>: SceneVelocity R16G16_UNORM エンコード済み, 0 = 未書き込み)
 		TEMPORAL_AA_DEBUG, // t36 (Texture2D<float4>: TAA DebugOutput / TAA 出力 (TemporalUpscalerIO))
 
+		// ---- システムテクスチャ (SystemTextures.h。UE GSystemTextures) ----
+		LTC_MAT,           // t37 (Texture2D<float4>: LTC 逆行列テーブル。レクトライトのスペキュラ)
+		LTC_AMP,           // t38 (Texture2D<float2>: LTC 振幅 / フレネルテーブル)
+
 		// ---- Count ----
-		COUNT,             // = 45 (b0..b7 + t0..t36。ルートシグネチャ 45 DWORD)
+		COUNT,             // = 47 (b0..b7 + t0..t38。ルートシグネチャ 47 DWORD)
 	};
 
 	// ------------------------------------------------------------

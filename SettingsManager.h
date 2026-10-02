@@ -206,18 +206,30 @@ private:
 		std::string LightTypeName;				// "Directional" / "Point" / "Spot" / "Rect"
 
 		// ULightComponentBase / ULightComponent
+		// (Visible / MaxDrawDistance はプリミティブと同名のフィールドを共用する)
 		bool     AffectsWorld = true;
 		float    Intensity = 0.0f;
 		XMFLOAT4 LightColor = { 1.0f, 1.0f, 1.0f, 1.0f };
 		bool     UseTemperature = false;
 		float    Temperature = 6500.0f;
 		float    SpecularScale = 1.0f;
+		float    DiffuseScale = 1.0f;
+		float    IndirectLightingIntensity = 1.0f;
+		bool     AffectTranslucentLighting = true;
+		bool     AffectGlobalIllumination = true;
+		float    MaxDistanceFadeRange = 0.0f;			// m
 
-		// シャドウ (ULightComponentBase)
+		// シャドウ (ULightComponentBase / ULightComponent)
 		bool  CastShadows = true;
+		bool  CastDynamicShadows = true;
 		float ShadowBias = 0.5f;
 		float ShadowSlopeBias = 0.5f;
 		bool  UseRayTracedDistanceFieldShadows = false;
+		bool  CastVolumetricShadow = false;				// 既定はライト種別で異なる (読み込み時は現在値から)
+		float ContactShadowLength = 0.0f;
+		bool  ContactShadowLengthInWS = false;
+		float ContactShadowCastingIntensity = 1.0f;
+		float ContactShadowNonCastingIntensity = 0.0f;
 
 		// Volumetric Fog への散乱寄与 (ULightComponentBase)
 		float VolumetricScatteringIntensity = 1.0f;
@@ -251,6 +263,10 @@ private:
 		float DistanceFieldShadowDistance = 300.0f;		// m
 		float DistanceFieldTraceDistance = 100.0f;		// m
 		float LightSourceAngle = 1.0f;					// 度
+		float LightSourceSoftAngle = 0.0f;				// 度
+		int   ForwardShadingPriority = 0;
+		bool  AtmosphereSunLight = true;
+		int   AtmosphereSunLightIndex = 0;
 
 		// ---- UExponentialHeightFogComponent ----
 		// 既定値は ExponentialHeightFogComponent.h のコンストラクタと一致させる

@@ -24,6 +24,7 @@
 // =============================================================
 
 #include "Structs.hlsl"
+#include "LightData.hlsl"
 
 #ifndef LUMEN_PI
 #define LUMEN_PI 3.14159265358979323846f
@@ -43,10 +44,10 @@ cbuffer LumenPassParams : register(b0)
     uint CardStartIndex; // 先頭カード (GDF ビルドではクリップマップ番号)
     uint NumCardsToProcess; // 処理カード数 (カードパスでは C++ Dispatch の Z と一致。シェーダは参照しない / キャプチャ確認用)
     uint PassNumLumenObjects; // 有効 Lumen オブジェクト数
-    uint PassNumLocalLights; // ローカルライト有効数
+    uint PassNumLumenLights; // Lumen 用ライトバッファ (t3) のライト数 (ディレクショナル + ローカル)
 
-    float4 PassDirectionalLightDirection; // xyz=受光面->ライト, w=有効 (0/1)
-    float4 PassDirectionalLightColor; // rgb=線形色 x 強度 (lux)
+    float4 PassReserved0; // 予約 (レイアウト維持。以前のディレクショナルライト方向。ライトは t3 に移った)
+    float4 PassReserved1; // 予約 (レイアウト維持。以前のディレクショナルライト色)
     float4 PassAtlasParams; // xy=1/アトラスサイズ, z=カード解像度, w=フレーム番号
     float4 PassTraceParams; // x=最大トレース距離[m], y=面バイアス[m], z=Radiosityレイ数, w=Emissiveブースト
     float4 PassGlobalSDF0; // xyz=クリップマップ0中心, w=半径 [m] (0 = 無効)
@@ -75,7 +76,10 @@ cbuffer LumenPassParams : register(b0)
 Texture3D<float> LumenDistanceFieldAtlas : register(t0);
 StructuredBuffer<FLumenSceneObject> LumenSceneObjects : register(t1);
 StructuredBuffer<FLumenCardData> LumenCardBuffer : register(t2);
-StructuredBuffer<FLightShaderParameters> LumenLocalLights : register(t3);
+// Lumen 用ライトリスト (C++ FSceneRenderer::ComputeLightGrid が構築)。
+// ディレクショナルライトも LightType = LIGHT_TYPE_DIRECTIONAL の要素として並ぶ。
+// 色には IndirectLightingIntensity が掛かっている
+StructuredBuffer<FLocalLightData> LumenLightBuffer : register(t3);
 
 Texture2D<float4> LumenAlbedoAtlas : register(t4);
 Texture2D<float4> LumenNormalAtlas : register(t5);

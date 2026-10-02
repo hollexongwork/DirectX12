@@ -21,7 +21,7 @@
 //
 //  Root signature (compute, グラフィックス RS から独立):
 //    b0 : FVolumetricFogParams (cbuffer)
-//    t0 : ForwardLocalLights        t1 : LocalShadowParams
+//    t0 : ForwardLightBuffer        t1 : LocalShadowParams
 //    t2 : NumCulledLightsGrid       t3 : CulledLightDataGrid
 //    t4 : DirectionalShadowCascades t5 : LocalLightShadows
 //    t6 : VBufferA                  t7 : VBufferB
@@ -33,7 +33,9 @@
 //
 //  このファイルは b0 / t0.. を独自所有するため、レジスタを宣言する
 //  共有ヘッダ (Common.hlsl 系) は include しない。構造体は
-//  Structs.hlsl、シャドウ投影は ShadowProjectionCommon.hlsl、
+//  Structs.hlsl / LightData.hlsl、ライトの減衰と面光源の積分は
+//  DeferredLightingCommon.hlsl の前半 (NON_DIRECTIONAL_DIRECT_LIGHTING)、
+//  シャドウ投影は ShadowProjectionCommon.hlsl、
 //  定数 (PI) は Constant.hlsl、輝度 (Luminance) は ColorSpace.hlsl
 //  (いずれもレジスタ非依存) から取り込む。ライトグリッドの
 //  セル計算は LightGridCommon.hlsl と同式 (b3 の値を b0 経由で受ける)。
@@ -46,10 +48,16 @@
 //      視線方向で採光し /π した値を等方インスキャッタとする
 //    - DF シャドウ (bUseRayTracedDistanceFieldShadows) のライトは
 //      ボリューム内では影なし (シャドウマップのライトのみ遮蔽)
+//    - UE が別パス (InjectShadowedLocalLight) で行う影付きローカル
+//      ライトの注入は、ここで同じループ内にインライン評価する
 //    - HistoryMissSupersampleCount (履歴外セルの追加サンプル) は未実装
 // =============================================================
 
+#define NON_DIRECTIONAL_DIRECT_LIGHTING 1
+
 #include "Structs.hlsl"
+#include "LightData.hlsl"
+#include "DeferredLightingCommon.hlsl"
 #include "ShadowProjectionCommon.hlsl"
 #include "Constant.hlsl"
 #include "ColorSpace.hlsl"
@@ -85,6 +93,8 @@ cbuffer FVolumetricFogParams : register(b0)
     float4 DirectionalInscatteringColor; // rgb = DirectionalInscatteringLuminance (同上), w = StaticLightingScatteringIntensity (スカイ項の強度)
 
     // ---- ライト ----
+    // 選択されたフォワードディレクショナルライト (b3 と同じ 1 灯)。
+    // bCastVolumetricShadow が偽なら C++ 側が DirectionalShadowParams.x (NumCascades) を 0 にする
     float4 DirectionalLightDirection; // xyz = 受光点 -> ライト方向 (正規化), w = 有効 (0/1)
     float4 DirectionalLightColor; // rgb = 線形色 x lux x VolumetricScatteringIntensity, w = 未使用
 
@@ -103,7 +113,7 @@ cbuffer FVolumetricFogParams : register(b0)
     uint VolumetricFogPadB;
 };
 
-StructuredBuffer<FLightShaderParameters> ForwardLocalLights : register(t0);
+StructuredBuffer<FLocalLightData> ForwardLightBuffer : register(t0); // t13 と同じライトバッファ
 StructuredBuffer<FLocalShadowParameters> LocalShadowParams : register(t1);
 StructuredBuffer<uint> NumCulledLightsGrid : register(t2);
 StructuredBuffer<uint> CulledLightDataGrid : register(t3);
@@ -215,77 +225,71 @@ uint VF_ComputeLightGridCellIndex(uint2 PixelPos, float SceneDepth)
 
 // -------------------------------------------------------------
 //  ローカルライト 1 灯の froxel でのインスキャッタ
-//  (VolumetricFog.usf の GetLocalLightAttenuation + 位相関数)
+//  (VolumetricFog.usf の LightScatteringCS と同じ評価)
+//    GetLocalLightAttenuation : 半径窓 / 指数フォールオフ / コーン / レクト背面
+//    IntegrateLight           : 面光源の形状を考慮したフォールオフ
+//                               (逆二乗の特異点は froxel サイズ由来の
+//                                距離バイアスで避ける)
 //    WorldPos     : froxel サンプル位置
 //    CameraVector : カメラ -> froxel (正規化)
-//    CellRadius   : froxel の大きさ [m] (逆二乗の特異点回避バイアス)
+//    CellRadius   : froxel の大きさ [m]
 //    Shadow       : ライトと同インデックスのシャドウパラメータ
+//                   (bCastVolumetricShadow のライトだけ参照する)
 // -------------------------------------------------------------
 float3 ComputeLocalLightVolumetricScattering(
-    FLightShaderParameters Light, FLocalShadowParameters Shadow,
+    FDeferredLightData LightData, FLocalShadowParameters Shadow,
     float3 WorldPos, float3 CameraVector, float CellRadius, float PhaseG)
 {
-    float3 toLight = Light.Position - WorldPos;
-    float distSqr = dot(toLight, toLight);
-    float3 L = toLight * rsqrt(max(distSqr, 1e-8f));
-
-    // ---- 減衰マスク (DeferredLightingCommon.hlsl の SetupAreaLight と同式) ----
-    float lightMask;
-    if (Light.Flags & LIGHT_FLAG_INVERSE_SQUARED)
-    {
-        float t = saturate(1.0f - (distSqr * Light.InvRadius * Light.InvRadius) * (distSqr * Light.InvRadius * Light.InvRadius));
-        lightMask = t * t;
-    }
-    else
-    {
-        lightMask = pow(1.0f - saturate(distSqr * Light.InvRadius * Light.InvRadius), Light.FalloffExponent);
-    }
-
-    if (Light.Type == LIGHT_TYPE_SPOT)
-    {
-        float cone = saturate((dot(-L, Light.Direction) - Light.SpotAngles.x) * Light.SpotAngles.y);
-        lightMask *= cone * cone;
-    }
-    else if (Light.Type == LIGHT_TYPE_RECT)
-    {
-        // 発光面の裏側は照らさない + ランバート発光
-        lightMask *= saturate(dot(Light.Direction, -L));
-    }
+    float3 ToLight = float3(0.0f, 0.0f, 0.0f);
+    float3 L = float3(0.0f, 0.0f, 0.0f);
+    float LightMask = GetLocalLightAttenuation(WorldPos, LightData, ToLight, L);
 
     [branch]
-    if (lightMask <= 0.0f)
+    if (LightMask <= 0.0f)
     {
         return float3(0.0f, 0.0f, 0.0f);
     }
 
-    // ---- 距離フォールオフ (逆二乗 + セルサイズ由来のバイアスで発火防止) ----
-    float falloff = 1.0f;
-    if (Light.Flags & LIGHT_FLAG_INVERSE_SQUARED)
+    // ---- 面光源の形状を考慮したフォールオフ ----
+    // DistanceBiasSqr = Pow2(max(CellRadius * InverseSquaredLightDistanceBiasScale, SourceRadius))
+    float Attenuation;
+
+    [branch]
+    if (LightData.bRectLight)
     {
-        float distanceBias = max(CellRadius * TemporalParams.z, Light.SourceRadius);
-        falloff = rcp(distSqr + max(distanceBias * distanceBias, 1e-4f));
+        FRect Rect = GetRect(ToLight, LightData);
+        Attenuation = IntegrateLight(Rect);
+    }
+    else
+    {
+        float DistanceBias = max(CellRadius * TemporalParams.z, LightData.SourceRadius);
+        FCapsuleLight Capsule = GetCapsule(ToLight, LightData);
+        Capsule.DistBiasSqr = DistanceBias * DistanceBias;
+        Attenuation = IntegrateLight(Capsule, LightData.bInverseSquared);
     }
 
-    // ---- シャドウマップ (DF シャドウ指定のライトは影なし) ----
-    float shadow = 1.0f;
+    // ---- シャドウマップ (bCastVolumetricShadow のライトだけ。DF シャドウ指定のライトは影なし) ----
+    float ShadowFactor = 1.0f;
+
     [branch]
-    if (Shadow.ShadowSliceIndex >= 0 && Shadow.DFShadow < 0.5f)
+    if (LightData.bCastVolumetricShadow && Shadow.ShadowSliceIndex >= 0 && Shadow.DFShadow < 0.5f)
     {
-        shadow = ProjectLocalLightShadowMap(LocalLightShadows, ShadowCmpSampler, Light, Shadow, WorldPos);
+        ShadowFactor = ProjectLocalLightShadowMap(LocalLightShadows, ShadowCmpSampler, LightData, Shadow, WorldPos);
     }
 
     // ---- ライト色 (オーバーライド時はフォグのインスキャッタ色 x 輝度) ----
-    float3 lightColor = Light.Color;
+    float3 LightColor = LightData.Color;
+
     [flatten]
     if (FogInscatteringColor.w > 0.5f)
     {
-        float luminance = Luminance(Light.Color);
-        lightColor = FogInscatteringColor.rgb * luminance;
+        float LightLuminance = Luminance(LightData.Color);
+        LightColor = FogInscatteringColor.rgb * LightLuminance;
     }
 
-    float phase = HenyeyGreensteinPhase(PhaseG, dot(L, CameraVector));
+    float Phase = HenyeyGreensteinPhase(PhaseG, dot(L, CameraVector));
 
-    return lightColor * (lightMask * falloff * shadow * phase * Light.VolumetricScatteringIntensity);
+    return LightColor * (LightMask * Attenuation * ShadowFactor * Phase * LightData.VolumetricScatteringIntensity);
 }
 
 // -------------------------------------------------------------

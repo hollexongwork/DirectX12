@@ -5,8 +5,10 @@
 #include "SceneView.h"
 #include "PrimitiveSceneProxy.h"
 #include "LightSceneProxy.h"
+#include "DirectionalLightSceneProxy.h"
 #include "ShadowRendering.h"
 #include "LightGridInjection.h"
+#include "SystemTextures.h"
 #include "LumenScene.h"
 #include "FogRendering.h"
 #include "IBLBaker.h"
@@ -54,6 +56,11 @@ FSceneRenderer::FSceneRenderer(RenderManager* RHI)
 	InitScreenQuad();
 	InitIBL();
 	InitLightBuffer();
+
+	// システムテクスチャ (LTC テーブル t37/t38。レクトライトのスペキュラ)
+	m_SystemTextures = std::make_unique<FSystemTextures>(m_RHI);
+	m_SystemTextures->Init();
+
 	InitPostProcess();
 	InitDOF(bbW, bbH);
 	InitBloom(bbW, bbH);
@@ -223,14 +230,14 @@ void FSceneRenderer::InitDOF(unsigned int Width, unsigned int Height)
 
 void FSceneRenderer::InitLightBuffer()
 {
-	// ローカルライト (Point/Spot/Rect) 用の StructuredBuffer (t13)。
+	// ライト (ローカル + ディレクショナル) 用の StructuredBuffer (t13)。
 	// CPU から毎フレーム詰め直すのでアップロードヒープに永続 Map。
 	// Present は「前フレームの完了」までしか待たない (2 フレーム
 	// インフライト) ため、GPU 読み取り中の上書きを避けるべく
 	// ダブルバッファにする — 定数リングと同じ理由。
 	ID3D12Device* device = m_RHI->GetDevice();
 
-	const UINT64 bufferSize = sizeof(FLightShaderParameters) * MAX_LOCAL_LIGHTS;
+	const UINT64 bufferSize = sizeof(FForwardLocalLightData) * MAX_FORWARD_LIGHT_BUFFER_ENTRIES;
 
 	D3D12_HEAP_PROPERTIES heapProperties{};
 	heapProperties.Type = D3D12_HEAP_TYPE_UPLOAD;
@@ -245,112 +252,59 @@ void FSceneRenderer::InitLightBuffer()
 	resourceDesc.SampleDesc.Count = 1;
 	resourceDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
 
+	// ビューのライトバッファ (t13) と Lumen 用ライトバッファを同じ形で作る
+	auto createLightBuffer = [&](ComPtr<ID3D12Resource>& OutBuffer, FForwardLocalLightData*& OutPointer,
+		unsigned int& OutSRVIndex, const wchar_t* Name)
+		{
+			HRESULT hr = device->CreateCommittedResource(
+				&heapProperties,
+				D3D12_HEAP_FLAG_NONE,
+				&resourceDesc,
+				D3D12_RESOURCE_STATE_GENERIC_READ,	// アップロードヒープの固定ステート
+				nullptr,
+				IID_PPV_ARGS(&OutBuffer));
+			assert(SUCCEEDED(hr));
+			OutBuffer->SetName(Name);
+
+			hr = OutBuffer->Map(0, nullptr, (void**)&OutPointer);
+			assert(SUCCEEDED(hr));
+			memset(OutPointer, 0, bufferSize);
+
+			// StructuredBuffer SRV (Format = UNKNOWN + StructureByteStride)
+			OutSRVIndex = m_RHI->AllocateDescriptor();
+
+			D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
+			srvDesc.Format = DXGI_FORMAT_UNKNOWN;
+			srvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+			srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+			srvDesc.Buffer.FirstElement = 0;
+			srvDesc.Buffer.NumElements = MAX_FORWARD_LIGHT_BUFFER_ENTRIES;
+			srvDesc.Buffer.StructureByteStride = sizeof(FForwardLocalLightData);
+			srvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
+
+			device->CreateShaderResourceView(
+				OutBuffer.Get(), &srvDesc,
+				m_RHI->GetCPUDescriptorHandle(OutSRVIndex));
+		};
+
 	for (int i = 0; i < 2; ++i)
 	{
-		HRESULT hr = device->CreateCommittedResource(
-			&heapProperties,
-			D3D12_HEAP_FLAG_NONE,
-			&resourceDesc,
-			D3D12_RESOURCE_STATE_GENERIC_READ,	// アップロードヒープの固定ステート
-			nullptr,
-			IID_PPV_ARGS(&m_LightBuffer[i]));
-		assert(SUCCEEDED(hr));
-		m_LightBuffer[i]->SetName(L"SceneLightBuffer");
-
-		hr = m_LightBuffer[i]->Map(0, nullptr, (void**)&m_LightBufferPointer[i]);
-		assert(SUCCEEDED(hr));
-		memset(m_LightBufferPointer[i], 0, bufferSize);
-
-		// StructuredBuffer SRV (Format = UNKNOWN + StructureByteStride)
-		m_LightBufferSRVIndex[i] = m_RHI->AllocateDescriptor();
-
-		D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
-		srvDesc.Format = DXGI_FORMAT_UNKNOWN;
-		srvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
-		srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-		srvDesc.Buffer.FirstElement = 0;
-		srvDesc.Buffer.NumElements = MAX_LOCAL_LIGHTS;
-		srvDesc.Buffer.StructureByteStride = sizeof(FLightShaderParameters);
-		srvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
-
-		device->CreateShaderResourceView(
-			m_LightBuffer[i].Get(), &srvDesc,
-			m_RHI->GetCPUDescriptorHandle(m_LightBufferSRVIndex[i]));
+		createLightBuffer(m_LightBuffer[i], m_LightBufferPointer[i], m_LightBufferSRVIndex[i], L"SceneLightBuffer");
+		createLightBuffer(m_LumenLightBuffer[i], m_LumenLightBufferPointer[i], m_LumenLightBufferSRVIndex[i], L"LumenLightBuffer");
 	}
 }
 
 
 // ============================================================
-//  Lights: FScene のライトリスト -> VIEW 定数 (directional) +
-//  FORWARD_LIGHT 定数 + ライトバッファ (local, t13)
-//  (FSceneRenderer::GatherLightsAndComputeLightGrid の簡易版)
+//  Lights: 視界内のライト -> ライトバッファ (t13) + FORWARD_LIGHT 定数 (b3)
+//  (FSceneRenderer::GatherLightsAndComputeLightGrid)
+//  GatherAndSortLights は LightRendering.cpp、ComputeLightGrid は
+//  LightGridInjection.cpp。ComputeLightVisibility の後に呼ぶこと。
 // ============================================================
-void FSceneRenderer::SetupLightConstants(FScene* Scene)
+void FSceneRenderer::GatherLightsAndComputeLightGrid(FScene* Scene)
 {
-	// 書き込み先をフリップ (GPU が読んでいる前フレーム分を避ける)
-	m_LightBufferFrame ^= 1;
-
-	// ---- 既定値: ディレクショナルライト不在 = 無光  ----
-	// 方向は normalize(0) の NaN を避けるため上向きを入れておく
-	m_ViewConstant.DirectionalLightDirection = { 0.0f, 1.0f, 0.0f, 0.0f };
-	m_ViewConstant.DirectionalLightColor = { 0.0f, 0.0f, 0.0f, 1.0f };
-
-	unsigned int numLocalLights = 0;
-	bool foundDirectional = false;
-
-	// シャドウ構築 (RenderShadowDepths) 用のプロキシ列を集め直す。
-	// m_FrameLocalLights はライトバッファ (t13) と必ず同順になる。
-	m_FrameDirectionalLight = nullptr;
-	m_FrameLocalLights.clear();
-
-	if (Scene)
-	{
-		for (const FLightSceneInfo& info : Scene->GetLights())
-		{
-			const FLightSceneProxy* proxy = info.Proxy.get();
-			if (proxy == nullptr || !proxy->AffectsWorld())
-			{
-				continue;
-			}
-
-			if (proxy->GetLightType() == ELightType::Directional)
-			{
-				// 最初の 1 灯のみ採用 (太陽ライトと同じ扱い)
-				if (!foundDirectional)
-				{
-					foundDirectional = true;
-					const XMFLOAT3& direction = proxy->GetDirection();
-					const XMFLOAT3& color = proxy->GetColor();
-
-					// DirectionalLightDirection は「受光面 -> ライト」規約なので
-					// プロキシの発光方向を反転して渡す (View と同じ)
-					m_ViewConstant.DirectionalLightDirection = { -direction.x, -direction.y, -direction.z, 0.0f };
-					m_ViewConstant.DirectionalLightColor = { color.x, color.y, color.z, 1.0f };
-
-					m_FrameDirectionalLight = proxy;	// CSM の対象ライト
-				}
-			}
-			else if (numLocalLights < MAX_LOCAL_LIGHTS)
-			{
-				proxy->GetLightShaderParameters(
-					m_LightBufferPointer[m_LightBufferFrame][numLocalLights]);
-				m_FrameLocalLights.push_back(proxy);	// t16 との 1:1 対応用
-				numLocalLights++;
-			}
-		}
-	}
-
-	m_ForwardLightConstant.NumLocalLights = numLocalLights;
-
-	// ---- ライトグリッド (タイルドライトカリング) パラメータ ----
-	// VIEW 定数は RenderBasePass 先頭で解決済みなので NearFar を参照できる。
-	// グリッド本体の構築 (Dispatch) は RenderLighting 先頭で行う。
-	if (m_LightGrid)
-	{
-		m_LightGrid->FillForwardLightData(
-			m_ForwardLightConstant,
-			m_ViewConstant.NearFar.x, m_ViewConstant.NearFar.y);
-	}
+	GatherAndSortLights(Scene, m_SortedLightSet);
+	ComputeLightGrid(Scene, m_SortedLightSet);
 }
 
 
@@ -622,7 +576,7 @@ void FSceneRenderer::PrepareViewStateForVisibility(const FSceneView& View)
 	V.MaterialTextureMipBias = bias;
 	V.StateFrameIndex = S.FrameIndex;
 
-	// ---- b0 (§3.1)。光源 2 フィールドは直後の SetupLightConstants が書く ----
+	// ---- b0 (§3.1)。光源 2 フィールドは直後の ComputeLightGrid が書く ----
 	// 先頭 256 B は従来と同じ値 / 同じ計算順 (ジッタ 0 なら基準とビット一致)
 	VIEW_CONSTANT& c = m_ViewConstant;
 	StoreT(c.View, V.ViewMatrices.ViewMatrix);
@@ -882,20 +836,29 @@ void FSceneRenderer::RenderBasePass(FScene* Scene, const FSceneView& View)
 	// 大移動判定 / 前フレームのスナップショット) と b0 の行列 / カメラ原点 /
 	// NearFar へ解決する。カメラ不在 (View.bValid = false) のフレームは
 	// 前回の VIEW 定数を保持し (従来挙動)、次の有効フレームを強制カットにする。
-	// 代表ディレクショナルライトは直後の SetupLightConstants が書く。
+	// 代表ディレクショナルライトは直後の ComputeLightGrid が書く。
 	PrepareViewStateForVisibility(View);
 
-	// FScene のライトリストを VIEW 定数 (directional) /
-	// FORWARD_LIGHT 定数 / ライトバッファ (local, t13) へ解決する
-	SetupLightConstants(Scene);
+	// ---- ビュー可視性の解決 (ComputeViewVisibility) ----
+	// フラスタムを構築し、フラスタム + 距離カリングの結果を m_PrimitiveVisibilityMap に詰める。
+	// ライトの可視判定がこのフラスタムを使うので、ライトより先に行う
+	ComputeViewVisibility(Scene);
+
+	// ---- ライトの可視判定 (ComputeLightVisibility) ----
+	// FScene::Lights をフラスタム / 描画距離で判定し m_ViewInfo.VisibleLightInfos に詰める
+	ComputeLightVisibility(Scene);
+
+	// 視界内のライトを集めてソートし、ライトバッファ (t13) / FORWARD_LIGHT 定数 (b3) /
+	// VIEW 定数の代表ディレクショナルライトへ解決する
+	GatherLightsAndComputeLightGrid(Scene);
 
 	// ---- FOG 定数 (b7: InitFogConstants) ----
-	// FScene の ExponentialFogs[0] を、カメラ高さ / 太陽ライトと合わせて
-	// ビュー毎のフォグパラメータへ解決する (フォグ不在なら恒等値)。
+	// FScene の ExponentialFogs[0] を、カメラ高さ / 太陽ライト (FScene::AtmosphereLights[0]) と
+	// 合わせてビュー毎のフォグパラメータへ解決する (フォグ不在なら恒等値)。
 	// Volumetric Fog のコンピュートとフォグパスは RenderLighting 側。
 	if (m_FogRenderer)
 	{
-		m_FogRenderer->InitFogConstants(Scene, m_ViewConstant, m_FrameDirectionalLight);
+		m_FogRenderer->InitFogConstants(Scene, m_ViewConstant);
 	}
 
 	m_RHI->SetConstant(RenderManager::CONSTANT_TYPE::VIEW, &m_ViewConstant, sizeof(m_ViewConstant));
@@ -904,10 +867,6 @@ void FSceneRenderer::RenderBasePass(FScene* Scene, const FSceneView& View)
 	// ---- POST_PROCESS 定数 (b4: ゲーム側で解決済みの設定) ----
 	ResolvePostProcessSettings(View);
 	UploadPostProcessConstant();
-
-	// ---- ビュー可視性の解決 (ComputeViewVisibility) ----
-	// フラスタム + 距離カリングの結果を m_PrimitiveVisibilityMap に詰める
-	ComputeViewVisibility(Scene);
 
 	// ---- 可視プリミティブ描画 (登録順 = スポーン順) ----
 	// レンダラはプロキシ (レンダー側スナップショット) だけを読む。
@@ -937,7 +896,7 @@ void FSceneRenderer::RenderBasePass(FScene* Scene, const FSceneView& View)
 // ============================================================
 //  Shadow depths: CSM + ローカルシャドウ -> シャドウマップ
 //  (FSceneRenderer::InitDynamicShadows + RenderShadowDepthMaps)
-//  RenderBasePass の SetupLightConstants が集めたプロキシ列を使う。
+//  RenderBasePass の ComputeLightGrid が集めたプロキシ列を使う。
 //  ※ 各シャドウビューが VIEW 定数 (b0) を上書きするため、
 //    RenderLighting 先頭でカメラの VIEW 定数を積み直す。
 // ============================================================
@@ -952,8 +911,10 @@ void FSceneRenderer::RenderShadowDepths(FScene* Scene, const FSceneView& View)
 	// GPU パラメータ (b5 / t16) の更新。CSM のフィッティングは
 	// FSceneView のカメラスナップショットを使う (View.bValid = false
 	// のフレームは CSM をスキップ = 従来のカメラ不在時挙動)。
+	// CSM / Distance Field シャドウを持つのは選択されたフォワードディレクショナルライト 1 灯だけ
 	m_ShadowRenderer->InitDynamicShadows(
-		m_FrameDirectionalLight, m_FrameLocalLights, View);
+		static_cast<const FDirectionalLightSceneProxy*>(m_ViewInfo.SelectedForwardDirectionalLightProxy),
+		m_FrameLocalLights, View);
 
 	// Distance Field オブジェクトバッファ (t18) を今フレームの
 	// プロキシ列から詰め直す (DistanceFieldObjectBuffers 更新相当)
@@ -988,7 +949,7 @@ void FSceneRenderer::RenderLumenScene(FScene* Scene)
 
 	// Global SDF 再構築 -> Direct -> Radiosity -> Combine -> Radiance
 	// Cache (Emissive は Combine で光源化される)。ライト情報は
-	// SetupLightConstants が解決済みの VIEW 定数の値をそのまま使う。
+	// ComputeLightGrid が解決済みの値 (Lumen 用ライトバッファ) を使う。
 	const FLumenFrameInputs inputs = MakeLumenFrameInputs();
 	m_TAAStats.bLumenHistoryValid = inputs.bHistoryValid;	// 統計 / テストドライバのログ用
 	m_LumenScene->RenderLumenSceneLighting(inputs);
@@ -1004,10 +965,10 @@ FLumenFrameInputs FSceneRenderer::MakeLumenFrameInputs() const
 {
 	FLumenFrameInputs inputs;
 
-	inputs.DirectionalLightDirection = m_ViewConstant.DirectionalLightDirection;
-	inputs.DirectionalLightColor = m_ViewConstant.DirectionalLightColor;
-	inputs.LightBufferSRVIndex = m_LightBufferSRVIndex[m_LightBufferFrame];
-	inputs.NumLocalLights = m_ForwardLightConstant.NumLocalLights;
+	// Surface Cache の直接光は画面外のライトも要るので Lumen 用ライトバッファを渡す
+	// (ディレクショナルライトもそのバッファに入っている)
+	inputs.LightBufferSRVIndex = m_LumenLightBufferSRVIndex[m_LightBufferFrame];
+	inputs.NumLumenLights = m_NumLumenLights;
 
 	if (m_IBLBaker)
 	{
@@ -1149,7 +1110,7 @@ void FSceneRenderer::RenderLighting()
 
 	//======================================================
 	// Light Grid : Injection -> Compact (タイルドライトカリング)
-	//  SetupLightConstants が今フレーム分を詰めたライトバッファを
+	//  ComputeLightGrid が今フレーム分を詰めたライトバッファを
 	//  セルごとにカリングする。デファードパスが t19/t20 で読む。
 	//  (コンピュート専用の独立ルートシグネチャを使うため、
 	//   グラフィックス側のバインドには影響しない)
@@ -1186,7 +1147,6 @@ void FSceneRenderer::RenderLighting()
 		fogInputs.LightGrid = m_LightGrid.get();
 		fogInputs.ShadowRenderer = m_ShadowRenderer.get();
 		fogInputs.SkyIrradianceSRVIndex = m_IBLBaker ? m_IBLBaker->GetIrradianceSRVIndex() : 0;
-		fogInputs.DirectionalLight = m_FrameDirectionalLight;
 		m_FogRenderer->ComputeVolumetricFog(fogInputs);
 	}
 
@@ -2075,10 +2035,16 @@ void FSceneRenderer::BindForwardLightingResources()
 		m_IBLBaker->BindTextures();
 	}
 
-	// ローカルライト (t13): 今フレーム分の StructuredBuffer
+	// ライトバッファ (t13): 今フレーム分の StructuredBuffer (ローカル + ディレクショナル)
 	m_RHI->BindRootTableBySRVIndex(
 		(unsigned int)RenderManager::TEXTURE_TYPE::LIGHTS,
 		m_LightBufferSRVIndex[m_LightBufferFrame]);
+
+	// LTC テーブル (t37 / t38): レクトライトのスペキュラ
+	if (m_SystemTextures)
+	{
+		m_SystemTextures->BindTextures();
+	}
 
 	// ライトグリッド (t19: セルヘッダ / t20: ライトインデックス列)
 	if (m_LightGrid)

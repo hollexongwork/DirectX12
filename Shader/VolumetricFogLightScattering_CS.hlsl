@@ -15,8 +15,8 @@
 //  ライト:
 //    - ディレクショナル : CSM (ShadowProjectionCommon) で遮蔽
 //    - ローカル (Point/Spot/Rect) : ライトグリッド (t2/t3) で
-//      froxel のセルに影響するライトだけ巡回。シャドウマップの
-//      ライトはアトラス (t5) で遮蔽
+//      froxel のセルに影響するライトだけ巡回。bCastVolumetricShadow
+//      のシャドウマップのライトはアトラス (t5) で遮蔽
 //
 //  Dispatch: ceil(GridSize / 4) の 3D
 // =============================================================
@@ -92,7 +92,7 @@ void main(uint3 DispatchThreadId : SV_DispatchThreadID)
             {
                 uint lightIndex = CulledLightDataGrid[dataStart + i];
                 lightScattering += ComputeLocalLightVolumetricScattering(
-                    ForwardLocalLights[lightIndex], LocalShadowParams[lightIndex],
+                    ConvertToDeferredLight(ForwardLightBuffer[lightIndex]), LocalShadowParams[lightIndex],
                     worldPos, cameraVector, cellRadius, phaseG);
             }
         }
@@ -102,7 +102,7 @@ void main(uint3 DispatchThreadId : SV_DispatchThreadID)
             for (uint i = 0; i < NumLocalLights; ++i)
             {
                 lightScattering += ComputeLocalLightVolumetricScattering(
-                    ForwardLocalLights[i], LocalShadowParams[i],
+                    ConvertToDeferredLight(ForwardLightBuffer[i]), LocalShadowParams[i],
                     worldPos, cameraVector, cellRadius, phaseG);
             }
         }

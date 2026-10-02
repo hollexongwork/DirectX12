@@ -22,8 +22,9 @@
 //                        解析解 (Hanrahan-Krueger / Chandrasekhar)
 //                        を INV_PI 正規化した近似
 //
-//  面光源は DeferredLightingCommon.hlsl の FAreaLight セットアップ
-//  (Karis 2013 MRP) をレガシー経路と共有する。
+//  ライト 1 灯の評価は SubstrateDeferredLighting。減衰 / シャドウ /
+//  面光源の積分コンテキスト (FAreaLightIntegrateContext) は
+//  DeferredLightingCommon.hlsl のレガシー経路と共有する。
 // =============================================================
 
 // -------------------------------------------------------------
@@ -75,47 +76,57 @@ float SubstrateV_Ashikhmin(float NoV, float NoL)
 }
 
 // -------------------------------------------------------------
-//  GGX スペキュラローブ 1 本 (Karis 面光源正規化込み)
-//  AreaLightBRDF の specular 部と同一の正規化。
+//  GGX スペキュラローブ 1 本 (球 / チューブ光源のエネルギー正規化込み)。
+//  戻り値は D * Vis * F (NoL は掛けない)。ShadingModels.hlsl の
+//  SpecularGGX と同じ式で、フレネルだけ F0 / F90 の一般化 Schlick。
 // -------------------------------------------------------------
 float3 SubstrateSpecularLobe(
     float Roughness, float3 F0, float3 F90,
-    float NoV, float NoL, float NoH, float VoH,
-    float SphereSinAlpha, float SoftSinAlpha)
+    BxDFContext Context, float NoL, FAreaLight AreaLight)
 {
-    float a = max(Square(Roughness), 1e-4f);
-    float aHard = saturate(a + 0.5f * SphereSinAlpha);
-    float EnergyNormalization = Square(a / aHard);
-    float aPrime = saturate(aHard + 0.5f * SoftSinAlpha);
+    float a2 = Pow4(Roughness);
+    float Energy = EnergyNormalization(a2, Context.VoH, AreaLight);
 
-    // GGX_NDF / SmithGeometry は roughness を内部で二乗するので
-    // sqrt(a') を渡して実効 a を合わせる (AreaLightBRDF と同じ)
-    float RoughnessPrime = sqrt(aPrime);
+    float D = D_GGX(a2, Context.NoH) * Energy;
 
-    float D = GGX_NDF(NoH, RoughnessPrime);
-    float G = SmithGeometry(NoV, NoL, RoughnessPrime);
-    float3 F = SubstrateSchlickFresnel(F0, F90, VoH);
+    // 既存の SmithGeometry はラフネスを受け取るので、広げた後の a2 から戻す
+    float RoughnessG = sqrt(sqrt(a2));
+    float Vis = SmithGeometry(Context.NoV, NoL, RoughnessG) / max(4.0f * Context.NoV * NoL, EPSILON);
+    float3 F = SubstrateSchlickFresnel(F0, F90, Context.VoH);
 
-    return (D * G * F) / max(4.0f * NoV * NoL, EPSILON) * EnergyNormalization;
+    return (D * Vis) * F;
 }
 
 // -------------------------------------------------------------
 //  SubstrateEvaluateSlabDirect
-//  Slab BSDF の直接光 1 灯評価 (放射輝度寄与、ライト色は乗算前)。
-//    DiffuseL / SpecularL : 面光源の代表方向 (通常光は同一)
-//    NoL は符号付きで評価し、負側は Sub-Surface の透過が受け持つ。
+//  Slab BSDF の直接光 1 灯評価 (ライト色とシャドウを掛ける前)。
+//  面光源の積分コンテキスト (代表方向 L / NoL / Falloff / FAreaLight) を
+//  受け取る (UE の SubstrateEvaluateBSDF と同じ受け渡し)。
+//    - スペキュラ: 球 / チューブは GGX、レクトライトは LTC
+//    - 拡散 / Sub-Surface: NoL は符号付きで評価し、負側は透過が受け持つ
 // -------------------------------------------------------------
-float3 SubstrateEvaluateSlabDirect(
+FDirectLighting SubstrateEvaluateSlabDirect(
     FSubstrateBSDF BSDF,
     float3 N, float3 V,
-    float3 DiffuseL, float3 SpecularL,
-    float SphereSinAlpha, float SoftSinAlpha,
-    float SpecularScale,
-    float DiffuseFalloff, float SpecularFalloff)
+    FAreaLightIntegrateContext AreaLightContext)
 {
-    float NoV = max(dot(N, V), 1e-5f);
-    float NoL_d = dot(N, DiffuseL); // 符号付き (裏面透過用)
-    float NoL_s = max(dot(N, SpecularL), 0.0f);
+    FDirectLighting Lighting;
+    Lighting.Diffuse = float3(0.0f, 0.0f, 0.0f);
+    Lighting.Specular = float3(0.0f, 0.0f, 0.0f);
+    Lighting.Transmission = float3(0.0f, 0.0f, 0.0f);
+
+    const FAreaLight AreaLight = AreaLightContext.AreaLight;
+    const float3 L = AreaLightContext.L;
+    const float Falloff = AreaLightContext.Falloff;
+    const float NoL = AreaLightContext.NoL; // 光源形状込み (0..1)
+
+    BxDFContext Context;
+    Init(Context, N, V, L);
+    SphereMaxNoH(Context, AreaLight.SphereSinAlpha, true);
+    Context.NoV = saturate(abs(Context.NoV) + 1e-5f);
+
+    const float NoV = Context.NoV;
+    const float NoL_d = dot(N, L); // 符号付き (裏面透過用)
 
     float3 F90 = SubstrateComputeF90(BSDF.F0, BSDF.F90);
 
@@ -124,38 +135,52 @@ float3 SubstrateEvaluateSlabDirect(
     //  第 2 ラフネスは 2 ローブの重み lerp、ファズはカバレッジ lerp
     //  (布はグロスをシーンで置き換える)。
     // ------------------------------------------------------------
-    float3 Specular = float3(0.0f, 0.0f, 0.0f);
     [branch]
-    if (NoL_s > 0.0f)
+    if (IsRectLight(AreaLight))
     {
-        float3 H = normalize(SpecularL + V);
-        float NoH = max(dot(N, H), 0.0f);
-        float VoH = max(dot(V, H), 0.0f);
-
-        float3 Lobe = SubstrateSpecularLobe(
-            BSDF.Roughness, BSDF.F0, F90,
-            NoV, NoL_s, NoH, VoH, SphereSinAlpha, SoftSinAlpha);
+        // レクトライト: LTC がローブを矩形で積分する (Falloff * NoL は含まれている)
+        float3 Lobe = RectGGXApproxLTC(BSDF.Roughness, BSDF.F0, F90, N, V, AreaLight.Rect);
 
         [branch]
         if (BSDF.SecondRoughnessWeight > 0.0f)
         {
-            float3 SecondLobe = SubstrateSpecularLobe(
-                BSDF.SecondRoughness, BSDF.F0, F90,
-                NoV, NoL_s, NoH, VoH, SphereSinAlpha, SoftSinAlpha);
+            float3 SecondLobe = RectGGXApproxLTC(BSDF.SecondRoughness, BSDF.F0, F90, N, V, AreaLight.Rect);
             Lobe = lerp(Lobe, SecondLobe, BSDF.SecondRoughnessWeight);
         }
 
-        Specular = Lobe * NoL_s;
+        Lighting.Specular = Lobe;
 
         [branch]
         if (BSDF.FuzzAmount > 0.0f)
         {
-            float Sheen = SubstrateD_Charlie(BSDF.FuzzRoughness, NoH)
-                        * SubstrateV_Ashikhmin(NoV, NoL_s);
-            Specular = lerp(Specular, BSDF.FuzzColor * Sheen * NoL_s, BSDF.FuzzAmount);
+            // ファズは平均方向で 1 回評価する (面積分の近似)
+            float Sheen = SubstrateD_Charlie(BSDF.FuzzRoughness, Context.NoH)
+                        * SubstrateV_Ashikhmin(NoV, NoL);
+            Lighting.Specular = lerp(Lighting.Specular, BSDF.FuzzColor * Sheen * (Falloff * NoL), BSDF.FuzzAmount);
+        }
+    }
+    else if (NoL > 0.0f)
+    {
+        float3 Lobe = SubstrateSpecularLobe(BSDF.Roughness, BSDF.F0, F90, Context, NoL, AreaLight);
+
+        [branch]
+        if (BSDF.SecondRoughnessWeight > 0.0f)
+        {
+            float3 SecondLobe = SubstrateSpecularLobe(BSDF.SecondRoughness, BSDF.F0, F90, Context, NoL, AreaLight);
+            Lobe = lerp(Lobe, SecondLobe, BSDF.SecondRoughnessWeight);
         }
 
-        Specular *= SpecularScale * SpecularFalloff;
+        Lighting.Specular = Lobe * NoL;
+
+        [branch]
+        if (BSDF.FuzzAmount > 0.0f)
+        {
+            float Sheen = SubstrateD_Charlie(BSDF.FuzzRoughness, Context.NoH)
+                        * SubstrateV_Ashikhmin(NoV, NoL);
+            Lighting.Specular = lerp(Lighting.Specular, BSDF.FuzzColor * Sheen * NoL, BSDF.FuzzAmount);
+        }
+
+        Lighting.Specular *= AreaLight.FalloffColor * Falloff;
     }
 
     // ------------------------------------------------------------
@@ -170,7 +195,7 @@ float3 SubstrateEvaluateSlabDirect(
     float3 MFPEff = max(BSDF.SSSMFP * BSDF.SSSMFPScale, 1e-9f); // [m]
     float3 SigmaT = rcp(MFPEff);
     float3 OpticalDepth = SigmaT * BSDF.Thickness; // τ (チャンネル別)
-    float PhaseCos = dot(-DiffuseL, V); // 散乱角: 入射伝播 (-L) -> 出射 (V)
+    float PhaseCos = dot(-L, V); // 散乱角: 入射伝播 (-L) -> 出射 (V)
     float Phase4Pi = SubstratePhase4Pi(BSDF.SSSPhaseAnisotropy, PhaseCos);
 
     float3 Diffuse = float3(0.0f, 0.0f, 0.0f);
@@ -227,40 +252,93 @@ float3 SubstrateEvaluateSlabDirect(
     else
     {
         // ---- NONE / DIFFUSION / DIFFUSION_PROFILE ----
-        // 非散乱ディフューズへフォールバックする。
-        Diffuse = BSDF.DiffuseAlbedo * INV_PI * saturate(NoL_d);
+        // 非散乱ディフューズへフォールバックする。NoL は光源形状込み
+        // (球光源の地平線の回り込み / レクトライトの平均方向)。
+        Diffuse = BSDF.DiffuseAlbedo * INV_PI * NoL;
     }
 
-    Diffuse *= kD * DiffuseFalloff;
+    Lighting.Diffuse = Diffuse * kD * (AreaLight.FalloffColor * Falloff);
 
-    return Diffuse + Specular;
+    return Lighting;
 }
 
 // -------------------------------------------------------------
-//  IntegrateLocalLightSubstrate
-//  ローカルライト 1 灯の Slab 評価。面光源セットアップ
-//  (FAreaLight) はレガシー経路 (IntegrateLocalLight) と共有。
+//  SubstrateDeferredLighting
+//  ライト 1 灯の Slab 評価 (SubstrateDeferredLighting.ush 相当)。
+//  減衰 / シャドウ / 面光源の形状はレガシー経路
+//  (DeferredLightingCommon.hlsl の AccumulateDynamicLighting) と同じ手順で、
+//  BxDF だけが Slab になる。
+//    SceneDepth       : 受光点のビュー空間 Z [m] (コンタクトシャドウ用)
+//    LightAttenuation : 呼び出し側が求めたシャドウ係数
 // -------------------------------------------------------------
-float3 IntegrateLocalLightSubstrate(
-    FLightShaderParameters Light,
-    float3 WorldPos, float3 N, float3 V,
-    FSubstrateBSDF BSDF)
+float3 SubstrateDeferredLighting(
+    FSubstrateBSDF BSDF,
+    float3 WorldPosition, float3 CameraVector, float3 N, float SceneDepth,
+    FDeferredLightData LightData, float LightAttenuation, float Dither)
 {
-    FAreaLight AreaLight;
-    [branch]
-    if (!SetupAreaLight(Light, WorldPos, N, V, AreaLight))
+    float3 OutLighting = float3(0.0f, 0.0f, 0.0f);
+
+    float3 V = -CameraVector;
+
+    float3 L = LightData.Direction; // 正規化済み
+    float3 ToLight = L;
+    float3 MaskedLightColor = LightData.Color;
+    float LightMask = 1.0f;
+    if (LightData.bRadialLight)
     {
-        return float3(0.0f, 0.0f, 0.0f);
+        LightMask = GetLocalLightAttenuation(WorldPosition, LightData, ToLight, L);
+        MaskedLightColor *= LightMask;
     }
 
-    float3 Lighting = SubstrateEvaluateSlabDirect(
-        BSDF, N, V,
-        AreaLight.DiffuseL, AreaLight.SpecularL,
-        AreaLight.SphereSinAlpha, AreaLight.SoftSinAlpha,
-        Light.SpecularScale,
-        AreaLight.DiffuseFalloff, AreaLight.SpecularFalloff);
+    [branch]
+    if (LightMask > 0.0f)
+    {
+        FShadowTerms Shadow;
+        Shadow.SurfaceShadow = 1.0f;
+        Shadow.TransmissionShadow = 1.0f;
+        Shadow.TransmissionThickness = 1.0f;
+        GetShadowTerms(SceneDepth, LightData, WorldPosition, L, LightAttenuation, Dither, Shadow);
 
-    return Lighting * Light.Color * AreaLight.LightMask;
+        [branch]
+        if (Shadow.SurfaceShadow > 0.0f)
+        {
+            // 解析ライトのハイライトが点に潰れないようラフネスに下限を入れる
+            BSDF.Roughness = max(BSDF.Roughness, MIN_ROUGHNESS);
+            BSDF.SecondRoughness = max(BSDF.SecondRoughness, MIN_ROUGHNESS);
+
+            FAreaLightIntegrateContext AreaLightContext = InitAreaLightIntegrateContext();
+            bool bVisible = true;
+
+            if (LightData.bRectLight)
+            {
+                FRect Rect = GetRect(ToLight, LightData);
+                bVisible = IsRectVisible(Rect);
+                if (bVisible)
+                {
+                    AreaLightContext = CreateRectIntegrateContext(BSDF.Roughness, N, V, Rect);
+                }
+            }
+            else
+            {
+                FCapsuleLight Capsule = GetCapsule(ToLight, LightData);
+                AreaLightContext = CreateCapsuleIntegrateContext(BSDF.Roughness, N, V, Capsule, LightData.bInverseSquared);
+            }
+
+            [branch]
+            if (bVisible)
+            {
+                // 拡散の符号付き NoL (Sub-Surface の裏面透過) は光源形状を考慮しない代表方向で評価する
+                FDirectLighting Lighting = SubstrateEvaluateSlabDirect(BSDF, N, V, AreaLightContext);
+
+                Lighting.Specular *= LightData.SpecularScale;
+                Lighting.Diffuse *= LightData.DiffuseScale;
+
+                OutLighting = (Lighting.Diffuse + Lighting.Specular) * (MaskedLightColor * Shadow.SurfaceShadow);
+            }
+        }
+    }
+
+    return OutLighting;
 }
 
 // -------------------------------------------------------------

@@ -45,48 +45,9 @@ struct PS_OUTPUT
 
 // =============================================================
 //  Lights
+//  ライトのデータ構造 (FLocalLightData / FDeferredLightData /
+//  LIGHT_TYPE_* / LIGHT_FLAG_*) は LightData.hlsl。
 // =============================================================
-
-// ---- ライト種別 (C++ ELightType と 1:1) ----
-#define LIGHT_TYPE_DIRECTIONAL 0
-#define LIGHT_TYPE_POINT       1
-#define LIGHT_TYPE_SPOT        2
-#define LIGHT_TYPE_RECT        3
-
-// ---- ライトフラグ (C++ LIGHT_FLAG_* と 1:1) ----
-#define LIGHT_FLAG_INVERSE_SQUARED (1u << 0)
-
-// FLightShaderParameters。
-// C++ 側 (LightSceneProxy.h) と 1:1 ミラー必須 (逐次パック 112 bytes)。
-// StructuredBuffer 用なので cbuffer の 16 バイト境界規則は適用されない。
-// Direction は「発光方向」(受光面 -> ライトではない) 点に注意。
-struct FLightShaderParameters
-{
-    float3 Position; // ワールド位置 [m]
-    float InvRadius; // 1 / AttenuationRadius
-
-    float3 Color; // 線形色 x 強度 (cd 相当)
-    float FalloffExponent; // 逆二乗無効時の指数フォールオフ
-
-    float3 Direction; // 発光方向 (正規化)
-    float SpecularScale; // スペキュラ寄与スケール
-
-    float3 Tangent; // 幅軸 (Rect の幅 / チューブの軸)
-    float SourceRadius; // 球光源半径 (Rect では半幅) [m]
-
-    float2 SpotAngles; // x = cos(Outer), y = 1 / (cos(Inner) - cos(Outer))
-    float SoftSourceRadius; // 見かけだけ柔らかくする追加半径 [m]
-    float SourceLength; // チューブ長 (Rect では半高) [m]
-
-    float RectLightBarnCosAngle; // バーンドア開き角の cos
-    float RectLightBarnLength; // バーンドア長 [m]
-    uint Type; // LIGHT_TYPE_*
-    uint Flags; // LIGHT_FLAG_*
-
-    // ---- Volumetric Fog (ULightComponentBase::VolumetricScatteringIntensity) ----
-    float VolumetricScatteringIntensity; // Volumetric Fog への散乱寄与スケール (0 = 寄与なし)
-    float3 LightPad0; // 16 バイト境界合わせ (未使用)
-};
 
 // FLocalShadowParameters。
 // C++ 側 (ShadowRendering.h) と 1:1 ミラー必須 (逐次パック 96 bytes)。

@@ -1,4 +1,4 @@
-﻿#include "Main.h"
+#include "Main.h"
 #include "DirectionalLight.h"
 
 ADirectionalLight::ADirectionalLight()

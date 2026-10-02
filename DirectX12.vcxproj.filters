@@ -89,6 +89,9 @@
     <Filter Include="ソース ファイル\GameObject\Component">
       <UniqueIdentifier>{d8dbe7b7-9d53-4182-9e99-e7c78d1ac554}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Shader\Light">
+      <UniqueIdentifier>{da105da6-a2a8-48ed-89be-8ff7a442aae2}</UniqueIdentifier>
+    </Filter>
     <Filter Include="Shader\Substrate">
       <UniqueIdentifier>{a202bd2c-9756-40fd-a8d6-08c773253790}</UniqueIdentifier>
     </Filter>
@@ -303,6 +306,39 @@
     </ClCompile>
     <ClCompile Include="TemporalAA.cpp">
       <Filter>ソース ファイル\System\Render\PostProcess</Filter>
+    </ClCompile>
+    <ClCompile Include="LightComponentBase.cpp">
+      <Filter>ソース ファイル\GameObject\Lights\Base</Filter>
+    </ClCompile>
+    <ClCompile Include="DirectionalLightComponent.cpp">
+      <Filter>ソース ファイル\GameObject\Lights\Base</Filter>
+    </ClCompile>
+    <ClCompile Include="LocalLightComponent.cpp">
+      <Filter>ソース ファイル\GameObject\Lights\Base</Filter>
+    </ClCompile>
+    <ClCompile Include="LocalLightSceneProxy.cpp">
+      <Filter>ソース ファイル\GameObject\Lights\Base</Filter>
+    </ClCompile>
+    <ClCompile Include="PointLightComponent.cpp">
+      <Filter>ソース ファイル\GameObject\Lights\Base</Filter>
+    </ClCompile>
+    <ClCompile Include="SpotLightComponent.cpp">
+      <Filter>ソース ファイル\GameObject\Lights\Base</Filter>
+    </ClCompile>
+    <ClCompile Include="RectLightComponent.cpp">
+      <Filter>ソース ファイル\GameObject\Lights\Base</Filter>
+    </ClCompile>
+    <ClCompile Include="LightSceneInfo.cpp">
+      <Filter>ソース ファイル\System\Scene</Filter>
+    </ClCompile>
+    <ClCompile Include="LightRendering.cpp">
+      <Filter>ソース ファイル\System\Render</Filter>
+    </ClCompile>
+    <ClCompile Include="LTC.cpp">
+      <Filter>ソース ファイル\System\Render</Filter>
+    </ClCompile>
+    <ClCompile Include="SystemTextures.cpp">
+      <Filter>ソース ファイル\System\Render</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -539,6 +575,51 @@
     </ClInclude>
     <ClInclude Include="TemporalAA.h">
       <Filter>ソース ファイル\System\Render\PostProcess</Filter>
+    </ClInclude>
+    <ClInclude Include="LightComponentBase.h">
+      <Filter>ソース ファイル\GameObject\Lights\Base</Filter>
+    </ClInclude>
+    <ClInclude Include="DirectionalLightComponent.h">
+      <Filter>ソース ファイル\GameObject\Lights\Base</Filter>
+    </ClInclude>
+    <ClInclude Include="DirectionalLightSceneProxy.h">
+      <Filter>ソース ファイル\GameObject\Lights\Base</Filter>
+    </ClInclude>
+    <ClInclude Include="LocalLightComponent.h">
+      <Filter>ソース ファイル\GameObject\Lights\Base</Filter>
+    </ClInclude>
+    <ClInclude Include="LocalLightSceneProxy.h">
+      <Filter>ソース ファイル\GameObject\Lights\Base</Filter>
+    </ClInclude>
+    <ClInclude Include="PointLightComponent.h">
+      <Filter>ソース ファイル\GameObject\Lights\Base</Filter>
+    </ClInclude>
+    <ClInclude Include="PointLightSceneProxy.h">
+      <Filter>ソース ファイル\GameObject\Lights\Base</Filter>
+    </ClInclude>
+    <ClInclude Include="SpotLightComponent.h">
+      <Filter>ソース ファイル\GameObject\Lights\Base</Filter>
+    </ClInclude>
+    <ClInclude Include="SpotLightSceneProxy.h">
+      <Filter>ソース ファイル\GameObject\Lights\Base</Filter>
+    </ClInclude>
+    <ClInclude Include="RectLightComponent.h">
+      <Filter>ソース ファイル\GameObject\Lights\Base</Filter>
+    </ClInclude>
+    <ClInclude Include="RectLightSceneProxy.h">
+      <Filter>ソース ファイル\GameObject\Lights\Base</Filter>
+    </ClInclude>
+    <ClInclude Include="LightSceneInfo.h">
+      <Filter>ソース ファイル\System\Scene</Filter>
+    </ClInclude>
+    <ClInclude Include="LightRendering.h">
+      <Filter>ソース ファイル\System\Render</Filter>
+    </ClInclude>
+    <ClInclude Include="LTC.h">
+      <Filter>ソース ファイル\System\Render</Filter>
+    </ClInclude>
+    <ClInclude Include="SystemTextures.h">
+      <Filter>ソース ファイル\System\Render</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
@@ -862,6 +943,42 @@
     </FxCompile>
     <FxCompile Include="Shader\TemporalAA_Upsampling_Low_Downsample_CS.hlsl">
       <Filter>Shader\PostProcess</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\LightData.hlsl">
+      <Filter>Shader\Light</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\DynamicLightingCommon.hlsl">
+      <Filter>Shader\Light</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\BRDF.hlsl">
+      <Filter>Shader\Light</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\CapsuleLight.hlsl">
+      <Filter>Shader\Light</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\RectLight.hlsl">
+      <Filter>Shader\Light</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\AreaLightCommon.hlsl">
+      <Filter>Shader\Light</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\DeferredShadingCommon.hlsl">
+      <Filter>Shader\Light</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\ShadingModels.hlsl">
+      <Filter>Shader\Light</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\CapsuleLightIntegrate.hlsl">
+      <Filter>Shader\Light</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\RectLightIntegrate.hlsl">
+      <Filter>Shader\Light</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\RectLightLTC.hlsl">
+      <Filter>Shader\Light</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\ForwardLightingCommon.hlsl">
+      <Filter>Shader\Light</Filter>
     </FxCompile>
   </ItemGroup>
 </Project>
