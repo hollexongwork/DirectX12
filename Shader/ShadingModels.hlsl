@@ -8,12 +8,12 @@
 
 // =============================================================
 //  ShadingModels
-//  ShadingModels.ush 相当。面光源の積分コンテキスト
+//  面光源の積分コンテキスト
 //  (L / NoL / Falloff / FAreaLight) を受け取ってサーフェスの BxDF を評価する。
 //
-//  ライト側の枠組み (SphereMaxNoH / EnergyNormalization / LTC) は UE と同じ。
+//  ライト側の枠組みは SphereMaxNoH / EnergyNormalization / LTC。
 //  BxDF のカーネル (拡散の (1 - F) / Smith-Schlick の G / Schlick の F) は
-//  本エンジンの既存のマテリアルモデル (PBR_Utility.hlsl) をそのまま使う [PORT]。
+//  既存のマテリアルモデル (PBR_Utility.hlsl) をそのまま使う。
 //  光源形状を持たないライト (SourceRadius = 0 など) の結果は従来の
 //  CookTorrance と一致する。
 // =============================================================
@@ -34,7 +34,7 @@ struct FShadowTerms
     float TransmissionThickness;
 };
 
-// View.MinRoughness (r.MinRoughnessOverride の既定)。解析ライトのハイライトが点に潰れるのを防ぐ
+// ラフネスの下限。解析ライトのハイライトが点に潰れるのを防ぐ
 static const float MIN_ROUGHNESS = 0.02f;
 
 // 球光源の見かけ角で GGX の a2 を広げる (New_a2)

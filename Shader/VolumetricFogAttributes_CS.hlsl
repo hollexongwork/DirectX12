@@ -2,7 +2,7 @@
 
 // =============================================================
 //  VolumetricFogAttributes_CS
-//  VolumetricFog.usf の InitializeVolumeAttributesCS 相当 - Pass 1/3。
+//  InitializeVolumeAttributesCS 相当 - Pass 1/3。
 //  各 froxel (ジッタ付きサンプル位置) で Exponential Height Fog の
 //  2 層密度を評価し、Volumetric Fog の媒質属性へ変換する:
 //    σt (消散)  = (Density0(y) + Density1(y)) * ExtinctionScale
@@ -29,7 +29,7 @@ void main(uint3 DispatchThreadId : SV_DispatchThreadID)
     float3 worldPos = ComputeCellWorldPosition(gridCoordinate, FrameJitter.xyz, sceneDepth);
 
     // ---- 指数高さフォグの密度 (2 層)。高さ軸は Y ----
-    // exp2 の引数は UE と同じ -127 でクランプ (発散防止)
+    // exp2 の引数は -127 でクランプ (発散防止)
     float exponent0 = max(-127.0f, FogDensityParams0.y * (worldPos.y - FogDensityParams0.z));
     float exponent1 = max(-127.0f, FogDensityParams1.y * (worldPos.y - FogDensityParams1.z));
     float globalDensityFirst = FogDensityParams0.x * exp2(-exponent0);

@@ -37,7 +37,7 @@ struct FSceneView
 	float    FarClip = 500.0f;
 	float    AspectRatio = 16.0f / 9.0f;
 
-	// ---- カメラカット (UE FSceneView::bCameraCut) ----
+	// ---- カメラカット (bCameraCut) ----
 	// ゲーム側 (UWorld::CalcSceneView) が立てる: ワールド要求 (RequestCameraCut) /
 	// カメラコンポーネントのラッチ (NotifyCameraCut) の消費 / アクティブカメラの変更。
 	// レンダラ (PrepareViewStateForVisibility) はこれに初回フレーム / bValid 復帰 /

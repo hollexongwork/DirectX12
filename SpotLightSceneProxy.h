@@ -5,7 +5,7 @@ class USpotLightComponent;
 
 // ============================================================
 //  FSpotLightSceneProxy
-//  FSpotLightSceneProxy (Engine/Public/SpotLightSceneProxy.h) に相当。
+//  FSpotLightSceneProxy に相当。
 //  ポイントライト + コーン減衰。
 // ============================================================
 class FSpotLightSceneProxy : public FPointLightSceneProxy

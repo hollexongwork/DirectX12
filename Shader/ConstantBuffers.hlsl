@@ -24,7 +24,7 @@
 //  b0 : View (FViewUniformShaderParameters 相当, 448 B)
 //  ビュー行列群 + カメラ + 代表ディレクショナルライト + Temporal AA / TAAU。
 //  太陽ライトは View ユニフォームに常駐する。
-//  Projection / InvViewProjection は TAA ジッタ込み (UE ViewToClip / ClipToTranslatedWorld)。
+//  Projection / InvViewProjection は TAA ジッタ込み (ViewToClip / ClipToTranslatedWorld)。
 //  シャドウ / Lumen カード等のビューはゼロ初期化の定数を使うので、
 //  テンポラル系フィールドとミップバイアスは 0 になる。
 // -------------------------------------------------------------
@@ -60,7 +60,7 @@ cbuffer ViewConstantBuffer : register(b0)
 cbuffer PrimitiveConstantBuffer : register(b1)
 {
     float4x4 LocalToWorld;
-    float4x4 PreviousLocalToWorld; // 64 前フレームの LocalToWorld (UE PreviousLocalToWorld)
+    float4x4 PreviousLocalToWorld; // 64 前フレームの LocalToWorld
 };
 
 // ---- Blend Mode (C++ EBlendMode と 1:1) ----
@@ -148,7 +148,7 @@ cbuffer MaterialConstantBuffer : register(b2)
 //  グリッド本体は NumCulledLightsGrid (t19) + CulledLightDataGrid (t20)。
 //  C++ 側 FORWARD_LIGHT_CONSTANT (RenderManager.h) と 1:1 ミラー必須。
 //  受光側ヘルパは LightGridCommon.hlsl (GetLocalLightData / GetDirectionalLightData)。
-//  UE と同じく ForwardLightData.<フィールド> で読む (b0 の DirectionalLight* と名前を分けるため)。
+//  ForwardLightData.<フィールド> で読む (b0 の DirectionalLight* と名前を分けるため)。
 // -------------------------------------------------------------
 cbuffer ForwardLightDataBuffer : register(b3)
 {
@@ -231,7 +231,7 @@ cbuffer PostProcessConstantBuffer : register(b4)
 
         uint Flags;
         // --- レンダラ専有 (永続化しない。C++ PP_SETTINGS の同名フィールド) ---
-        float UpscaleUnsharpAmount; // 一次空間アップスケール mode 5 のアンシャープ量 (r.Upscale.Softness x (1 - 面積比))
+        float UpscaleUnsharpAmount; // 一次空間アップスケール mode 5 のアンシャープ量 (Softness x (1 - 面積比))
         uint VisualizeMode;         // Temporal AA デバッグ表示 (ETemporalAADebugView)
         float VisualizeScale;       // デバッグ表示の増幅 (FTemporalAADebugSettings::VisualizeScale)
     } PostProcess;
@@ -296,7 +296,7 @@ cbuffer LumenSceneParameters : register(b6)
 //  FSceneRenderer::RenderBasePass 先頭 (InitFogConstants) で毎フレーム
 //  解決され、フォグパス (HeightFogPS) / トランスルーセンシー
 //  (TranslucentPS) が HeightFogCommon.hlsl 経由で参照する。
-//  ※ 本エンジンは Y-up / メートル単位。UE の Z (高さ) は全て Y。
+//  ※ 本エンジンは Y-up / メートル単位。
 //    密度 / 高さ減衰は [1/m] に換算済み (FExponentialHeightFogSceneInfo)。
 // -------------------------------------------------------------
 cbuffer FogUniformParameters : register(b7)
@@ -322,7 +322,7 @@ cbuffer FogUniformParameters : register(b7)
     // x = 1 / (FullyDirectional - NonDirectional 距離), y = -NonDirectional * x,
     // z = 非指向性色に使う最終ミップ (NumMips - 1), w = 未使用
     float4 FogInscatteringTextureParameters;
-    // x = EndDistance [m] (0 = 無効。UE 5.4 の EndDistance 相当: 積分レイ長のクランプ), yzw = 予約
+    // x = EndDistance [m] (0 = 無効。積分レイ長のクランプ), yzw = 予約
     float4 ExponentialFogParameters4;
     // ---- Volumetric Fog (VolumetricFog.h) ----
     // xyz = froxel Z 分布 (B, O, S): Slice = log2(ViewZ * B + O) * S

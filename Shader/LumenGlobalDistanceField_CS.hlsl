@@ -2,7 +2,7 @@
 
 // =============================================================
 //  LumenGlobalDistanceField_CS
-//  GlobalDistanceField.usf 相当。シーンの全メッシュ SDF を
+//  Global Distance Field の構築。シーンの全メッシュ SDF を
 //  カメラ追従のクリップマップ (128^3, R16F, ワールド距離 [m]) へ
 //  合成する。ボリューム外のボクセルは
 //    d ~ |p - clamp(p)| + SDF(clamp(p))

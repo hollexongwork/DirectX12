@@ -38,7 +38,7 @@ Buffer<float> AutoExposureBuffer : register(t11);
 Texture2D<float4> TextureDOFBlur : register(t12); // ハーフ解像度 DOF ブラー
 
 // ---- Lights ----
-// ライトバッファ (UE ForwardLightBuffer)。[0, NumLocalLights) が視界内のローカルライト
+// ライトバッファ。[0, NumLocalLights) が視界内のローカルライト
 // (Point / Spot / Rect)、続く NumDirectionalLights 個がディレクショナルライト
 // (数は b3 ForwardLightData)。毎フレーム FSceneRenderer::ComputeLightGrid が詰め直す。
 // 読むときは LightGridCommon.hlsl の GetLocalLightData を使う。

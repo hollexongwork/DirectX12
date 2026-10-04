@@ -7,7 +7,6 @@
 
 // =============================================================
 //  ShadowFilteringCommon
-//  ShadowProjectionCommon.ush / ShadowFilteringCommon.ush に相当する
 //  シャドウマップの受光側評価。
 //
 //    - ディレクショナル : CSM (ビュー深度でカスケード選択 + 距離フェード)

@@ -4,7 +4,7 @@
 
 // ============================================================
 //  ADirectionalLight
-//  ADirectionalLight (Engine/Classes/Engine/DirectionalLight.h) に相当。
+//  ADirectionalLight に相当。
 //  UDirectionalLightComponent を Root に持つ。発光方向はアクターの
 //  前方 (+Z)。強度は lux。
 //  向きの指定は SetActorRotation か、方向ベクトルからの変換に

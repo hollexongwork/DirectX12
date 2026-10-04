@@ -7,10 +7,10 @@ using namespace DirectX;
 
 // ============================================================
 //  ULightComponent
-//  ULightComponent (Engine/Classes/Components/LightComponent.h) に相当。
+//  ULightComponent に相当。
 //  FScene への登録とレンダー側ミラー (FLightSceneProxy) の生成を担う。
 //
-//  レンダー側への反映は UE と同じ 3 経路:
+//  レンダー側への反映は 3 経路:
 //    1. MarkRenderStateDirty        : プロキシを作り直す。フレーム末尾
 //                                     (FScene::UpdateAllLightSceneInfos) に
 //                                     DestroyRenderState -> CreateRenderState
@@ -120,12 +120,12 @@ public:
 	void SetIntensity(float NewIntensity);
 	void SetIndirectLightingIntensity(float NewIntensity);
 	void SetVolumetricScatteringIntensity(float NewIntensity);
-	// 線形色を渡す (UE は内部で sRGB の FColor に量子化するが、本エンジンは線形のまま保持する [PORT])
+	// 線形色を渡す (量子化せず線形のまま保持する)
 	void SetLightColor(const XMFLOAT4& NewLightColor);
 	void SetTemperature(float NewTemperature);
 	void SetUseTemperature(bool bNewValue);
 
-	// ---- プロキシを作り直すプロパティ (UE にセッターがあるもの) ----
+	// ---- プロキシを作り直すプロパティ ----
 	void SetAffectTranslucentLighting(bool bNewValue);
 	void SetShadowBias(float NewValue);
 	void SetShadowSlopeBias(float NewValue);

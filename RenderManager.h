@@ -54,8 +54,8 @@ struct VERTEX_3D
 struct VIEW_CONSTANT
 {
 	XMFLOAT4X4		View;				//   0  ワールド -> ビュー
-	XMFLOAT4X4		Projection;			//  64  ジッタ込み (UE ViewToClip)
-	XMFLOAT4X4		InvViewProjection;	// 128  ジッタ込み (深度 + UV からのワールド復元。UE ClipToTranslatedWorld)
+	XMFLOAT4X4		Projection;			//  64  ジッタ込み (ViewToClip)
+	XMFLOAT4X4		InvViewProjection;	// 128  ジッタ込み (深度 + UV からのワールド復元)
 	XMFLOAT4		WorldCameraOrigin;	// 192  xyz = カメラワールド位置 [m], w = 1
 	XMFLOAT4		NearFar;			// 208  x=Near, y=Far, zw=0
 
@@ -67,14 +67,14 @@ struct VIEW_CONSTANT
 	XMFLOAT4		DirectionalLightColor;		// 240
 
 	// ---- Temporal AA / TAAU (FViewUniformShaderParameters の同名メンバ) ----
-	XMFLOAT4X4		PrevViewProjection;	// 256  前フレーム View*Projection (前フレームのジッタ込み = UE PrevTranslatedWorldToClip)
-	XMFLOAT4X4		ClipToPrevClip;		// 320  InvVP_NoAA(cur) * VP_NoAA(prev) (UE ClipToPrevClip)
+	XMFLOAT4X4		PrevViewProjection;	// 256  前フレーム View*Projection (前フレームのジッタ込み)
+	XMFLOAT4X4		ClipToPrevClip;		// 320  InvVP_NoAA(cur) * VP_NoAA(prev)
 	XMFLOAT4		TemporalAAJitter;	// 384  xy = 今フレーム NDC ジッタ, zw = 前フレーム NDC ジッタ
 	XMFLOAT4		TemporalAAParams;	// 400  x = SampleIndex, y = SampleCount, zw = TemporalJitterPixels (レンダー px)
 	XMFLOAT4		ViewSizeAndInvSize;	// 416  (R.x, R.y, 1/R.x, 1/R.y) (exact-size なので BufferSize と同一)
 	float			MaterialTextureMipBias;				// 432  マテリアルテクスチャの SampleBias (TemporalUpscale 時のみ非 0)
 	float			MaterialTextureDerivativeMultiply;	// 436  = 2^MipBias (予約。SampleGrad 用で現状未使用)
-	uint32_t		StateFrameIndexMod8;	// 440  TAA 有効時 FrameIndex & 7, それ以外 0 [PORT]
+	uint32_t		StateFrameIndexMod8;	// 440  TAA 有効時 FrameIndex & 7, それ以外 0
 	uint32_t		StateFrameIndex;		// 444
 };
 static_assert(sizeof(VIEW_CONSTANT) == 448, "VIEW_CONSTANT must mirror HLSL ViewConstantBuffer (b0)");
@@ -449,7 +449,7 @@ public:
 		VELOCITY,          // t35 (Texture2D<float2>: SceneVelocity R16G16_UNORM エンコード済み, 0 = 未書き込み)
 		TEMPORAL_AA_DEBUG, // t36 (Texture2D<float4>: TAA DebugOutput / TAA 出力 (TemporalUpscalerIO))
 
-		// ---- システムテクスチャ (SystemTextures.h。UE GSystemTextures) ----
+		// ---- システムテクスチャ (SystemTextures.h) ----
 		LTC_MAT,           // t37 (Texture2D<float4>: LTC 逆行列テーブル。レクトライトのスペキュラ)
 		LTC_AMP,           // t38 (Texture2D<float2>: LTC 振幅 / フレネルテーブル)
 

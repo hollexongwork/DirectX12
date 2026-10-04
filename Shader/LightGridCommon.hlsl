@@ -6,8 +6,7 @@
 
 // =============================================================
 //  LightGridCommon
-//  LightGridCommon.ush 相当。タイルドライトカリング
-//  (クラスタードライトグリッド) の受光側ヘルパ。
+//  タイルドライトカリング (クラスタードライトグリッド) の受光側ヘルパ。
 //
 //  グリッドは XY = 画面タイル (LightGridPixelSize = 64px)、
 //  Z = ビュー深度の指数スライス (LightGridSizeZ = 32) の 3D セル。
@@ -18,7 +17,7 @@
 //  として読む。インデックスはライトバッファ (t13, ForwardLightBuffer) /
 //  ローカルシャドウパラメータ (t16, LocalShadowParams) と共通。
 //
-//  ライトの取り出しは UE と同じ形:
+//  ライトの取り出し:
 //    GetLocalLightData(Index)       : ライトバッファの 1 要素 (FLocalLightData)
 //    GetDirectionalLightData()      : 選択されたフォワードディレクショナルライト (b3)
 //    ConvertToDeferredLight(...)    : 評価用の FDeferredLightData へ (LightData.hlsl)

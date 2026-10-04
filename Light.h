@@ -4,7 +4,7 @@
 
 // ============================================================
 //  ALight
-//  ALight (Engine/Classes/Engine/Light.h) に相当するライトアクターの共通基底。
+//  ALight に相当するライトアクターの共通基底。
 //  ULightComponent を Root に持ち、有効化 / 明るさ / 色のユーティリティを
 //  コンポーネントへ委譲する。
 //  派生: ADirectionalLight / APointLight / ASpotLight / ARectLight

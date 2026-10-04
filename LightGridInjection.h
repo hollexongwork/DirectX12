@@ -5,7 +5,7 @@
 // ============================================================
 //  FLightGridInjection
 //  FSceneRenderer::GatherLightsAndComputeLightGrid /
-//  LightGridInjection.cpp (FLightGridInjectionCS + FLightGridCompactCS)
+//  FLightGridInjectionCS + FLightGridCompactCS
 //  に相当するタイルドライトカリング (クラスタードライトグリッド)。
 //
 //  画面を XY = LIGHT_GRID_PIXEL_SIZE (64px) タイル、
@@ -39,12 +39,11 @@
 //  ライトバッファの 1 要素 (FForwardLocalLightData)。
 //  ビューのライトバッファ (t13 ForwardLightBuffer) と Lumen 用ライトバッファ (Lumen t3) の
 //  要素型。HLSL FLocalLightData (LightData.hlsl) と 1:1 ミラー必須 (逐次パック 128 B)。
-//  詰め方は UE の FForwardLocalLightData に合わせる
-//  [PORT: ContactShadowParams / LightType / Flags を独立フィールドで持つ (UE はビットパック)]。
+//  ContactShadowParams / LightType / Flags は独立フィールドで持つ (ビットパックしない)。
 //    Direction は「受光点 -> ライト」(= 発光方向の逆)、Tangent はライトの上方向 (+Y)。
 //    FalloffExponent == 0 が逆二乗減衰。
 // ============================================================
-#define LIGHT_FLAG_CAST_DYNAMIC_SHADOW         (1u << 0)	// 動的シャドウを落とす (UE ShadowedBits。コンタクトシャドウの対象)
+#define LIGHT_FLAG_CAST_DYNAMIC_SHADOW         (1u << 0)	// 動的シャドウを落とす (ShadowedBits。コンタクトシャドウの対象)
 #define LIGHT_FLAG_AFFECT_TRANSLUCENT_LIGHTING (1u << 1)	// 半透明を照らす
 #define LIGHT_FLAG_CAST_VOLUMETRIC_SHADOW      (1u << 2)	// Volumetric Fog の中で影を落とす
 
@@ -68,11 +67,11 @@ static_assert(sizeof(FForwardLocalLightData) == 128,
 // ライトバッファの要素数 (ローカル + ディレクショナル)
 static const unsigned int MAX_FORWARD_LIGHT_BUFFER_ENTRIES = MAX_LOCAL_LIGHTS + MAX_DIRECTIONAL_LIGHTS;
 
-// ---- グリッド定数 (r.Forward.* の既定値と同一) ----
-static const unsigned int LIGHT_GRID_PIXEL_SIZE = 64; // r.Forward.LightGridPixelSize
+// ---- グリッド定数 ----
+static const unsigned int LIGHT_GRID_PIXEL_SIZE = 64; // 画面タイルの一辺 [px]
 static const unsigned int LIGHT_GRID_PIXEL_SIZE_SHIFT = 6; // log2(LIGHT_GRID_PIXEL_SIZE)
-static const unsigned int LIGHT_GRID_SIZE_Z = 32; // r.Forward.LightGridSizeZ
-static const unsigned int MAX_CULLED_LIGHTS_PER_CELL = 32; // r.Forward.MaxCulledLightsPerCell
+static const unsigned int LIGHT_GRID_SIZE_Z = 32; // 深度スライス数
+static const unsigned int MAX_CULLED_LIGHTS_PER_CELL = 32; // セルあたりのライト数上限
 
 class FLightGridInjection
 {

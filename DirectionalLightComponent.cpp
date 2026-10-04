@@ -12,9 +12,9 @@ FDirectionalLightSceneProxy::FDirectionalLightSceneProxy(const UDirectionalLight
 	, m_DynamicShadowCascades(Component->GetDynamicShadowCascades())
 	, m_CascadeDistributionExponent(Component->GetCascadeDistributionExponent())
 	, m_ShadowDistanceFadeoutFraction(Component->GetShadowDistanceFadeoutFraction())
-	// DF シャドウを使わないライトはカバー距離 0 (UE と同じ)
+	// DF シャドウを使わないライトはカバー距離 0
 	, m_DistanceFieldShadowDistance(Component->GetUseRayTracedDistanceFieldShadows() ? Component->GetDistanceFieldShadowDistance() : 0.0f)
-	// UE は 1000..1000000 cm にクランプする
+	// 10 m .. 10000 m にクランプする
 	, m_TraceDistance(fmaxf(fminf(Component->GetTraceDistance(), 10000.0f), 10.0f))
 	, m_LightSourceAngle(Component->GetLightSourceAngle())
 	, m_LightSourceSoftAngle(Component->GetLightSourceSoftAngle())

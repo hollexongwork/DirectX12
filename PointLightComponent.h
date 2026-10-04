@@ -3,7 +3,7 @@
 
 // ============================================================
 //  UPointLightComponent
-//  UPointLightComponent (Engine/Classes/Components/PointLightComponent.h) に相当。
+//  UPointLightComponent に相当。
 //  全方位に光る点光源。SourceRadius / SourceLength で球 / チューブの面光源になる。
 // ============================================================
 class UPointLightComponent : public ULocalLightComponent

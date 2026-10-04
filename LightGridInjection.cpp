@@ -463,7 +463,7 @@ void FLightGridInjection::Dispatch(const VIEW_CONSTANT& ViewConstant,
 
 // ============================================================
 //  FSceneRenderer::ComputeLightGrid
-//  LightGridInjection.cpp の FSceneRenderer::ComputeLightGrid に相当する
+//  FSceneRenderer::ComputeLightGrid に相当する
 //  「ライトデータの詰め込み」部分。ソート済みライトを巡回して
 //    - ローカルライト          -> ライトバッファ (t13) [0, NumLocalLights)
 //    - ディレクショナルライト  -> ライトバッファ (t13) [NumLocalLights, +NumDirectionalLights)
@@ -472,10 +472,10 @@ void FLightGridInjection::Dispatch(const VIEW_CONSTANT& ViewConstant,
 //    - Lumen 用ライトバッファ  (描画距離内 かつ bAffectGlobalIllumination。ディレクショナル含む)
 //  を作り、FORWARD_LIGHT 定数 (b3) を解決する。
 //  グリッド本体の構築 (Injection -> Compact) は RenderLighting 先頭の
-//  FLightGridInjection::Dispatch [PORT: UE は同じ関数内で行う]。
+//  FLightGridInjection::Dispatch。
 // ============================================================
 
-// FLightRenderParameters -> ライトバッファの 1 要素 (UE ComputeLightGrid の詰め方)
+// FLightRenderParameters -> ライトバッファの 1 要素
 static void PackForwardLocalLightData(const FLightSceneProxy* Proxy, const FLightRenderParameters& P, FForwardLocalLightData& Out)
 {
 	Out.LightPositionAndInvRadius = { P.WorldPosition.x, P.WorldPosition.y, P.WorldPosition.z, P.InvRadius };
@@ -550,7 +550,7 @@ void FSceneRenderer::ComputeLightGrid(FScene* Scene, const FSortedLightSetSceneI
 		{
 			if (NumLocalLights >= MAX_LOCAL_LIGHTS)
 			{
-				continue;	// バッファ満杯 [PORT: UE は可変長]
+				continue;	// バッファ満杯 (固定長)
 			}
 
 			// 距離フェード (画面上のサイズ / MaxDrawDistance) を色に掛ける
@@ -604,7 +604,7 @@ void FSceneRenderer::ComputeLightGrid(FScene* Scene, const FSortedLightSetSceneI
 			ForwardLightData.DirectionalLightSpecularScale = LightParameters.SpecularScale;
 			ForwardLightData.DirectionalLightDiffuseScale = LightParameters.DiffuseScale;
 
-			// b0 (View) の代表ディレクショナルライトも同じ 1 灯 (UE の View.DirectionalLightDirection / Color)。
+			// b0 (View) の代表ディレクショナルライトも同じ 1 灯。
 			// DirectionalLightDirection は「受光面 -> ライト」(LightParameters.Direction と同じ向き)
 			m_ViewConstant.DirectionalLightDirection = { LightParameters.Direction.x, LightParameters.Direction.y, LightParameters.Direction.z, 0.0f };
 			m_ViewConstant.DirectionalLightColor = { LightParameters.Color.x, LightParameters.Color.y, LightParameters.Color.z, 1.0f };
@@ -613,7 +613,7 @@ void FSceneRenderer::ComputeLightGrid(FScene* Scene, const FSortedLightSetSceneI
 
 	const unsigned int NumDirectionalLights = (unsigned int)DirectionalLights.size();
 
-	// ---- Lumen 用ライトリスト (UE FLumenGatheredLight) ----
+	// ---- Lumen 用ライトリスト ----
 	// Surface Cache は画面外も照らされるので、フラスタムではなく描画距離で選ぶ (bOffscreen = true)。
 	// GI に寄与しないライトは除き、色に IndirectLightingScale を掛ける。
 	// ディレクショナルライトも同じバッファに LightType = Directional の要素として積む

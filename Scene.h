@@ -100,7 +100,7 @@ struct FExponentialHeightFogSceneInfo
 //  Phase 4: ライトリスト (FLightSceneInfo) を追加。
 //  ディレクショナル / ポイント / スポット / レクトの各ライトが
 //  プリミティブと同じプロキシパターンで登録される。
-//  ライトの登録簿は UE の FScene と同じ形:
+//  ライトの登録簿:
 //    Lights            : FLightSceneInfoCompact のスパース配列 (添字 = FLightSceneInfo::Id)
 //    DirectionalLights : ディレクショナルライトの一覧
 //    AtmosphereLights  : Exponential Height Fog の太陽 (添字 0) / 月 (添字 1)
@@ -161,8 +161,8 @@ private:
 	// FSceneRenderer::RenderVelocities が読む
 	FSceneVelocityData m_VelocityData;
 
-	// ---- ライトの登録 / 解除の本体 (UE の *_RenderThread) ----
-	// 本エンジンはシングルスレッドなので AddLight / RemoveLight から直接呼ぶ [PORT]
+	// ---- ライトの登録 / 解除の本体 ----
+	// シングルスレッドなので AddLight / RemoveLight から直接呼ぶ
 	void AddLightSceneInfo_RenderThread(FLightSceneInfo* LightSceneInfo);
 	void RemoveLightSceneInfo_RenderThread(FLightSceneInfo* LightSceneInfo);
 	void ProcessAtmosphereLightAddition_RenderThread(FLightSceneInfo* LightSceneInfo);
@@ -191,7 +191,7 @@ public:
 
 	// ---- ベロシティ ----
 	// 次のトランスフォームプッシュをテレポート扱いにする (前フレーム変換 = 今の変換 = 速度 0)。
-	// UE の bTeleport / OverridePreviousTransform 相当。SettingsManager::ApplyComponent
+	// bTeleport / OverridePreviousTransform 相当。SettingsManager::ApplyComponent
 	// (INI 適用 / Reset / Details の Reset Actor) が呼ぶ
 	void MarkPrimitiveTeleported(UPrimitiveComponent* Primitive) { m_VelocityData.MarkTeleported(Primitive); }
 	const FSceneVelocityData& GetVelocityData() const { return m_VelocityData; }

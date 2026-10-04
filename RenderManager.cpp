@@ -827,7 +827,7 @@ void RenderManager::InitPipelines()
 
 	// ---- 一次空間アップスケール ----
 	// トーンマップ済み LDR (ポスト解像度 P) -> バックバッファ (出力解像度 O)。
-	// DSV を渡さないフルスクリーンパスなので深度無効。名前の添字 = r.Upscale.Quality。
+	// DSV を渡さないフルスクリーンパスなので深度無効。名前の添字 = UpscaleQuality。
 	// オプション PSO: .cso が欠落していても起動を止めず、登録もしない
 	// (FSceneRenderer::SelectPrimaryUpscalePipeline が HasPipelineState で確かめ、
 	//  Bilinear (1) -> トーンマップ統合 (bilinear) の順にフォールバックする)

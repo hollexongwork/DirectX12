@@ -5,7 +5,7 @@ class ULocalLightComponent;
 
 // ============================================================
 //  FLocalLightSceneProxy
-//  FLocalLightSceneProxy (Engine/Public/LocalLightSceneProxy.h) に相当。
+//  FLocalLightSceneProxy に相当。
 //  減衰半径を持つライト (Point / Spot / Rect) の共通基底。
 // ============================================================
 class FLocalLightSceneProxy : public FLightSceneProxy

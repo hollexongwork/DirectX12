@@ -45,7 +45,7 @@ void ALight::SetLightColor(const XMFLOAT4& NewLightColor)
 
 XMFLOAT4 ALight::GetLightColor() const
 {
-	// ライト不在時は黒 (UE FLinearColor::Black)
+	// ライト不在時は黒
 	return m_LightComponent ? m_LightComponent->GetLightColor() : XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f);
 }
 

@@ -53,7 +53,7 @@ float ACameraActor::GetScrollDollyDistance() const
 // ------------------------------------------------------------
 void ACameraActor::Tick(float DeltaTime)
 {
-	// エディタカメラはゲーム時間のスケール / ポーズに影響されない (UE のエディタビューポートと同じ)
+	// エディタカメラはゲーム時間のスケール / ポーズに影響されない
 	UNREFERENCED_PARAMETER(DeltaTime);
 	const float dt = Time::GetUnscaledDeltaTime();
 
@@ -77,7 +77,7 @@ void ACameraActor::Tick(float DeltaTime)
 
 		// InputManager が ImGui 外で開始した右 / 中ドラッグだけを相対座標モードにする
 		const bool bViewportDrag = (mouse.positionMode == MOUSE_POSITION_MODE_RELATIVE) && input->IsViewportDragActive();
-		const bool bFlightCameraInputMode = bViewportDrag && mouse.rightButton;	// UE: IsFlightCameraInputModeActive
+		const bool bFlightCameraInputMode = bViewportDrag && mouse.rightButton;	// IsFlightCameraInputModeActive
 
 		// ---- マウスルック (右ドラッグ) ----
 		if (bFlightCameraInputMode)

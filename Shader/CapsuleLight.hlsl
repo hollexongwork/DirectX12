@@ -5,7 +5,7 @@
 
 // =============================================================
 //  CapsuleLight
-//  CapsuleLight.ush 相当。球 / チューブ (カプセル) の面光源。
+//  球 / チューブ (カプセル) の面光源。
 //  ポイント / スポットライトとディレクショナルライト (光源 = 円盤) が使う。
 //  レジスタを宣言しない (グラフィックス / コンピュート共用)。
 //
@@ -46,7 +46,7 @@ float3 ClosestPointLineToRay(float3 Line0, float3 Line1, float Length, float3 R)
 
 // -------------------------------------------------------------
 //  線光源の放射照度 (LineIrradiance)
-//  [ Karis 2013, "Real Shading in Unreal Engine 4" ] の変形。
+//  [ Karis 2013 ] の変形。
 //    CosSubtended   : 線分が張る角度の cos
 //    BaseIrradiance : 距離フォールオフ (線分の両端の距離の積で近似)
 //    NoL            : 両端の方向の N・L の平均

@@ -489,8 +489,8 @@ void ImGuiManager::LumenWindow()
 
 
 // ============================================================
-//  Anti-Aliasing (r.AntiAliasingMethod / r.ScreenPercentage /
-//  r.TemporalAA.* / r.Upscale.* / r.ViewTextureMipBias.*) ウィンドウ
+//  Anti-Aliasing (AA 方式 / スクリーンパーセンテージ /
+//  Temporal AA / 空間アップスケール / ミップバイアス) ウィンドウ
 //  永続化設定 (FAntiAliasingParams: [AntiAliasing]) と非永続のデバッグ設定
 //  (FTemporalAADebugSettings: "(not saved)")。
 // ============================================================
@@ -619,7 +619,7 @@ void ImGuiManager::AntiAliasingWindow()
 	ImGui::Checkbox("Temporal Upsampling (TAAU)", &p.bTemporalAAUpsampling);
 
 	// ---- Temporal AA ----
-	if (ImGui::CollapsingHeader("Temporal AA (r.TemporalAA*)", ImGuiTreeNodeFlags_DefaultOpen))
+	if (ImGui::CollapsingHeader("Temporal AA", ImGuiTreeNodeFlags_DefaultOpen))
 	{
 		{
 			ImGui::Combo("Quality", &p.TemporalAAQuality,
@@ -643,7 +643,7 @@ void ImGuiManager::AntiAliasingWindow()
 			if (F.bTemporalAA && F.TAAPass != ETAAPassConfig::MainUpsampling)
 			{
 				ImGui::SameLine();
-				ImGui::TextDisabled("(MainUpsampling only)");	// UE: SuperSampling は常に AA_FILTERED
+				ImGui::TextDisabled("(MainUpsampling only)");	// SuperSampling は常に AA_FILTERED
 			}
 
 			if (!m_bEditingHistoryScreenPercentage)
@@ -674,7 +674,7 @@ void ImGuiManager::AntiAliasingWindow()
 	}
 
 	// ---- Spatial Upscale ----
-	if (ImGui::CollapsingHeader("Spatial Upscale (r.Upscale*, r.Tonemapper.MergeWithUpscale*)"))
+	if (ImGui::CollapsingHeader("Spatial Upscale"))
 	{
 		ImGui::Combo("Spatial Upscale", &p.UpscaleQuality,
 			[](void*, int i, const char** out) { *out = GetUpscaleMethodName(i); return true; }, nullptr, (int)EUpscaleMethod::Count);
@@ -687,7 +687,7 @@ void ImGuiManager::AntiAliasingWindow()
 	}
 
 	// ---- Texture Mip Bias ----
-	if (ImGui::CollapsingHeader("Texture Mip Bias (r.ViewTextureMipBias*)"))
+	if (ImGui::CollapsingHeader("Texture Mip Bias"))
 	{
 		ImGui::SliderFloat("Mip Bias Offset", &p.ViewTextureMipBiasOffset, kMipBiasOffsetMin, kMipBiasOffsetMax, "%.2f", ImGuiSliderFlags_AlwaysClamp);
 		ImGui::SameLine();
@@ -790,7 +790,7 @@ void ImGuiManager::AntiAliasingWindow()
 		m_Settings->ResetAntiAliasing();
 	}
 
-	// ---- TemporalUpscalerIO (可視化 4) の 4 象限ラベル (UE VisualizeTemporalUpscaler) ----
+	// ---- TemporalUpscalerIO (可視化 4) の 4 象限ラベル ----
 	// 可視化パス (VisualizeTemporalAAPS) がバックバッファ (出力解像度 O) に描いた 2x2 グリッドの各象限の
 	// 左上へ、前面描画リストで解像度 / パス / 品質を書く。象限の境界は ImGui の DisplaySize の半分をそのまま使う
 	// (O との比では写さない。クライアント領域 = バックバッファ O の大きさであることが前提)
@@ -850,7 +850,7 @@ void ImGuiManager::CullingWindow()
 	ImGui::SameLine();
 	ImGui::TextDisabled(params.bFreezeFrustum
 		? "(frozen: fly the camera to inspect culling)"
-		: "(r.FreezeRendering)");
+		: "(freeze the culling frustum)");
 
 	ImGui::Separator();
 
@@ -1393,7 +1393,7 @@ void ImGuiManager::DrawViewportControlsSection(ACameraActor* Camera)
 	Checkbox("Invert Mouse Look Y Axis", &s.bInvertMouseLookYAxis);
 	SliderFloat("Pan Sensitivity (m/count)", &s.PanSensitivity, 0.001f, 0.05f, "%.4f");
 
-	// ---- スムージング (本エンジン拡張。Off = UE のエディタと同じ即時適用) ----
+	// ---- スムージング ----
 	Checkbox("Smooth Mouse Look", &s.bSmoothMouseLook);
 	if (s.bSmoothMouseLook)
 	{
@@ -1698,12 +1698,10 @@ void ImGuiManager::DrawPostProcessVolumeSection(APostProcessVolume* Volume)
 
 // ============================================================
 //  ライト共通プロパティ (Details の "Light" セクション)
-//  UE の ULightComponent / ULocalLightComponent / 各ライトの Details と
-//  同じプロパティ名で並べる。編集はすべて公開セッター経由
 //  (明るさ / 色は即時更新、それ以外は MarkRenderStateDirty -> プロキシ再生成)。
 // ============================================================
 
-// ライトの色は線形で保持する (UE の FLinearColor)。ピッカーは sRGB で編集する
+// ライトの色は線形で保持する。ピッカーは sRGB で編集する
 static float LightColorLinearToSRGB(float Linear)
 {
 	Linear = (Linear < 0.0f) ? 0.0f : Linear;
@@ -1744,7 +1742,7 @@ void ImGuiManager::DrawLightComponentSection(ULightComponent* Light)
 	}
 
 	{
-		// 線形色を sRGB で編集する (UE の色ピッカーと同じ見え方)
+		// 線形色を sRGB で編集する 
 		XMFLOAT4 linearColor = light->GetLightColor();
 		float srgb[3] = {
 			LightColorLinearToSRGB(linearColor.x),
@@ -1865,7 +1863,7 @@ void ImGuiManager::DrawLightComponentSection(ULightComponent* Light)
 			light->SetUseRayTracedDistanceFieldShadows(dfShadows);
 		}
 
-		// Volumetric Fog の中で影を落とすか (UE 既定: ディレクショナル = true, ローカル = false)
+		// Volumetric Fog の中で影を落とすか (ディレクショナル = true, ローカル = false)
 		bool castVolumetricShadow = light->GetCastVolumetricShadow();
 		if (Checkbox("Cast Volumetric Shadow", &castVolumetricShadow))
 		{
@@ -2084,7 +2082,7 @@ void ImGuiManager::DrawLightComponentSection(ULightComponent* Light)
 
 // ============================================================
 //  Exponential Height Fog (Details)
-//  UExponentialHeightFogComponent の全プロパティ  + Volumetric Fog + レンダラ設定 (r.VolumetricFog.*)。
+//  UExponentialHeightFogComponent の全プロパティ  + Volumetric Fog + レンダラ設定。
 //  編集は全て公開セッター経由 -> MarkRenderStateDirty -> 次フレームに
 //  FScene の SceneInfo が再スナップショットされる。
 // ============================================================
@@ -2309,10 +2307,10 @@ void ImGuiManager::DrawExponentialHeightFogSection(UExponentialHeightFogComponen
 				fog->SetOverrideLightColorsWithFogInscatteringColors(overrideColors);
 			}
 
-			// ---- レンダラ設定 (r.VolumetricFog.* 相当。[VolumetricFog] に永続化) ----
+			// ---- レンダラ設定 ([VolumetricFog] に永続化) ----
 			FFogSceneRenderer* fogRenderer = m_SceneRenderer->GetFogRenderer();
 			FVolumetricFog* volumetricFog = fogRenderer ? fogRenderer->GetVolumetricFog() : nullptr;
-			if (volumetricFog && TreeNodeEx("Renderer (r.VolumetricFog.*)", 0))
+			if (volumetricFog && TreeNodeEx("Renderer", 0))
 			{
 				FVolumetricFog::Params& params = volumetricFog->GetParams();
 				const FVolumetricFog::Stats& stats = volumetricFog->GetStats();

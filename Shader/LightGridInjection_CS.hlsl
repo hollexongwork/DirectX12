@@ -2,8 +2,7 @@
 //  LightGridInjection_CS.hlsl
 //
 //  タイルドライトカリング (クラスタードライトグリッド) - Pass 1/2。
-//  LightGridInjection.usf の TLightGridInjectionCS
-//  (bLightGridUsesLinkedList = true) に相当する。
+//  TLightGridInjectionCS (リンクリスト方式) に相当する。
 //
 //  画面を XY = 64px タイル、Z = ビュー深度の指数スライスに分割した
 //  3D セル (froxel) ごとに 1 スレッドを割り当て、全ローカルライトを
@@ -15,7 +14,7 @@
 //  ※ 各セルは担当スレッドのみが書くため StartOffsetGrid の事前
 //    クリアは不要。アロケータ (8 bytes) のみ毎フレームゼロクリア。
 //
-//  交差判定 (LightGridInjection.usf と同型):
+//  交差判定:
 //    - 全ライト : 減衰球 vs セル AABB
 //    - スポット : + SphereIntersectCone (セル外接球 vs コーン)
 //    - レクト   : + 発光面背面の半空間カリング

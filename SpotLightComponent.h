@@ -3,7 +3,7 @@
 
 // ============================================================
 //  USpotLightComponent
-//  USpotLightComponent (Engine/Classes/Components/SpotLightComponent.h) に相当。
+//  USpotLightComponent に相当。
 //  コンポーネントの前方 (+Z) へ Inner / OuterConeAngle のコーンで照射する。
 // ============================================================
 class USpotLightComponent : public UPointLightComponent

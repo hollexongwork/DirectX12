@@ -18,18 +18,18 @@ using namespace DirectX;
 //
 //  ※ 距離の単位はメートル
 //  ※ 発光方向はコンポーネント +Z、幅軸 (レクトライトの幅) は +X、
-//    上方向 (レクトライトの高さ / チューブの軸) は +Y [PORT: UE は X / Y / Z]
+//    上方向 (レクトライトの高さ / チューブの軸) は +Y
 // ============================================================
 
 // ============================================================
 //  ULightComponentBase
-//  ULightComponentBase (Engine/Classes/Components/LightComponentBase.h) に相当。
+//  ULightComponentBase に相当。
 //  全ライト (将来のスカイライトを含む) に共通するプロパティを持つ。
 //
 //  セッターの規約:
-//    - UE にランタイムのセッターがあるもの (SetCastShadows など) は UE と同じく
+//    - ランタイムに変わり得るもの (SetCastShadows など) は
 //      「値が変わったときだけ MarkRenderStateDirty」。
-//    - UE ではエディタでしか変えられないもの (bAffectsWorld など) のセッターは、
+//    - エディタ的な設定 (bAffectsWorld など) のセッターも、
 //      Details / INI からの編集 (PostEditChangeProperty 相当) として同じ動作にする。
 //  本エンジンのライトは全て Movable なので AreDynamicDataChangesAllowed は常に真。
 // ============================================================
@@ -39,8 +39,8 @@ protected:
 	// 明るさ。単位はライトの種別による (ディレクショナル = lux、ローカル = IntensityUnits)
 	float    m_Intensity = 3.1415926535897932f;			// 既定値 π
 
-	// ライトの色 (線形)。UE は sRGB の FColor で持つが、本エンジンは線形の float で持つ [PORT]。
-	// API (SetLightColor / GetLightColor) は UE と同じく線形で受け渡しする
+	// ライトの色 (線形の float で持つ)。
+	// API (SetLightColor / GetLightColor) も線形で受け渡しする
 	XMFLOAT4 m_LightColor = { 1.0f, 1.0f, 1.0f, 1.0f };
 
 	// ライトがワールドに影響するか。false のライトはシーンに一切寄与しない
@@ -76,7 +76,7 @@ public:
 	bool IsRenderStateDirty() const { return m_RenderStateDirty; }
 	void ClearRenderStateDirty() { m_RenderStateDirty = false; }
 
-	// ---- UE にセッターがあるプロパティ ----
+	// ---- ランタイムに変わり得るプロパティ ----
 	void SetCastShadows(bool bNewValue);
 	bool GetCastShadows() const { return m_CastShadows; }
 

@@ -550,7 +550,7 @@ void FShadowSceneRenderer::SetupLocalShadows(const std::vector<const FLightScene
 			else
 			{
 				// レクト: バーンドア開き角ベース (透視 1 枚の近似。
-				// 150 度を超える範囲の影は落とせない制限あり [PORT: UE はキューブマップ])
+				// 150 度を超える範囲の影は落とせない制限あり)
 				const FRectLightSceneProxy* rectProxy = static_cast<const FRectLightSceneProxy*>(proxy);
 				fov = 2.0f * XMConvertToRadians(rectProxy->GetBarnDoorAngle()) + XMConvertToRadians(4.0f);
 			}

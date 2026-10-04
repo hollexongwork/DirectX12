@@ -6,8 +6,7 @@ using namespace DirectX;
 
 // ============================================================
 //  UExponentialHeightFogComponent
-//  UExponentialHeightFogComponent (Engine/Classes/Components/
-//  ExponentialHeightFogComponent.h) に相当。高さに応じて密度が
+//  UExponentialHeightFogComponent に相当。高さに応じて密度が
 //  指数関数的に変化するフォグ (2 層) と、その上に乗る Volumetric Fog
 //  (froxel ボリューム) のパラメータを持つ。
 //
@@ -23,7 +22,7 @@ using namespace DirectX;
 //    - 距離系 (StartDistance / FogCutoffDistance / DirectionalInscattering
 //      StartDistance / *InscatteringColorDistance / VolumetricFog*) は
 //      メートル。
-//    - フォグの基準高さ = コンポーネントのワールド Y (UE は Z)
+//    - フォグの基準高さ = コンポーネントのワールド Y
 //    - InscatteringColorCubemap はテクスチャ参照ではなく
 //      「IBL の空キューブ (prefilter) を使うか」のフラグ
 // ============================================================
@@ -106,7 +105,7 @@ public:
 	void ClearRenderStateDirty() { m_RenderStateDirty = false; }
 
 	// フォグの基準高さはワールド Y なので、トランスフォーム変更も
-	// レンダーステート更新として扱う (UE の SendRenderTransform 相当)
+	// レンダーステート更新として扱う
 	void MarkRenderTransformDirty() override;
 
 	// ---- 可視性 (SetVisibility) ----

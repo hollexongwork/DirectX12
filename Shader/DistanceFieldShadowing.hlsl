@@ -5,8 +5,7 @@
 
 // =============================================================
 //  DistanceFieldShadowing
-//  DistanceFieldShadowing.usf (RayTraced Distance Field
-//  Shadows) 相当。シーンの各メッシュ SDF (t17 アトラス + t18
+//  RayTraced Distance Field Shadows。シーンの各メッシュ SDF (t17 アトラス + t18
 //  オブジェクトバッファ) をスフィアトレースし、コーン幅
 //  (光源の見かけ角) に対する最小クリアランスからソフトな
 //  遮蔽係数を求める。

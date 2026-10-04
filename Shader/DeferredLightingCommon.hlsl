@@ -8,7 +8,7 @@
 
 // =============================================================
 //  DeferredLightingCommon
-//  DeferredLightingCommon.ush 相当。ライト 1 灯の評価。
+//  ライト 1 灯の評価。
 //
 //  前半 (レジスタ非依存。グラフィックス / コンピュート共用):
 //    GetLocalLightAttenuation : ローカルライトの減衰マスク
@@ -23,7 +23,6 @@
 //  コンピュート (Lumen の Surface Cache / Volumetric Fog) は BxDF を伴わないので、
 //  include の前に #define NON_DIRECTIONAL_DIRECT_LIGHTING 1 として前半だけを使い、
 //  IntegrateLight (CapsuleLight.hlsl / RectLight.hlsl) でフォールオフを求める
-//  (UE の VolumetricFog.usf / LumenSceneDirectLighting.usf と同じ使い方)。
 //
 //  コンタクトシャドウ (SUPPORT_CONTACT_SHADOWS 1) はシーン深度 (t3) を読むので
 //  デファードライティングパスだけが有効にする。
@@ -37,7 +36,7 @@
 #define SUPPORT_CONTACT_SHADOWS 0
 #endif
 
-// カプセルライトの距離バイアスの 2 乗。UE は 1 (cm^2)。メートルでは 1e-4 [PORT]
+// カプセルライトの距離バイアスの 2 乗。
 #define LOCAL_LIGHT_DIST_BIAS_SQR 1e-4f
 
 // -------------------------------------------------------------
@@ -55,7 +54,7 @@ float GetLocalLightAttenuation(
     ToLight = LightData.WorldPosition - WorldPosition;
 
     float DistanceSqr = dot(ToLight, ToLight);
-    L = ToLight * rsqrt(max(DistanceSqr, 1e-8f)); // 距離 0 の NaN を避ける下限 [PORT]
+    L = ToLight * rsqrt(max(DistanceSqr, 1e-8f)); // 距離 0 の NaN を避ける下限
 
     float LightMask;
     if (LightData.bInverseSquared)
@@ -89,8 +88,8 @@ FCapsuleLight GetCapsule(float3 ToLight, FDeferredLightData LightData)
     Capsule.Length = LightData.SourceLength;
     Capsule.Radius = LightData.SourceRadius;
     Capsule.SoftRadius = LightData.SoftSourceRadius;
-    // ディレクショナルライト (ToLight が単位ベクトル) は UE と同じ 1 を使う。
-    // 見かけの半径 sin(半角) に対して同じ数値になるようにするため [PORT]
+    // ディレクショナルライト (ToLight が単位ベクトル) は 1 を使う。
+    // 見かけの半径 sin(半角) に対して同じ数値になるようにするため
     Capsule.DistBiasSqr = LightData.bRadialLight ? LOCAL_LIGHT_DIST_BIAS_SQR : 1.0f;
     Capsule.LightPos[0] = ToLight - 0.5f * Capsule.Length * LightData.Tangent;
     Capsule.LightPos[1] = ToLight + 0.5f * Capsule.Length * LightData.Tangent;
@@ -125,8 +124,6 @@ FRect GetRect(float3 ToLight, FDeferredLightData LightData)
 //  レイマーチする。シャドウマップの解像度では拾えない接地部分の影を補う。
 //    戻り値 : 最初に当たった距離 [m] (当たらなければ負)
 //    bOutHitCastContactShadow : 当たった先がコンタクトシャドウを落とすジオメトリか。
-//                               UE はステンシルで判定するが、本エンジンは常に真 [PORT]
-//  深度は標準 Z (近 0 / 遠 1)。UE (逆 Z) とは比較の向きが逆になる。
 // -------------------------------------------------------------
 float ShadowRayCast(
     float3 RayOriginWorld, float3 RayDirection, float RayLength,
@@ -201,9 +198,8 @@ float ShadowRayCast(
 //  シャドウ係数 (GetShadowTerms)
 //    SceneDepth       : 受光点のビュー空間 Z [m]
 //    LightAttenuation : 呼び出し側が求めたシャドウ係数 (シャドウマップ / CSM /
-//                       Distance Field。1 = 影なし)。UE はライトごとの
-//                       シャドウマスクテクスチャから読むが、本エンジンは
-//                       ライトグリッドのループ内でインラインに求める [PORT]
+//                       Distance Field。1 = 影なし)。
+//                       ライトグリッドのループ内でインラインに求める
 //    Dither           : コンタクトシャドウのレイ開始位置のディザ (0..1)
 // -------------------------------------------------------------
 void GetShadowTerms(float SceneDepth, FDeferredLightData LightData, float3 WorldPosition, float3 L, float LightAttenuation, float Dither, inout FShadowTerms Shadow)
@@ -222,7 +218,7 @@ void GetShadowTerms(float SceneDepth, FDeferredLightData LightData, float3 World
         if (LightData.ShadowedBits > 1 && LightData.ContactShadowLength > 0.0f)
         {
             // スクリーン空間の長さは「画面の高さに対する割合」。受光点の深度でワールドの長さへ直す
-            // (UE: View.ClipToView[1][1] * SceneDepth。対角成分は転置の影響を受けない)
+            // (ClipToView[1][1] * SceneDepth。対角成分は転置の影響を受けない)
             const float ContactShadowLengthScreenScale = SceneDepth / Projection._22;
             ContactShadowLength = LightData.ContactShadowLength * (LightData.ContactShadowLengthInWS ? 1.0f : ContactShadowLengthScreenScale);
         }

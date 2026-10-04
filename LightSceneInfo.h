@@ -10,7 +10,7 @@ struct FViewInfo;
 
 // ============================================================
 //  FLightSceneInfoCompact
-//  FLightSceneInfoCompact (ScenePrivate.h) に相当。FScene::Lights が
+//  FLightSceneInfoCompact に相当。FScene::Lights が
 //  値で持つ、ライト 1 灯の要約 (境界球 / 色 / 種別 / フラグ)。
 //  ライトの巡回でプロキシを辿らずに済ませるためのもの。
 // ============================================================
@@ -47,12 +47,12 @@ public:
 
 // ============================================================
 //  FLightSceneInfo
-//  FLightSceneInfo (LightSceneInfo.h) に相当。レンダラ内部で持つライトの状態。
+//  FLightSceneInfo に相当。レンダラ内部で持つライトの状態。
 //  プロキシ (FLightSceneProxy) を所有し、FScene::Lights 内の位置 (Id) を覚える。
 //  Id は FViewInfo::VisibleLightInfos を引く添字にもなる。
 //
-//  UE のライト - プリミティブの相互作用 (ライトオクツリー / FLightPrimitiveInteraction) は
-//  持たない [PORT]。本エンジンはライトグリッドとシャドウビュー別のフラスタムカリングで代替している。
+//  ライト - プリミティブの相互作用 (ライトオクツリー / FLightPrimitiveInteraction) は
+//  持たない。ライトグリッドとシャドウビュー別のフラスタムカリングで代替している。
 // ============================================================
 class FLightSceneInfo
 {
@@ -65,7 +65,7 @@ public:
 
 	FScene* Scene = nullptr;
 
-	// 可視のライトか。false は「見えないがプレビュー等のためにシーンが持つライト」(UE のエディタ用)。
+	// 可視のライトか。false は「見えないがプレビュー等のためにシーンが持つライト」。
 	// 本エンジンは常に true
 	bool bVisible = true;
 

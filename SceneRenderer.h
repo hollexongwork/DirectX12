@@ -159,7 +159,7 @@ private:
 	unsigned int                    m_LightBufferSRVIndex[2] = {};
 	unsigned int                    m_LightBufferFrame = 0;
 
-	// ---- Lumen 用ライトバッファ (UE FLumenGatheredLight 相当) ----
+	// ---- Lumen 用ライトバッファ ----
 	// Surface Cache の直接光は画面外のライトも要るので、ビューのライトバッファとは別に
 	// 「描画距離内 かつ bAffectGlobalIllumination」のライト (ディレクショナル含む) を
 	// IndirectLightingScale を掛けて積む。m_LightBufferFrame と同じ面を使う
@@ -212,7 +212,7 @@ private:
 	// F9 (パス指定なし) 用の自動パス: Saved/Screenshots/<YYYYMMDD_HHMMSS>_<frame>_<SP>_<method>_<pass>_Q<q>.bmp
 	std::string MakeAutoScreenshotPath() const;
 
-	// ---- アンチエイリアシング / スクリーンパーセンテージ / ビュー状態 (UE FViewInfo / FSceneViewState) ----
+	// ---- アンチエイリアシング / スクリーンパーセンテージ / ビュー状態 (FViewInfo / FSceneViewState) ----
 	// m_AAParams      : 永続化設定 (SettingsManager の [AntiAliasing])。ImGui / テストドライバが書く
 	// m_TAADebug      : 非永続のデバッグ設定 (ワンショット要求を含む)
 	// m_ViewFamily    : BeginFrame 先頭 (PrepareViewRectsForRendering) で決まる今フレームの解像度 / AA 構成
@@ -239,7 +239,7 @@ private:
 	mutable uint32_t m_UpscaleFallbackLoggedMask = 0;	// SelectPrimaryUpscalePipeline (PostProcessUpscale.cpp) のフォールバック
 	bool m_bLoggedMissingVisualizePSO = false;			// AddVisualizeTemporalAAPass の PSO 欠落
 
-	// ---- Temporal AA / TAAU (UE FDefaultTemporalUpscaler, TemporalAA.h) ----
+	// ---- Temporal AA / TAAU (FDefaultTemporalUpscaler, TemporalAA.h) ----
 	// RenderPostProcessing の DOF の後で AddPasses を呼ぶ。PSO (.cso) が揃っていなければ
 	// PrepareViewRectsForRendering が AA 無しの構成へフォールバックする (IsReady)。
 	// そのダミー (1x1 RGBA16F (0,0,0,1), RD 常駐) は可視化パスの t35 / t36 の代替にも使う
@@ -301,7 +301,7 @@ private:
 	FConvexVolume              m_ViewFrustum;
 	std::vector<unsigned char> m_PrimitiveVisibilityMap;	// 登録順 1:1 (1 = 可視)
 
-	// r.FreezeRendering 相当: フラスタムを凍結してカリング挙動を可視化する
+	// フラスタムを凍結してカリング挙動を可視化する
 	FConvexVolume m_FrozenViewFrustum;
 	XMFLOAT3      m_FrozenViewOrigin = { 0.0f, 0.0f, 0.0f };
 	bool          m_bHasFrozenView = false;
@@ -369,10 +369,10 @@ private:
 	void DrawTonemap(RENDER_TARGET* Input);
 	// m_TonemapOutput を Extent (RGBA8) で用意する (null かサイズ違いの時だけ作り直す。状態 PSR)
 	void EnsureTonemapOutput(XMUINT2 Extent);
-	// r.Upscale.Quality の PSO 名。欠落時は Bilinear、それも無ければ nullptr (統合経路へ)。
+	// 一次空間アップスケールの PSO 名。欠落時は Bilinear、それも無ければ nullptr (統合経路へ)。
 	// フォールバックは 1 回だけログ (PostProcessUpscale.cpp)
 	const char* SelectPrimaryUpscalePipeline() const;
-	// UE AddUpscalePass: In (PSR, InExtent) -> 現在の RTV (バックバッファ) へ出力ビューポートで描く
+	// AddUpscalePass: In (PSR, InExtent) -> 現在の RTV (バックバッファ) へ出力ビューポートで描く
 	// (PostProcessUpscale.cpp)
 	void AddPrimaryUpscalePass(RENDER_TARGET* In, XMUINT2 InExtent, XMUINT2 OutputExtent, const char* PipelineName);
 	// バックバッファの状態遷移 (1 行のラッパ)
@@ -387,9 +387,8 @@ private:
 	void AddVisualizeTemporalAAPass(RENDER_TARGET* PostInput, bool bTAARan);
 
 	// ---- Responsive AA マスク (§4.6。RenderTranslucency の最後、最終バリアの前) ----
-	// UE の STENCIL_TEMPORAL_RESPONSIVE_AA (ステンシル bit 3) の代わりに、レンダー解像度の
-	// R8_UNORM マスク (FSceneTextures::ResponsiveAAMask) へ bEnableResponsiveAA の Translucent /
-	// Additive サブセット (m_TAADebug.bForceResponsiveAA なら全半透明) を 1 で描く [PORT]。
+	// レンダー解像度の R8_UNORM マスク (FSceneTextures::ResponsiveAAMask) へ bEnableResponsiveAA の
+	// Translucent / Additive サブセット (m_TAADebug.bForceResponsiveAA なら全半透明) を 1 で描く。
 	// 半透明深度プリパスの深度を DSV にバインドしたまま LESS_EQUAL (書き込み無し) で描くので、
 	// 最前面の Translucent 層 + その手前の Additive だけが残る。描いたフレームだけ
 	// m_bResponsiveMaskValid = true (TAA は無効なら t5 にダミーを束縛しフラグを立てない)。
@@ -406,7 +405,7 @@ public:
 	// ビュー定数を更新せず、CSM もスキップする (従来挙動と同じ)。
 	void BeginFrame();
 	void RenderBasePass(FScene* Scene, const FSceneView& View);
-	// ベロシティパス (UE RenderVelocities, VelocityRendering.cpp)。RenderBasePass の直後に呼ぶこと
+	// ベロシティパス (RenderVelocities, VelocityRendering.cpp)。RenderBasePass の直後に呼ぶこと
 	// (ベースパス深度 = DEPTH_WRITE をテストに使い、可視性マップ / b0 を再利用する)。
 	// 必要な時 (TAA 有効 / ベロシティを読むデバッグ表示 / bForceVelocityPass) だけ Velocity をクリアして
 	// 前フレームから動いたプリミティブを描き、m_bVelocityValid = true にする
@@ -483,7 +482,7 @@ public:
 	struct FCullingParams
 	{
 		bool bEnableFrustumCulling = true;	// false = 全プリミティブを描画 (距離カリングも停止)
-		bool bFreezeFrustum = false;		// r.FreezeRendering: フラスタムを凍結してカリングを可視化
+		bool bFreezeFrustum = false;		// フラスタムを凍結してカリングを可視化
 	};
 
 	// ---- カリング統計 (毎フレーム ComputeViewVisibility が更新) ----

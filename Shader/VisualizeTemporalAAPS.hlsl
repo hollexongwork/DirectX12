@@ -3,7 +3,7 @@
 #include "TemporalAACommon.hlsl"   // ViewZToDeviceZ
 
 // =============================================================
-//  VisualizeTemporalAAPS (UE VisualizeMotionVectors / VisualizeTemporalUpscaler / AA_DEBUG 相当)
+//  VisualizeTemporalAAPS (VisualizeMotionVectors / VisualizeTemporalUpscaler / AA_DEBUG 相当)
 //  Temporal AA のデバッグ表示 (ETemporalAADebugView)。DeferredVS のフルスクリーンクアッドで
 //  バックバッファ (出力解像度 O, ビューポート O) へ上書きする。
 //  FSceneRenderer::AddVisualizeTemporalAAPass がバインドする:
@@ -21,7 +21,7 @@
 //    2 VelocityMask     : ベロシティを書いた画素 = 緑、それ以外 = 0.3 x シーン輝度
 //    3 InputOutputSplit : 左半分 = TAA 入力 (C++ が 2 回目のトーンマップをシザーで描く)、
 //                         この PS は中央の 2 px の赤い分割線だけを描く
-//    4 TemporalUpscalerIO (UE VisualizeTemporalUpscaler): 2x2 グリッド。各象限に画面全体を縮小表示
+//    4 TemporalUpscalerIO (VisualizeTemporalUpscaler): 2x2 グリッド。各象限に画面全体を縮小表示
 //                         左上 = 入力 (レンダー解像度 R のジッタ込み SceneColor, 象限 UV でバイリニア)
 //                         右上 = 深度 (LinearDepth.G = 表示用の正規化深度)
 //                         左下 = モーション (モード 1 の色, 矢印無し)

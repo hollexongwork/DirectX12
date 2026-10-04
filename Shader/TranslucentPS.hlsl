@@ -15,7 +15,7 @@
 //   t13 ライトバッファ, t14-t18 シャドウ, t19-t20 ライトグリッド,
 //   t37-t38 LTC) をサーフェス位置で直接評価し、確定済み SceneColor へ
 //  ハードウェアブレンドで合成する。
-//  ディレクショナルライトは UE のフォワードシェーディングと同じく
+//  ディレクショナルライトは
 //  「選択された 1 灯」(b3 の DirectionalLight*) だけを照らし、
 //  bAffectTranslucentLighting が偽のライトは照らさない:
 //    BLEND_Translucent : SrcAlpha / InvSrcAlpha
@@ -44,9 +44,8 @@
 //                        パス側の結果がそのまま残る)
 //    BLEND_Additive    : Color * Fog.a             (減衰のみ。加算光は
 //                        インスキャッタを持ち込まない)
-//  Unlit / 屈折経路にも同様に掛かる (UE のマテリアル既定
-//  "Apply Fogging" = true 相当。屈折背景は既にフォグ済みの
-//  SceneColor なので薄く二重に掛かるが UE も同じ挙動)。
+//  Unlit / 屈折経路にも同様に掛かる (屈折背景は既にフォグ済みの
+//  SceneColor なので薄く二重に掛かる)。
 //
 //  深度は不透明結果に対するテストのみ (PSO: DepthRead、書き込みなし)。
 //  α = BaseColor テクスチャ α x 頂点カラー α x Material.Opacity。

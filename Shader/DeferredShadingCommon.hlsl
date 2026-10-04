@@ -5,13 +5,13 @@
 
 // =============================================================
 //  DeferredShadingCommon
-//  DeferredShadingCommon.ush の FGBufferData 相当。
+//  FGBufferData 相当。
 //  ライト 1 灯の評価 (GetDynamicLighting -> IntegrateBxDF) が受け取る
 //  サーフェスのパラメータ。デファードは G-Buffer から、フォワード
 //  (半透明) はマテリアルから同じ構造体を組み立てる。
 //
 //  SpecularColor (F0) は既存のマテリアルモデルのまま
-//  lerp(0.04, BaseColor, Metallic) で、Specular 入力は使わない [PORT]。
+//  lerp(0.04, BaseColor, Metallic) で、Specular 入力は使わない。
 // =============================================================
 
 struct FGBufferData

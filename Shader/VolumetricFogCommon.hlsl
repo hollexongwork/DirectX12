@@ -3,7 +3,7 @@
 
 // =============================================================
 //  VolumetricFogCommon
-//  VolumetricFogShared.ush / VolumetricFog.usf の共通部。
+//  Volumetric Fog のコンピュートパス共通部。
 //  Volumetric Fog は視錐台を XY = GridPixelSize (8px) タイル、
 //  Z = 指数分布 GridSizeZ (64) スライスの froxel ボリュームに切り、
 //  3 つのコンピュートパスで「カメラから各 froxel までの累積
@@ -40,16 +40,15 @@
 //  (いずれもレジスタ非依存) から取り込む。ライトグリッドの
 //  セル計算は LightGridCommon.hlsl と同式 (b3 の値を b0 経由で受ける)。
 //
-//  ---- UE からの意図的乖離 ----
+//  ---- 実装上の規約 ----
 //    - Y-up / メートル単位 (高さ = WorldPosition.y、密度 [1/m])
 //    - 位相関数は標準 HG: cosθ = dot(ToLight, CameraVector)
-//      (UE は g を反転して dot(L, -CameraVector) を渡す。同値)
 //    - スカイライトの SH の代わりに IBL irradiance キューブ (t10) を
 //      視線方向で採光し /π した値を等方インスキャッタとする
 //    - DF シャドウ (bUseRayTracedDistanceFieldShadows) のライトは
 //      ボリューム内では影なし (シャドウマップのライトのみ遮蔽)
-//    - UE が別パス (InjectShadowedLocalLight) で行う影付きローカル
-//      ライトの注入は、ここで同じループ内にインライン評価する
+//    - 影付きローカルライトの注入は別パスにせず、
+//      同じループ内にインライン評価する
 //    - HistoryMissSupersampleCount (履歴外セルの追加サンプル) は未実装
 // =============================================================
 
@@ -62,7 +61,7 @@
 #include "Constant.hlsl"
 #include "ColorSpace.hlsl"
 
-#define VOLUMETRIC_FOG_THREADGROUP_SIZE 4   // 4x4x4 (UE VolumetricFogGridInjectionGroupSize)
+#define VOLUMETRIC_FOG_THREADGROUP_SIZE 4   // 4x4x4
 #define VOLUMETRIC_FOG_INTEGRATION_GROUP_SIZE 8   // 8x8x1 (FinalIntegration)
 
 // C++ 側 (VolumetricFog.h) の FVolumetricFogParams と 1:1 ミラー必須 (720 bytes)
@@ -134,7 +133,7 @@ SamplerState LinearClampSampler : register(s0);
 SamplerComparisonState ShadowCmpSampler : register(s1);
 
 // -------------------------------------------------------------
-//  froxel Z スライス <-> ビュー深度 (VolumetricFogShared.ush)
+//  froxel Z スライス <-> ビュー深度
 //    Slice = log2(Depth * B + O) * S  /  Depth = (2^(Slice / S) - O) / B
 // -------------------------------------------------------------
 float ComputeDepthFromZSlice(float ZSlice)
@@ -225,7 +224,7 @@ uint VF_ComputeLightGridCellIndex(uint2 PixelPos, float SceneDepth)
 
 // -------------------------------------------------------------
 //  ローカルライト 1 灯の froxel でのインスキャッタ
-//  (VolumetricFog.usf の LightScatteringCS と同じ評価)
+//  (LightScatteringCS の評価)
 //    GetLocalLightAttenuation : 半径窓 / 指数フォールオフ / コーン / レクト背面
 //    IntegrateLight           : 面光源の形状を考慮したフォールオフ
 //                               (逆二乗の特異点は froxel サイズ由来の

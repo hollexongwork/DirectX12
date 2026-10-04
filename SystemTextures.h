@@ -2,7 +2,7 @@
 #include "RenderManager.h"
 
 // ============================================================
-//  FSystemTextures (UE GSystemTextures の LTCMat / LTCAmp 相当)
+//  FSystemTextures (LTCMat / LTCAmp)
 //  レクトライトのスペキュラ (RectGGXApproxLTC, RectLightLTC.hlsl) が読む
 //  Linearly Transformed Cosines (Heitz 2016) のテーブル。
 //  LTC.cpp (Tools/LTCFit が生成した定数配列) を起動時に 64x64 の

@@ -9,7 +9,7 @@ using namespace DirectX;
 class UPrimitiveComponent;
 
 // ============================================================
-//  FSceneVelocityData (UE ScenePrivate.h の FSceneVelocityData / FComponentVelocityData)
+//  FSceneVelocityData (FComponentVelocityData を含む)
 //  プリミティブごとの「今フレーム描く LocalToWorld」と「前フレームに描いた LocalToWorld」。
 //  FScene が所有し、キーはコンポーネント (プロキシ再生成を跨いで履歴が残る)。
 //
@@ -28,9 +28,9 @@ struct FComponentVelocityData
 	XMFLOAT4X4 LocalToWorld;                         // 今フレーム描画値 (転置前)
 	XMFLOAT4X4 PreviousLocalToWorld;                 // 前フレーム描画値 (転置前)
 	uint64_t   LastFrameUpdated = 0;                 // UpdateTransform / Register したフレーム (内部番号)
-	bool       bTeleportPending = true;              // 次の UpdateTransform で Prev = Current (UE bTeleport)
+	bool       bTeleportPending = true;              // 次の UpdateTransform で Prev = Current (bTeleport)
 
-	// いずれかの要素で |L2W - Prev| > 1e-4 (UE FMatrix::Equals の既定許容誤差)
+	// いずれかの要素で |L2W - Prev| > 1e-4 (FMatrix::Equals の既定許容誤差)
 	bool HasVelocity() const;
 };
 
@@ -40,7 +40,7 @@ public:
 	void StartFrame();                                                       // ++InternalFrameIndex; 全エントリ Prev = Current
 	void Register(const UPrimitiveComponent* C, const XMFLOAT4X4& L2W);      // Prev = Current = L2W, bTeleportPending = true
 	void UpdateTransform(const UPrimitiveComponent* C, const XMFLOAT4X4& L2W); // Current = L2W; 保留中なら Prev = L2W
-	void MarkTeleported(const UPrimitiveComponent* C);                       // bTeleportPending = true (UE bTeleport / OverridePreviousTransform)
+	void MarkTeleported(const UPrimitiveComponent* C);                       // bTeleportPending = true (bTeleport / OverridePreviousTransform)
 	void EndFrameUpdates();                                                  // 全 bTeleportPending = false
 	void Remove(const UPrimitiveComponent* C);
 	const FComponentVelocityData* Find(const UPrimitiveComponent* C) const;

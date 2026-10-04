@@ -6,7 +6,7 @@
 
 // =============================================================
 //  SubstrateEvaluation
-//  SubstrateEvaluation.ush 相当。Slab BSDF の直接光評価
+//  Slab BSDF の直接光評価
 //  (Sub-Surface Type 6 種すべて) と IBL 評価を提供する。
 //  デファード (DeferredPS) とフォワード半透明 (TranslucentPS) が
 //  共有する。
@@ -101,7 +101,7 @@ float3 SubstrateSpecularLobe(
 //  SubstrateEvaluateSlabDirect
 //  Slab BSDF の直接光 1 灯評価 (ライト色とシャドウを掛ける前)。
 //  面光源の積分コンテキスト (代表方向 L / NoL / Falloff / FAreaLight) を
-//  受け取る (UE の SubstrateEvaluateBSDF と同じ受け渡し)。
+//  受け取る。
 //    - スペキュラ: 球 / チューブは GGX、レクトライトは LTC
 //    - 拡散 / Sub-Surface: NoL は符号付きで評価し、負側は透過が受け持つ
 // -------------------------------------------------------------
@@ -264,7 +264,7 @@ FDirectLighting SubstrateEvaluateSlabDirect(
 
 // -------------------------------------------------------------
 //  SubstrateDeferredLighting
-//  ライト 1 灯の Slab 評価 (SubstrateDeferredLighting.ush 相当)。
+//  ライト 1 灯の Slab 評価。
 //  減衰 / シャドウ / 面光源の形状はレガシー経路
 //  (DeferredLightingCommon.hlsl の AccumulateDynamicLighting) と同じ手順で、
 //  BxDF だけが Slab になる。

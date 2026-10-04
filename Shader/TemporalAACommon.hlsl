@@ -11,7 +11,7 @@
 //  C++ 側の CPU 鏡像 (自己テスト) と同じ式を保つこと。
 // =============================================================
 
-// TAA / Mitchell-Netravali のスレッドグループの一辺 (== C++ kTAATileSize, UE GTemporalAATileSizeX/Y)
+// TAA / Mitchell-Netravali のスレッドグループの一辺 (== C++ kTAATileSize)
 #define TAA_TILE_SIZE 8
 
 static const int2 kOffsets3x3[9] = { int2(-1,-1), int2(0,-1), int2(1,-1), int2(-1,0), int2(0,0), int2(1,0), int2(-1,1), int2(0,1), int2(1,1) };
@@ -31,7 +31,7 @@ float2 WeightedLerpFactors(float WeightA, float WeightB, float Blend)
 }
 
 // ---- TAAU 空間重み (Blackman-Harris 近似, 半径 1 出力 px, 下限 0.005) ----
-float ComputeSampleWeigth(float2 PixelDelta /*入力 px*/, float UpscaleFactor)   // UE の綴り (Weigth) を踏襲
+float ComputeSampleWeigth(float2 PixelDelta /*入力 px*/, float UpscaleFactor)
 {
     const float x2 = saturate(UpscaleFactor * UpscaleFactor * dot(PixelDelta, PixelDelta));
     return (0.905f * x2 - 1.9f) * x2 + 1.0f;
@@ -47,14 +47,14 @@ float ViewZToDeviceZ(float ViewZ, float4 DepthParams)
     return (ViewZ >= DepthParams.z) ? DepthParams.x : (DepthParams.x + DepthParams.y / ViewZ);
 }
 
-// ---- 最近傍深度 (X パターン ±Cross)。標準 Z なので「手前 = 小さい」: UE の max/> を min/< へ反転 ----
+// ---- 最近傍深度 (X パターン ±Cross)。標準 Z なので「手前 = 小さい」: 反転 Z の max/> を min/< へ反転 ----
 //      Z = (x:(-C,-C), y:(+C,-C), z:(-C,+C), w:(+C,+C)) のビュー Z。Offset = (0,0) なら中心が最近傍。
 void SelectClosestDepthCross(float Z0, float4 Z, int Cross, out int2 Offset, out float ClosestZ)
 {
     int2 DepthOffset = int2(Cross, Cross); int DepthOffsetXx = Cross;
-    if (Z.x < Z.y) DepthOffsetXx = -Cross;                      // UE: >
-    if (Z.z < Z.w) DepthOffset.x = -Cross;                      // UE: >
-    const float ZXY = min(Z.x, Z.y), ZZW = min(Z.z, Z.w);       // UE: max
+    if (Z.x < Z.y) DepthOffsetXx = -Cross;                      // 反転 Z では >
+    if (Z.z < Z.w) DepthOffset.x = -Cross;                      // 反転 Z では >
+    const float ZXY = min(Z.x, Z.y), ZZW = min(Z.z, Z.w);       // 反転 Z では max
     if (ZXY < ZZW) { DepthOffset.y = -Cross; DepthOffset.x = DepthOffsetXx; }
     const float ZXYZW = min(ZXY, ZZW);
     Offset = int2(0, 0); ClosestZ = Z0;
@@ -93,7 +93,7 @@ float MitchellNetravali(float x)
     return (x < 1.0f) ? Inner : ((x < 2.0f) ? Outer : 0.0f);
 }
 
-// ---- UE Random.ush ----
+// ---- 乱数 ----
 uint3 Rand3DPCG16(int3 p)
 {
     uint3 v = uint3(p);
@@ -109,7 +109,7 @@ float2 Hammersley16(uint Index, uint NumSamples, uint2 Random)
     return float2(E1, E2);
 }
 
-// ---- 確率的量子化 (UE QuantizeForFloatRenderTarget; E in [0,1), 誤差 = 出力フォーマットの 1 ULP を 2 の冪へ切り下げ) ----
+// ---- 確率的量子化 (QuantizeForFloatRenderTarget; E in [0,1), 誤差 = 出力フォーマットの 1 ULP を 2 の冪へ切り下げ) ----
 float3 QuantizeForFloatRenderTarget(float3 Color, float E, float3 QuantizationError)
 {
     float3 Error = Color * QuantizationError;
@@ -117,7 +117,7 @@ float3 QuantizeForFloatRenderTarget(float3 Color, float E, float3 QuantizationEr
     return Color + Error * E;
 }
 
-// ---- UE InterleavedGradientNoise (DeferredPS の LumenScreenGather のフレーム項と自己テスト Out[36] が使う) ----
+// ---- InterleavedGradientNoise (DeferredPS の LumenScreenGather のフレーム項と自己テスト Out[36] が使う) ----
 float InterleavedGradientNoise(float2 uv, float FrameId)
 {
     uv += FrameId * (float2(47.0f, 17.0f) * 0.695f);

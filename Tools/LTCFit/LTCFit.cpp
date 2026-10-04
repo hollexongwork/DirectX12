@@ -9,8 +9,7 @@
 //    - 64 x 64。列 = ラフネス (a / 63)、行 = sqrt(1 - cos(theta_v)) (t / 63)
 //    - セルごとに Nelder-Mead で (m11, m22, m13) を当てはめる
 //      (誤差 = |BRDF - LTC|^3 を LTC / BRDF の両方で重点サンプルした MIS 積分)
-//  UE の LTC.h (LTCMat / LTCAmp) と同じ手順・同じパラメータ化なので、
-//  シェーダ (UV = (Roughness, sqrt(1 - NoV))) はそのまま使える。
+//  シェーダは UV = (Roughness, sqrt(1 - NoV)) で引く (LTCMat / LTCAmp)。
 //
 //  出力 (LTC.cpp):
 //    LTCMat[y * 64 + x][4] : 逆行列 M^-1 を中央要素で正規化した 4 成分

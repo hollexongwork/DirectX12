@@ -7,15 +7,14 @@
 
 // ============================================================
 //  LightRendering : ライトの可視判定 / 収集 / ソート
-//  (UE SceneVisibility.cpp ComputeLightVisibility +
-//   LightRendering.cpp GatherAndSortLights / GetLightFadeFactor)
+//  (ComputeLightVisibility / GatherAndSortLights / GetLightFadeFactor)
 // ============================================================
 
-float GMinScreenRadiusForLights = 0.03f;	// r.MinScreenRadiusForLights
-float GLightMaxDrawDistanceScale = 1.0f;	// r.LightMaxDrawDistanceScale
+float GMinScreenRadiusForLights = 0.03f;	// ライトを描く最小スクリーン半径
+float GLightMaxDrawDistanceScale = 1.0f;	// MaxDrawDistance の倍率
 
-// 「画面上のサイズ」係数。UE は min(0.0002 [1/cm], GMinScreenRadiusForLights / 半径 [cm]) * View.LODDistanceFactor。
-// メートル換算で 0.0002 [1/cm] = 0.02 [1/m]。LODDistanceFactor (FOV / 既定 FOV) は 1 とする [PORT]。
+// 「画面上のサイズ」係数 = min(0.02 [1/m], GMinScreenRadiusForLights / 半径 [m])。
+// LODDistanceFactor (FOV / 既定 FOV) は 1 とする。
 // 係数 x 距離 が 1 に達する距離 (= max(半径 / 0.03, 50 m)) より遠いライトは描かない
 static float ComputeLightScreenSizeFactor(float BoundingRadius)
 {
@@ -70,7 +69,7 @@ void FSceneRenderer::ComputeLightVisibility(FScene* Scene)
 	m_ViewInfo.VisibleLightInfos.assign(Lights.size(), FVisibleLightViewInfo());
 	m_LightStats = FLightStats{};
 
-	// プリミティブと同じフラスタム / 視点 (r.FreezeRendering 相当の凍結を含む) を使う
+	// プリミティブと同じフラスタム / 視点 (カリング凍結を含む) を使う
 	const FConvexVolume& frustum = m_bHasFrozenView ? m_FrozenViewFrustum : m_ViewFrustum;
 	const XMFLOAT3 viewOrigin = m_bHasFrozenView
 		? m_FrozenViewOrigin
@@ -159,9 +158,8 @@ void FSceneRenderer::GatherAndSortLights(FScene* Scene, FSortedLightSetSceneInfo
 
 			SortedLightInfo.SortKey.Fields.LightType = LightSceneInfoCompact.LightType;
 			SortedLightInfo.SortKey.Fields.bTextureProfile = 0;
-			// UE は CheckForProjectedShadows (割り当て済みのシャドウがあるか) で判定する。
-			// 本エンジンのシャドウ割り当ては RenderShadowDepths (この後) なので、
-			// 「動的シャドウを落とす設定か」で判定する [PORT]
+			// シャドウの割り当ては RenderShadowDepths (この後) なので、
+			// 「動的シャドウを落とす設定か」で判定する
 			SortedLightInfo.SortKey.Fields.bShadowed = LightSceneInfoCompact.bCastDynamicShadow;
 			SortedLightInfo.SortKey.Fields.bLightFunction = 0;
 			SortedLightInfo.SortKey.Fields.bUsesLightingChannels = 0;
@@ -171,7 +169,7 @@ void FSceneRenderer::GatherAndSortLights(FScene* Scene, FSortedLightSetSceneInfo
 
 			// ライトグリッド (クラスタードデファード) に入るのはローカルライト。
 			// 本エンジンはグリッド内のライトもシャドウマップをインラインで参照するので、
-			// 影付きのライトも入る (UE の bShadowedLightsInClustered = true 相当)。
+			// 影付きのライトも入る。
 			// ディレクショナルライトは全セルに入れても意味が無いので入れない
 			const bool bClusteredDeferredSupported = LightSceneInfoCompact.LightType != LightType_Directional;
 			SortedLightInfo.SortKey.Fields.bClusteredDeferredNotSupported = bClusteredDeferredSupported ? 0u : 1u;

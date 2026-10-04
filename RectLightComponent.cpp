@@ -11,7 +11,7 @@ FRectLightSceneProxy::FRectLightSceneProxy(const URectLightComponent* Component)
 	, m_SourceWidth(Component->GetSourceWidth())
 	, m_SourceHeight(Component->GetSourceHeight())
 	, m_BarnDoorAngle(fmaxf(fminf(Component->GetBarnDoorAngle(), GetRectLightBarnDoorMaxAngle()), 0.0f))
-	// UE は 0.1 cm を下限にする
+	// 1 mm を下限にする
 	, m_BarnDoorLength(fmaxf(0.001f, Component->GetBarnDoorLength()))
 {
 }
@@ -22,8 +22,8 @@ void FRectLightSceneProxy::GetLightShaderParameters(FLightRenderParameters& OutL
 	const XMFLOAT3 direction = GetDirection();
 
 	// 強度 -> 発光面の放射輝度 (シェーダは RectIrradianceLambert で面を積分する)。
-	// UE: LightColor /= 0.5f * SourceWidth * SourceHeight (単位は m なので 100 * 100 は掛けない [PORT])。
-	// 面積 0 の退化は NaN を避けるため下限を置く [PORT]
+	// LightColor /= 0.5f * SourceWidth * SourceHeight (単位は m)。
+	// 面積 0 の退化は NaN を避けるため下限を置く
 	XMFLOAT3 LightColor = GetColor();
 	const float RadianceScale = 1.0f / fmaxf(0.5f * m_SourceWidth * m_SourceHeight, 1e-6f);
 	LightColor.x *= RadianceScale;

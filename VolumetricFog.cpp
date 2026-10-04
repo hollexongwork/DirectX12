@@ -132,13 +132,13 @@ ComPtr<ID3D12PipelineState> FVolumetricFog::CreateComputePipeline(const char* cs
 //  froxel の Z を指数分布 (B, O, S) で切る:
 //    Slice = log2(Depth * B + O) * S
 //  S = DepthDistributionScale (32)。near は 9.5cm 押し出して
-//  最前面にスライスが密集しすぎないようにする (UE と同じ)。
+//  最前面にスライスが密集しすぎないようにする。
 //  far (= VolumetricFogDistance) が最終スライス (GridSizeZ - 1) の
 //  開始境界に一致する。
 // ------------------------------------------------------------
 XMFLOAT3 FVolumetricFog::ComputeGridZParams(float NearPlane, float FarPlane)
 {
-	const double NearOffset = 0.095;	// [m] (UE: .095 * 100 cm)
+	const double NearOffset = 0.095;	// [m]
 	const double S = (double)VOLUMETRIC_FOG_DEPTH_DISTRIBUTION_SCALE;
 
 	double N = (double)NearPlane + NearOffset;
@@ -479,7 +479,7 @@ void FVolumetricFog::Dispatch(const FVolumetricFogInputs& Inputs)
 	p.DirectionalInscatteringColor = { fog->DirectionalInscatteringColor.x, fog->DirectionalInscatteringColor.y, fog->DirectionalInscatteringColor.z,
 		fog->VolumetricFogStaticLightingScatteringIntensity };
 
-	// ディレクショナルライト: b3 の「選択されたフォワードディレクショナルライト」(UE と同じ 1 灯)。
+	// ディレクショナルライト: b3 の「選択されたフォワードディレクショナルライト」1 灯。
 	// 色には VolumetricScatteringIntensity を掛ける。bCastVolumetricShadow が偽なら
 	// CSM を無効 (NumCascades = 0) にして影なしで散乱させる
 	p.DirectionalLightDirection = { 0.0f, 1.0f, 0.0f, 0.0f };

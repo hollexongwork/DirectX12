@@ -5,7 +5,7 @@
 
 // =============================================================
 //  CapsuleLightIntegrate
-//  CapsuleLightIntegrate.ush 相当。球 / チューブの面光源を
+//  球 / チューブの面光源を
 //  「代表方向 + フォールオフ + 見かけ角」の積分コンテキストへ落とし、
 //  BxDF を 1 回評価する。
 // =============================================================
@@ -28,7 +28,7 @@ FAreaLightIntegrateContext CreateCapsuleIntegrateContext(float Roughness, float3
         float DistSqr = dot(Capsule.LightPos[0], Capsule.LightPos[0]);
         Falloff = rcp(DistSqr + Capsule.DistBiasSqr);
 
-        float3 L = Capsule.LightPos[0] * rsqrt(max(DistSqr, 1e-8f)); // 距離 0 の NaN を避ける下限 [PORT]
+        float3 L = Capsule.LightPos[0] * rsqrt(max(DistSqr, 1e-8f)); // 距離 0 の NaN を避ける下限
         NoL = dot(N, L);
     }
 

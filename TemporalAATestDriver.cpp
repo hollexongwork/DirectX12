@@ -319,7 +319,7 @@ bool FTemporalAATestDriver::ParseDebugOverride(const std::wstring& Key, const st
 	}
 	if (Key == L"-overrideindex")
 	{
-		// r.TemporalAA.Debug.OverrideTemporalIndex: -1 = 無効, >= 0 でジッタ添字を固定 (N で剰余)
+		// OverrideTemporalIndex: -1 = 無効, >= 0 でジッタ添字を固定 (N で剰余)
 		int v = 0;
 		if (!ParseInt(Value, v) || v < -1)
 		{
@@ -828,7 +828,7 @@ void FTemporalAATestDriver::PreWorldTick(FSceneRenderer& Renderer)
 
 	case EScenario::AAToggle:
 	{
-		// 静止。r.AntiAliasingMethod をフレーム 1-59 は 0 (None)、60 以降は 2 (TemporalAA)。
+		// 静止。AntiAliasingMethod をフレーム 1-59 は 0 (None)、60 以降は 2 (TemporalAA)。
 		// AA 手法の変化はレンダラ側でカメラカット扱い (履歴無し = BlendFinal 1) になる (-aa の指定は上書きされる)
 		const int method = (m_Frame < kEventFrame) ? 0 : 2;
 		int& current = Renderer.GetAntiAliasingParams().AntiAliasingMethod;
@@ -854,7 +854,7 @@ void FTemporalAATestDriver::PreWorldTick(FSceneRenderer& Renderer)
 
 	case EScenario::QSwitch:
 	{
-		// 静止。r.TemporalAA.Quality = 1 + r.TemporalAA.R11G11B10History = 1 (フレーム 1-59: R11G11B10 履歴) ->
+		// 静止。TemporalAAQuality = 1 + bTemporalAAR11G11B10History = 1 (フレーム 1-59: R11G11B10 履歴) ->
 		// Quality 2 (フレーム 60 以降: RGBA16F 履歴 + アンチゴースト)。フレーム 60 は R11G11B10 の入力履歴
 		// (SRV の a = 1) を High が読むので、HISTORY_HAS_ALPHA が立たず AntiGhostReject が出ないこと (§3.4)
 		FAntiAliasingParams& aa = Renderer.GetAntiAliasingParams();

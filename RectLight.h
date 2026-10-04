@@ -4,7 +4,7 @@
 
 // ============================================================
 //  ARectLight
-//  ARectLight (Engine/Classes/Engine/RectLight.h) に相当。
+//  ARectLight に相当。
 //  URectLightComponent を Root に持つ。
 //  発光面はアクターの前方 (+Z) を向き、幅は +X、高さは +Y。
 //  バーンドア (BarnDoorAngle / BarnDoorLength) で照射範囲を絞れる。

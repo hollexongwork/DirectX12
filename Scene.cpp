@@ -118,8 +118,7 @@ void FScene::UpdateAllPrimitiveSceneInfos()
 // ============================================================
 //  ライト (FScene::AddLight / RemoveLight / UpdateLightTransform /
 //  UpdateLightColorAndBrightness)
-//  UE はゲームスレッドの関数がレンダーコマンドを積み、*_RenderThread が
-//  登録簿を書き換える。本エンジンはシングルスレッドなので直接呼ぶ [PORT]。
+//  登録簿を書き換えるのは *_RenderThread。シングルスレッドなので直接呼ぶ。
 //  呼ばれるのはゲーム側フェーズ (Tick / SendAllEndOfFrameUpdates / UI) だけで、
 //  レンダラがプロキシを読んでいる最中には呼ばれない。
 // ============================================================
@@ -341,7 +340,7 @@ void FScene::UpdateAllLightSceneInfos()
 	transformDirty.swap(m_LightTransformDirtyList);
 
 	// ---- レンダーステートダーティ ----
-	// プロパティ変更 -> プロキシを作り直す (UE の RecreateRenderState_Concurrent)。
+	// プロパティ変更 -> プロキシを作り直す (RecreateRenderState_Concurrent)。
 	// シーンへの出し入れ (bAffectsWorld / 可視性 / Intensity の 0 跨ぎ) もここで決まる。
 	// 空いた番号はすぐ再利用されるので、作り直しても FScene::Lights 内の位置は変わらない
 	for (ULightComponent* component : renderStateDirty)

@@ -5,10 +5,9 @@ class UDirectionalLightComponent;
 
 // ============================================================
 //  FDirectionalLightSceneProxy
-//  FDirectionalLightSceneProxy (DirectionalLightComponent.cpp) に相当。
-//  UE は .cpp 内に閉じているが、本エンジンはシャドウ描画系
+//  FDirectionalLightSceneProxy に相当。シャドウ描画系
 //  (FShadowSceneRenderer) が CSM / Distance Field のパラメータを
-//  直接読むのでヘッダに出す [PORT]。
+//  直接読むのでヘッダに出す。
 //
 //  光源は見かけの全角 LightSourceAngle [度] の円盤として扱い、
 //  SourceRadius = sin(半角) をシェーダへ渡す (スペキュラの広がりと
@@ -26,7 +25,7 @@ public:
 	int   GetDirectionalLightForwardShadingPriority() const override { return m_ForwardShadingPriority; }
 
 	// ---- CSM (FShadowSceneRenderer::SetupDirectionalShadows が読む) ----
-	// CSM がカバーする距離 [m] (UE WholeSceneDynamicShadowRadius = DynamicShadowDistanceMovableLight)
+	// CSM がカバーする距離 [m] (= DynamicShadowDistanceMovableLight)
 	float GetWholeSceneDynamicShadowRadius() const { return m_WholeSceneDynamicShadowRadius; }
 	int   GetNumDynamicShadowCascades() const { return m_DynamicShadowCascades; }
 	float GetCascadeDistributionExponent() const { return m_CascadeDistributionExponent; }

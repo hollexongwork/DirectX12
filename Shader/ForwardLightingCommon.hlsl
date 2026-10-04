@@ -8,16 +8,14 @@
 
 // =============================================================
 //  ForwardLightingCommon
-//  ForwardLightingCommon.ush (GetForwardDirectLighting) /
-//  ClusteredDeferredShadingPixelShader.usf 相当。
 //  1 ピクセルに届く全ライトの直接光を、ライトグリッドのセルを巡回して合計する。
 //  デファードライティング (DeferredPS) とフォワード半透明 (TranslucentPS) が共有する。
 //
 //    ディレクショナルライト:
 //      デファード (bForwardShading = false) : ライトバッファの全ディレクショナルライト。
 //          CSM / Distance Field シャドウは「選択された 1 灯」
-//          (ForwardLightData.DirectionalLightBufferIndex) だけに掛かる [PORT]
-//      フォワード (bForwardShading = true)  : 選択された 1 灯だけ (UE と同じ)。
+//          (ForwardLightData.DirectionalLightBufferIndex) だけに掛かる
+//      フォワード (bForwardShading = true)  : 選択された 1 灯だけ。
 //          bAffectTranslucentLighting が偽のライトは照らさない
 //    ローカルライト:
 //      ライトグリッドのセル (無効時は全灯) を巡回し、ライトごとにシャドウマップ /

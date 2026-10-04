@@ -69,7 +69,7 @@ public:
 	std::unique_ptr<RENDER_TARGET> Velocity;
 
 	// ---- Responsive AA マスク (R8_UNORM) ----
-	// Responsive AA (bEnableResponsiveAA) の半透明を 1 にするマスク (UE のステンシル bit 3 の代替)。
+	// Responsive AA (bEnableResponsiveAA) の半透明を 1 にするマスク。
 	// 書き手は RenderResponsiveAAMask。常在状態は (PIXEL | NON_PIXEL)。
 	// 今フレーム描いたかは FSceneRenderer::m_bResponsiveMaskValid
 	std::unique_ptr<RENDER_TARGET> ResponsiveAAMask;

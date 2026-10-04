@@ -5,7 +5,7 @@
 
 // =============================================================
 //  Substrate
-//  Substrate.ush 相当。Slab BSDF のマテリアル定義
+//  Slab BSDF のマテリアル定義
 //  (GetSubstrateSlabBSDF) と、デファード用パック / アンパック
 //  (SubstrateMaterial0/1 = RGBA32_UINT x 2) を提供する。
 //

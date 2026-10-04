@@ -19,16 +19,16 @@ inline float EV100ToLuminance(float EV100)
 
 // ============================================================
 //  ULocalLightComponent
-//  ULocalLightComponent (Engine/Classes/Components/LocalLightComponent.h) に相当。
+//  ULocalLightComponent に相当。
 //  減衰半径を持つライト (Point / Spot / Rect) の共通基底。
 // ============================================================
 class ULocalLightComponent : public ULightComponent
 {
 protected:
-	// Intensity の単位。UE のクラス既定は Unitless だが、本エンジンは物理単位 (lm) を既定にする [PORT]
+	// Intensity の単位。既定は物理単位 (lm)
 	ELightUnits m_IntensityUnits = ELightUnits::Lumens;
 
-	// ライトが届く範囲 [m] (UE 既定 1000 cm)
+	// ライトが届く範囲 [m]
 	float       m_AttenuationRadius = 10.0f;
 
 	// 半径の変更をレンダー側へ送る。影を落とすライトは作り直し、落とさないライトは軽量経路

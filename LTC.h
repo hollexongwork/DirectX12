@@ -8,8 +8,7 @@
 //   Linearly Transformed Cosines"]
 //
 //  LTC.cpp は Tools/LTCFit/LTCFit.cpp が生成する (手で編集しない)。
-//  UE の LTC.h と同じ手順・同じパラメータ化で当てはめ直したもので、
-//  値は UE の表と数値誤差の範囲で一致する [PORT]。
+//  GGX のローブを 64 x 64 (ラフネス x 視線角) で当てはめたもの。
 //
 //  レイアウト (LTC_Size x LTC_Size。添字 = y * LTC_Size + x):
 //    x = ラフネス           (x / (LTC_Size - 1))

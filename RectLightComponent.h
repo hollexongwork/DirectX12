@@ -9,17 +9,17 @@ inline float GetRectLightBarnDoorMaxAngle()
 
 // ============================================================
 //  URectLightComponent
-//  URectLightComponent (Engine/Classes/Components/RectLightComponent.h) に相当。
+//  URectLightComponent に相当。
 //  矩形の面光源。発光はコンポーネント +Z、幅は +X、高さは +Y。
 //  常に逆二乗フォールオフ。
 // ============================================================
 class URectLightComponent : public ULocalLightComponent
 {
 protected:
-	float m_SourceWidth = 0.64f;		// 発光面の幅 [m] (UE 64 cm)
-	float m_SourceHeight = 0.64f;		// 発光面の高さ [m] (UE 64 cm)
+	float m_SourceWidth = 0.64f;		// 発光面の幅 [m]
+	float m_SourceHeight = 0.64f;		// 発光面の高さ [m]
 	float m_BarnDoorAngle = 88.0f;		// バーンドアの開き角 [度]。88 = 全開
-	float m_BarnDoorLength = 0.2f;		// バーンドアの長さ [m] (UE 20 cm)
+	float m_BarnDoorLength = 0.2f;		// バーンドアの長さ [m]
 
 public:
 	ELightComponentType GetLightType() const override { return LightType_Rect; }

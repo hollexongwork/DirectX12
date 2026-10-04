@@ -338,7 +338,7 @@ void FSceneRenderer::SetTexelSize(int Width, int Height)
 
 
 // ============================================================
-//  View family / view state (UE PrepareViewRectsForRendering /
+//  View family / view state (PrepareViewRectsForRendering /
 //  PrepareViewStateForVisibility / FSceneViewState の確定)
 // ============================================================
 namespace
@@ -517,13 +517,13 @@ void FSceneRenderer::PrepareViewStateForVisibility(const FSceneView& View)
 	V.FarClip = View.FarClip;
 	V.ViewMatrices.Init(View.ViewMatrix, View.ProjectionMatrix, View.ViewOrigin);   // NoAA (ジッタ 0)
 
-	// ---- カメラカット (UE FSceneView::bCameraCut + レンダラ側の規則; §4.4 表) ----
+	// ---- カメラカット (FSceneView::bCameraCut + レンダラ側の規則; §4.4 表) ----
 	V.bCameraCut = View.bCameraCut || S.bForceCameraCut || !S.bPrevFrameViewInfoValid
 		|| (S.PrevAntiAliasingMethod != F.AntiAliasingMethod) || m_TAADebug.bRequestHistoryReset;
 	S.bForceCameraCut = false;
 	m_TAADebug.bRequestHistoryReset = false;
 
-	// ---- テンポラルジッタ (UE 4.26 PreVisibilityFrameSetup / 5.x PrepareViewStateForVisibility) ----
+	// ---- テンポラルジッタ (PrepareViewStateForVisibility) ----
 	V.TemporalJitterPixels = { 0.0f, 0.0f };
 	V.TemporalJitterIndex = 0;
 	V.TemporalJitterSequenceLength = 1;
@@ -536,9 +536,9 @@ void FSceneRenderer::PrepareViewStateForVisibility(const FSceneView& View)
 		const int  N     = ComputeTemporalAASampleCount(bTAAU, CVar, F.EffectivePrimaryResolutionFraction);
 
 		int Index = (int)S.TemporalAASampleIndex + 1;
-		if (Index >= N || V.bCameraCut) Index = 0;                                  // [M] UE 4.26/5.x はカットで 0 へ戻す
+		if (Index >= N || V.bCameraCut) Index = 0;                                  // [M] カットで 0 へ戻す
 		if (m_TAADebug.OverrideTemporalIndex >= 0)
-			Index = m_TAADebug.OverrideTemporalIndex % N;                           // r.TemporalAA.Debug.OverrideTemporalIndex (凍結: 状態は進めない)
+			Index = m_TAADebug.OverrideTemporalIndex % N;                           // OverrideTemporalIndex (凍結: 状態は進めない)
 		else
 			S.TemporalAASampleIndex = (uint32_t)Index;
 
@@ -546,7 +546,7 @@ void FSceneRenderer::PrepareViewStateForVisibility(const FSceneView& View)
 		V.TemporalJitterPixels = s;
 		V.TemporalJitterIndex = Index;
 		V.TemporalJitterSequenceLength = N;
-		// レンダー (入力) 解像度でクリップ空間へ (UE: SampleX * 2 / ViewRect.W, SampleY * -2 / ViewRect.H)
+		// レンダー (入力) 解像度でクリップ空間へ (SampleX * 2 / ViewRect.W, SampleY * -2 / ViewRect.H)
 		V.ViewMatrices.HackAddTemporalAAProjectionJitter({ s.x * 2.0f / (float)R.x, s.y * -2.0f / (float)R.y });
 	}
 
@@ -561,17 +561,17 @@ void FSceneRenderer::PrepareViewStateForVisibility(const FSceneView& View)
 	}
 	else if (IsLargeCameraMovement(V.ViewMatrices, V.PrevViewInfo.ViewMatrices, p.CameraRotationThreshold, p.CameraTranslationThreshold))
 	{
-		V.PrevViewInfo.ViewMatrices = V.ViewMatrices;          // UE bPrevTransformsReset: 履歴は保持しクランプに任せる [M]
+		V.PrevViewInfo.ViewMatrices = V.ViewMatrices;          // bPrevTransformsReset: 履歴は保持しクランプに任せる [M]
 		V.bPrevTransformsReset = true;
 	}
 
 	// ---- ClipToPrevClip (NoAA x NoAA, row-vector: PrevClip = ThisClip * C2P) ----
 	// ワールド絶対座標の VP を float で逆行列 x 積にすると、静止カメラでも |カメラ位置| に比例した
-	// 再投影誤差が残る。UE と同じくカメラ相対 (Translated) で double 合成する (ComputeClipToPrevClip)。
+	// 再投影誤差が残る。カメラ相対 (Translated) で double 合成する (ComputeClipToPrevClip)。
 	// カット / 大移動では Prev = Cur なので厳密に単位行列
 	V.ClipToPrevClip = ComputeClipToPrevClip(V.ViewMatrices, V.PrevViewInfo.ViewMatrices);
 
-	// ---- Automatic View Mip Bias (TemporalUpscale 時のみ; UE 4.26 は TAAU 分岐内で計算) ----
+	// ---- Automatic View Mip Bias (TemporalUpscale 時のみ) ----
 	const float bias = ComputeViewTextureMipBias(F, p);
 	V.MaterialTextureMipBias = bias;
 	V.StateFrameIndex = S.FrameIndex;
@@ -593,7 +593,7 @@ void FSceneRenderer::PrepareViewStateForVisibility(const FSceneView& View)
 	c.ViewSizeAndInvSize = { (float)R.x, (float)R.y, 1.0f / (float)R.x, 1.0f / (float)R.y };
 	c.MaterialTextureMipBias = bias;
 	c.MaterialTextureDerivativeMultiply = std::exp2(bias);
-	c.StateFrameIndexMod8 = F.bTemporalAA ? S.GetFrameIndexMod8() : 0u;       // [PORT] AA 無効時は 0 (基準画像を保つ)
+	c.StateFrameIndexMod8 = F.bTemporalAA ? S.GetFrameIndexMod8() : 0u;       // AA 無効時は 0 (基準画像を保つ)
 	c.StateFrameIndex = S.FrameIndex;
 }
 
@@ -732,7 +732,7 @@ void FSceneRenderer::BeginFrame()
 void FSceneRenderer::ComputeViewVisibility(FScene* Scene)
 {
 	// ---- フラスタム構築 (GetViewFrustumBounds) ----
-	// UE の ViewFrustum と同じくジッタ前 (NoAA) の ViewProjection から作る
+	// ジッタ前 (NoAA) の ViewProjection から作る
 	// (ジッタでカリング結果がフレーム毎に揺れないように)。行列は転置前で保持している。
 	// カメラ不在 (bValid = false) のフレームは前回の有効な平面を保持する
 	// (従来の「b0 据え置き」と同じ挙動。最初の有効フレーム前は平面無し = 全て可視)
@@ -746,7 +746,7 @@ void FSceneRenderer::ComputeViewVisibility(FScene* Scene)
 		m_ViewConstant.WorldCameraOrigin.y,
 		m_ViewConstant.WorldCameraOrigin.z };
 
-	// ---- r.FreezeRendering 相当: フラスタム凍結 ----
+	// ---- フラスタム凍結 ----
 	// チェック ON の瞬間のフラスタム / 視点を保持し続けることで、
 	// カメラを動かしてカリング済みプリミティブの消え方を観察できる
 	if (m_CullingParams.bFreezeFrustum)
@@ -1137,7 +1137,7 @@ void FSceneRenderer::RenderLighting()
 		fogInputs.View = &m_ViewConstant;
 		fogInputs.ForwardLightData = &m_ForwardLightConstant;
 		// froxel グリッドはジッタ無し (_11/_22 のみ) なので前フレームの NoAA の VP を使う
-		// (UE UnjitteredPrevWorldToClip)。有効判定は Lumen と同じ規則 (§4.9)。
+		// (UnjitteredPrevWorldToClip)。有効判定は Lumen と同じ規則 (§4.9)。
 		// フォグ自身の m_bHistoryValid (ボリューム再作成でクリア) とはフォグ内部で AND される
 		XMStoreFloat4x4(&fogInputs.PrevViewProjectionT,
 			XMMatrixTranspose(XMLoadFloat4x4(&m_ViewInfo.PrevViewInfo.ViewMatrices.ViewProjectionNoAAMatrix)));
@@ -1529,14 +1529,13 @@ void FSceneRenderer::RenderTranslucency(FScene* Scene)
 
 // ============================================================
 //  RenderResponsiveAAMask (§4.6)
-//  UE は bEnableResponsiveAA のマテリアルの半透明描画でステンシル bit 3
-//  (STENCIL_TEMPORAL_RESPONSIVE_AA) を立て、TAA の Responsive パスがその画素の
-//  現フレーム重みを上げる。本エンジンの深度バッファは D32_FLOAT (ステンシル無し) なので、
-//  レンダー解像度の R8_UNORM マスクへ描き、TAA (t5) が入力画素 K で読む [PORT]。
+//  bEnableResponsiveAA のマテリアルの半透明画素は、TAA の Responsive パスが
+//  現フレーム重みを上げる。深度バッファは D32_FLOAT (ステンシル無し) なので、
+//  レンダー解像度の R8_UNORM マスクへ描き、TAA (t5) が入力画素 K で読む。
 //    - RenderTranslucency の最後 (半透明深度プリパスの深度を DSV にバインドしたまま、
 //      SceneColor / 深度の最終バリアの前) に呼ばれる
 //    - VS / b0 / b1 は半透明の描画と同じなので LESS_EQUAL がビット一致で通り、
-//      最前面の Translucent 層 (+ その手前の Additive) がマスクされる (UE のステンシルと同じ被覆)
+//      最前面の Translucent 層 (+ その手前の Additive) がマスクされる
 //    - m_bResponsiveMaskValid の正規のリセットは BeginFrame 先頭 (RenderTranslucency は
 //      半透明が無いフレームにここを呼ばずに戻る。再確保直後のマスクは未クリア)
 // ============================================================
@@ -1615,7 +1614,7 @@ void FSceneRenderer::RenderPostProcessing()
 	}
 
 	//======================================================
-	// Temporal upscaler (UE: DOF の後, 目の順応 / Bloom の前。§4.7 / §4.8)
+	// Temporal upscaler (DOF の後, 目の順応 / Bloom の前。§4.7 / §4.8)
 	//  AA 無し / TAA 不実行 (カメラ不在, PSO 欠落) では SceneColor (R) をそのまま後段へ渡す。
 	//  後段のサイズは TAA が実際に出力したテクスチャから取る
 	//======================================================
@@ -1707,9 +1706,9 @@ void FSceneRenderer::RenderPostProcessing()
 	//  post chain: CA, bloom, exposure, white balance, ACES, grading, vignette, grain, sRGB
 	//  ・ポスト入力 = O            : バックバッファへ直接トーンマップ (従来どおり)
 	//  ・ポスト入力 != O かつ統合   : バックバッファへ直接トーンマップ。t0 の UV サンプリング
-	//                                (s1 バイリニア) が拡大を兼ねる (UE: 統合時は常にバイリニア)
+	//                                (s1 バイリニア) が拡大を兼ねる (統合時は常にバイリニア)
 	//  ・ポスト入力 != O かつ非統合 : ポスト入力サイズの m_TonemapOutput (RGBA8) へトーンマップ ->
-	//                                AddPrimaryUpscalePass (r.Upscale.Quality) でバックバッファへ
+	//                                AddPrimaryUpscalePass (UpscaleQuality) でバックバッファへ
 	//  アップスケール PSO が欠落していれば Bilinear、それも無ければ統合経路 (黒画面にしない)
 	//======================================================
 	const bool bNeedsUpscale = (postExtent.x != O.x || postExtent.y != O.y);
@@ -1861,7 +1860,7 @@ void FSceneRenderer::TransitionBackBuffer(ID3D12GraphicsCommandList* CommandList
 
 
 // ============================================================
-//  Temporal AA デバッグ表示 (§6.8, UE VisualizeMotionVectors / VisualizeTemporalUpscaler)
+//  Temporal AA デバッグ表示 (§6.8, VisualizeMotionVectors / VisualizeTemporalUpscaler)
 // ============================================================
 
 void FSceneRenderer::AddVisualizeTemporalAAPass(RENDER_TARGET* PostInput, bool bTAARan)

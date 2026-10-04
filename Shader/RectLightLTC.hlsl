@@ -6,12 +6,12 @@
 
 // =============================================================
 //  RectLightLTC
-//  RectLight.ush の RectGGXApproxLTC 相当。レクトライトのスペキュラを
+//  RectGGXApproxLTC。レクトライトのスペキュラを
 //  LTC (Linearly Transformed Cosines) で評価する。
 //  [ Heitz et al. 2016, "Real-Time Polygonal-Light Shading with Linearly Transformed Cosines" ]
 //
-//  UE は RectLight.ush に置くが、LTC テクスチャ (t37 / t38) を読むので
-//  レジスタに依存しない RectLight.hlsl から分けてある [PORT]。
+//  LTC テクスチャ (t37 / t38) を読むので、
+//  レジスタに依存しない RectLight.hlsl から分けてある。
 //
 //  GGX のローブを「クランプコサイン分布を行列で変換したもの」で近似する。
 //  矩形を逆行列で変換すれば、コサイン分布に対する多角形の積分

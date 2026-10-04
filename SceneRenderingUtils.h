@@ -4,7 +4,7 @@
 
 // ============================================================
 //  SceneRenderingUtils
-//  スクリーンパス用ヘルパー (UE の FScreenPassTexture / AddDrawScreenPass
+//  スクリーンパス用ヘルパー (FScreenPassTexture / AddDrawScreenPass
 //  周辺ユーティリティ相当の最小セット)。
 //  SceneRenderer.cpp の無名名前空間から移設したもの。無名名前空間の
 //  関数は他の翻訳単位から見えないため、VelocityRendering.cpp /

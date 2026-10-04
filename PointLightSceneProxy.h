@@ -5,9 +5,9 @@ class UPointLightComponent;
 
 // ============================================================
 //  FPointLightSceneProxy
-//  FPointLightSceneProxy (Engine/Public/PointLightSceneProxy.h) に相当。
+//  FPointLightSceneProxy に相当。
 //  光源形状 (球 / チューブ) とフォールオフ (逆二乗 / 指数) を持つ。
-//  チューブの軸はライトの上方向 (Tangent) [PORT: UE ローカル Z = 本エンジン +Y]。
+//  チューブの軸はライトの上方向 (Tangent = +Y)。
 // ============================================================
 class FPointLightSceneProxy : public FLocalLightSceneProxy
 {

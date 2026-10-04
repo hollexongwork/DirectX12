@@ -3,13 +3,12 @@
 
 // ============================================================
 //  UDirectionalLightComponent
-//  UDirectionalLightComponent (Engine/Classes/Components/
-//  DirectionalLightComponent.h) に相当。強度は lux (照度)。減衰なし。
+//  UDirectionalLightComponent に相当。強度は lux (照度)。減衰なし。
 //
 //  デファードは全てのディレクショナルライトを照らす。フォワード
 //  (半透明) と Volumetric Fog は「選択された 1 灯」(ForwardShadingPriority
 //  が最大、同値なら最も明るいもの) を使い、CSM / Distance Field
-//  シャドウを持つのもその 1 灯だけ [PORT]。
+//  シャドウを持つのもその 1 灯だけ。
 //  Exponential Height Fog の太陽は bAtmosphereSunLight のライトから選ぶ
 //  (FScene::AtmosphereLights)。
 // ============================================================
@@ -17,15 +16,15 @@ class UDirectionalLightComponent : public ULightComponent
 {
 protected:
 	// ---- CSM ----
-	// 既定は本エンジンの CSM 実装に合わせた値 [PORT: UE は 200 m / 3 カスケード]
+	// 既定は本エンジンの CSM 実装に合わせた値
 	float m_DynamicShadowDistanceMovableLight = 100.0f;	// CSM がカバーする距離 [m]
 	int   m_DynamicShadowCascades = 4;					// カスケード数 (1..MAX_SHADOW_CASCADES)
 	float m_CascadeDistributionExponent = 3.0f;			// 分割の指数 (大きいほど手前が細かい)
 	float m_ShadowDistanceFadeoutFraction = 0.1f;		// 遠端でフェードアウトする割合
 
 	// ---- Distance Field Shadows ----
-	float m_DistanceFieldShadowDistance = 300.0f;		// DF シャドウがカバーする距離 [m] (UE 30000 cm)
-	float m_TraceDistance = 100.0f;						// 1 レイの最大トレース距離 [m] (UE 10000 cm)
+	float m_DistanceFieldShadowDistance = 300.0f;		// DF シャドウがカバーする距離 [m]
+	float m_TraceDistance = 100.0f;						// 1 レイの最大トレース距離 [m]
 
 	// ---- 光源の見かけの大きさ ----
 	float m_LightSourceAngle = 0.5357f;					// 見かけの全角 [度] (太陽 = 0.5357)

@@ -31,7 +31,7 @@ void LumenScreenGather(float3 WorldPos, float3 Normal, uint2 PixelPos,
     const uint numCones = clamp(LumenNumScreenCones, 1u, 8u);
 
     // Interleaved Gradient Noise でピクセルごとにコーンリングを回転。
-    // UE InterleavedGradientNoise と同じフレーム項 (View.StateFrameIndexMod8) で 8 フレーム周期に回し、
+    // フレーム項 (View.StateFrameIndexMod8) で 8 フレーム周期に回し、
     // 静止ノイズを TAA に積分させる。AA 無効時は StateFrameIndexMod8 = 0 なので従来の画像と同一
     float ign = InterleavedGradientNoise(float2(PixelPos), (float)StateFrameIndexMod8);
     float randomRotation = ign * 6.2831853f;
@@ -77,7 +77,7 @@ void LumenScreenGather(float3 WorldPos, float3 Normal, uint2 PixelPos,
 //  直接光は両経路とも ForwardLightingCommon.hlsl の
 //  GetForwardDirectLighting / GetForwardDirectLightingSubstrate
 //  (全ディレクショナルライト + ライトグリッドのローカルライト)。
-//  ライト 1 灯の減衰 / シャドウ / 面光源の積分は UE と同じ
+//  ライト 1 灯の減衰 / シャドウ / 面光源の積分は
 //  GetDynamicLighting (DeferredLightingCommon.hlsl)。
 // =============================================================
 
@@ -180,7 +180,7 @@ PS_OUTPUT main(PS_INPUT input)
     float3 lumenDiffuseAlbedo; // GI の拡散反射に使うアルベド (経路ごとに解決)
 
     // ---- 直接光 (ディレクショナル全灯 + ライトグリッドのローカルライト) ----
-    // ライト 1 灯の評価は UE と同じ GetDynamicLighting / SubstrateDeferredLighting
+    // ライト 1 灯の評価は GetDynamicLighting / SubstrateDeferredLighting
     // (ForwardLightingCommon.hlsl)。コンタクトシャドウのディザは 8 フレーム周期で回す
     // (AA 無効時は StateFrameIndexMod8 = 0 で固定パターン)
     const float3 cameraVector = -viewDir;

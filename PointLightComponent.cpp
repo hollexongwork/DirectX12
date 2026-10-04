@@ -57,7 +57,7 @@ float UPointLightComponent::ComputeLightBrightness() const
 	{
 		if (m_IntensityUnits == ELightUnits::Candelas)
 		{
-			// cd はそのまま (UE の 100 * 100 は cm^2 -> m^2 の換算)
+			// cd はそのまま (距離はメートルなので cm^2 -> m^2 の換算は掛けない)
 		}
 		else if (m_IntensityUnits == ELightUnits::Lumens)
 		{

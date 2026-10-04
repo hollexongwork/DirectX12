@@ -5,7 +5,7 @@
 
 // =============================================================
 //  BRDF
-//  BRDF.ush のうち、ライトの枠組みが使う部分
+//  BRDF のうち、ライトの枠組みが使う部分
 //  (BxDFContext / SphereMaxNoH / D_GGX)。
 //  サーフェスの BxDF カーネル本体 (既存の GGX_NDF / SmithGeometry /
 //  SchlickFresnel) は PBR_Utility.hlsl に残す。

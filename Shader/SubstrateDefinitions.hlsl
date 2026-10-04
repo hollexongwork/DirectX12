@@ -5,7 +5,7 @@
 
 // =============================================================
 //  SubstrateDefinitions
-//  SubstrateDefinitions.ush 相当。Substrate Slab BSDF の型定数・
+//  Substrate Slab BSDF の型定数・
 //  ヘッダレイアウト・パッキング補助をまとめる。
 //
 //  デファードでは Slab を SubstrateMaterial0/1 (RGBA32_UINT x 2,

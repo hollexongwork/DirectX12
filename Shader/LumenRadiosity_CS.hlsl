@@ -3,7 +3,7 @@
 
 // =============================================================
 //  LumenRadiosity_CS
-//  LumenRadiosity.usf 相当。Surface Cache の各カードテクセルから
+//  Surface Cache の各カードテクセルから
 //  半球コサイン分布のレイを SDF トレースし、ヒット先の
 //  FinalLighting (前フレーム) を採光して間接イラディアンスを
 //  IndirectLightingAtlas (u1) へ書く。

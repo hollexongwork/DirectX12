@@ -368,7 +368,7 @@ XMFLOAT3 ULightComponent::GetColoredLightBrightness() const
 
 XMFLOAT3 ULightComponent::MakeFromColorTemperature(float TemperatureKelvin)
 {
-	// FLinearColor::MakeFromColorTemperature の移植。
+	// FLinearColor::MakeFromColorTemperature 相当。
 	// Planckian locus (黒体軌跡) の CIE 1960 UCS 近似 -> xy 色度 -> XYZ -> リニア sRGB。
 	const float t = fmaxf(fminf(TemperatureKelvin, 15000.0f), 1000.0f);
 

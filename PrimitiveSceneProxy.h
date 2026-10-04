@@ -161,11 +161,11 @@ public:
 	// ベロシティパス (FSceneRenderer::RenderVelocities, VelocityRendering.cpp) から
 	// 呼ばれる描画。前フレームから動いたプリミティブだけが呼ばれる。
 	// b1 に LocalToWorld + PreviousLocalToWorld を積み、Opaque / Masked サブセットを
-	// Velocity* PSO で描くこと (Translucent / Additive は描かない = UE 既定)。
+	// Velocity* PSO で描くこと (Translucent / Additive は描かない)。
 	// 既定は何も描かない (2D オーバーレイなど)。
 	virtual void DrawVelocity(RenderManager* RHI, const XMFLOAT4X4& PreviousLocalToWorld) const {}
 
-	// 変換が変わらなくても毎フレーム速度を描くか (UE FPrimitiveSceneProxy::AlwaysHasVelocity)。
+	// 変換が変わらなくても毎フレーム速度を描くか (AlwaysHasVelocity)。
 	// 将来のスキニング / WPO 用のフック。現状はすべて false
 	virtual bool AlwaysHasVelocity() const { return false; }
 
@@ -174,7 +174,7 @@ public:
 	// 後→前ソート順で呼ばれる。b1 を積み、マテリアルが bEnableResponsiveAA の
 	// Translucent / Additive サブセット (bForceAll なら全 Translucent / Additive サブセット) だけを
 	// ResponsiveAA[TwoSided] PSO (GeometryVS / ResponsiveAAPS, R8_UNORM, LESS_EQUAL 書き込み無し) で描くこと
-	// (UE: 半透明描画でステンシル bit 3 を立てる代わり [PORT])。既定は何も描かない
+	// (ステンシルの代わりにマスクへ描く)。既定は何も描かない
 	virtual void DrawResponsiveAA(RenderManager* RHI, bool bForceAll) const {}
 
 	// DrawResponsiveAA が何か描くか (Responsive の Translucent / Additive サブセットを持つか)。

@@ -2,7 +2,7 @@
 
 // =============================================================
 //  VolumetricFogLightScattering_CS
-//  VolumetricFog.usf の LightScatteringCS 相当 - Pass 2/3。
+//  LightScatteringCS 相当 - Pass 2/3。
 //  各 froxel (ジッタ付きサンプル位置) に届く光を位相関数で
 //  カメラ方向へ散乱させ、媒質属性 (VBufferA/B) と合成する:
 //    L_in   = Σ (ライト色 x 遮蔽 x 減衰 x HG(g, cosθ))

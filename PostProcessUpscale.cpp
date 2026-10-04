@@ -9,12 +9,12 @@
 #include <cstdio>
 
 // ============================================================
-//  PostProcessUpscale : 一次空間アップスケール (UE AddUpscalePass)
+//  PostProcessUpscale : 一次空間アップスケール (AddUpscalePass)
 // ============================================================
 
 namespace
 {
-	// PSO 名 (RenderManager::InitPipelines がオプション PSO として登録する。添字 = r.Upscale.Quality)
+	// PSO 名 (RenderManager::InitPipelines がオプション PSO として登録する。添字 = UpscaleQuality)
 	const char* const kUpscalePipelineNames[(int)EUpscaleMethod::Count] =
 	{
 		"PostProcessUpscale0",	// Nearest
@@ -52,7 +52,7 @@ namespace
 
 bool ShouldMergeTonemapWithUpscale(const FAntiAliasingParams& p, XMUINT2 In, XMUINT2 O)
 {
-	// UE r.Tonemapper.MergeWithUpscale.Mode: 0 = しない, 1 = 常に, 2 = 面積比が閾値を超える時
+	// TonemapperMergeWithUpscaleMode: 0 = しない, 1 = 常に, 2 = 面積比が閾値を超える時
 	switch (p.TonemapperMergeWithUpscaleMode)
 	{
 	case 1:  return true;
@@ -65,7 +65,7 @@ bool ShouldMergeTonemapWithUpscale(const FAntiAliasingParams& p, XMUINT2 In, XMU
 
 float ComputeUpscaleUnsharpAmount(const FAntiAliasingParams& p, XMUINT2 In, XMUINT2 O)
 {
-	// r.Upscale.Softness x max(0, 1 - 面積比) [L]。100 % 以上 (縮小 / 等倍) では 0
+	// UpscaleSoftness x max(0, 1 - 面積比) [L]。100 % 以上 (縮小 / 等倍) では 0
 	const double amount = (double)p.UpscaleSoftness * (std::max)(0.0, 1.0 - ComputeAreaRatio(In, O));
 	return (float)amount;
 }
@@ -85,7 +85,7 @@ const char* GetUpscaleMethodName(int UpscaleQuality)
 
 // ------------------------------------------------------------
 //  SelectPrimaryUpscalePipeline
-//  r.Upscale.Quality の PSO があればそれ。無ければ Bilinear (PostProcessUpscale1)、
+//  UpscaleQuality の PSO があればそれ。無ければ Bilinear (PostProcessUpscale1)、
 //  それも無ければ nullptr (RenderPostProcessing はトーンマップ統合経路を取り、
 //  トーンマップ PS の s1 バイリニアが拡大する)。.cso 欠落でバックバッファが
 //  黒くなることは無い。フォールバックはそれぞれ 1 回だけログに出す (§3.8, §6.7)
@@ -106,7 +106,7 @@ const char* FSceneRenderer::SelectPrimaryUpscalePipeline() const
 		{
 			m_UpscaleFallbackLoggedMask |= (1u << quality);
 			char msg[256];
-			sprintf_s(msg, "[Upscale] missing PSO %s (r.Upscale.Quality=%d %s) -> fallback to %s (Bilinear)\n",
+			sprintf_s(msg, "[Upscale] missing PSO %s (UpscaleQuality=%d %s) -> fallback to %s (Bilinear)\n",
 				requested, quality, kUpscaleMethodNames[quality], bilinear);
 			OutputDebugStringA(msg);
 		}
@@ -125,7 +125,7 @@ const char* FSceneRenderer::SelectPrimaryUpscalePipeline() const
 
 
 // ------------------------------------------------------------
-//  AddPrimaryUpscalePass (UE AddUpscalePass)
+//  AddPrimaryUpscalePass (AddUpscalePass)
 //  In (トーンマップ済み LDR, PSR, InExtent) -> 現在バインド中のバックバッファ RTV (O)。
 //  b4: UpscaleUnsharpAmount (mode 5) / SceneTexelSize = 1/InExtent (§3.3)
 // ------------------------------------------------------------

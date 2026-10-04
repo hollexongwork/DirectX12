@@ -5,7 +5,7 @@ class URectLightComponent;
 
 // ============================================================
 //  FRectLightSceneProxy
-//  FRectLightSceneProxy (Engine/Public/RectLightSceneProxy.h) に相当。
+//  FRectLightSceneProxy に相当。
 //  矩形の面光源。発光面は前方 (+Z) を向き、幅は +X、高さは +Y。
 //  常に逆二乗フォールオフ。
 //  シェーダへは SourceRadius = 半幅、SourceLength = 半高、

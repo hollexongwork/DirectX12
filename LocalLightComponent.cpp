@@ -48,7 +48,7 @@ float ULocalLightComponent::GetUnitsConversionFactor(ELightUnits SrcUnits, ELigh
 		return 1.0f;
 	}
 
-	// いったん cd へ (UE の 100 * 100 は cm^2 -> m^2 の換算なので、メートルの本エンジンでは 1)
+	// いったん cd へ (距離はメートルなので cm^2 -> m^2 の換算は掛けない)
 	float CnvFactor = 1.0f;
 	if (SrcUnits == ELightUnits::Candelas)
 	{

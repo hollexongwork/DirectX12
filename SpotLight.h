@@ -4,7 +4,7 @@
 
 // ============================================================
 //  ASpotLight
-//  ASpotLight (Engine/Classes/Engine/SpotLight.h) に相当。ALight 直下。
+//  ASpotLight に相当。ALight 直下。
 //  USpotLightComponent を Root に持ち、アクターの前方 (+Z) へ
 //  Inner / OuterConeAngle のコーンで照射する。
 // ============================================================

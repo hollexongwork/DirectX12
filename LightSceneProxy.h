@@ -7,7 +7,7 @@ using namespace DirectX;
 
 // ============================================================
 //  FLightSceneProxy
-//  FLightSceneProxy (Engine/Public/LightSceneProxy.h) に相当する
+//  FLightSceneProxy に相当する
 //  ライトのレンダー側ミラー。ULightComponent::CreateSceneProxy() が
 //  種別ごとの派生を生成し、FLightSceneInfo が所有する。
 //  レンダラ (FSceneRenderer) はこのプロキシだけを読み、ゲーム側の
@@ -27,8 +27,7 @@ using namespace DirectX;
 //    - 色 / 明るさ (軽量経路)   : FScene::UpdateLightColorAndBrightness -> SetColor
 //    - それ以外のプロパティ変更 : MarkRenderStateDirty -> フレーム末尾に作り直し
 //
-//  軸の対応 [PORT]: UE のライトのローカル軸 (X = 前方, Y = 右, Z = 上) を
-//  本エンジンの (Z = 前方, X = 右, Y = 上) に読み替える。
+//  軸の対応: ライトのローカル軸は (Z = 前方, X = 右, Y = 上)。
 //    GetDirection() = LightToWorld の行 2 (+Z) = 発光方向
 //    Tangent        = LightToWorld の行 1 (+Y) = ライトの上方向
 //  単位はメートル。
@@ -49,12 +48,12 @@ enum ELightComponentType
 	LightType_NumBits = 2
 };
 
-// レンダラが 1 フレームに扱えるライトの上限 [PORT]。
-// UE は可変長だが、本エンジンのライトバッファ / ローカルシャドウパラメータは固定長のアップロードヒープ
+// レンダラが 1 フレームに扱えるライトの上限。
+// ライトバッファ / ローカルシャドウパラメータは固定長のアップロードヒープ
 static const unsigned int MAX_LOCAL_LIGHTS = 64;		// 視界内のローカルライト (Point / Spot / Rect)
 static const unsigned int MAX_DIRECTIONAL_LIGHTS = 4;	// ディレクショナルライト
 
-// FScene::AtmosphereLights の数 (UE NUM_ATMOSPHERE_LIGHTS)
+// FScene::AtmosphereLights の数
 static const unsigned int NUM_ATMOSPHERE_LIGHTS = 2;
 
 // ============================================================
@@ -67,7 +66,7 @@ static const unsigned int NUM_ATMOSPHERE_LIGHTS = 2;
 //    - Tangent はライトの上方向 (レクトライトの高さ軸 / チューブの軸)
 //    - レクトライトは SourceRadius = 半幅、SourceLength = 半高
 //    - FalloffExponent はプロキシの値そのまま。逆二乗のライトを 0 にするのは
-//      レンダラの役目 (UE と同じ)
+//      レンダラの役目
 // ============================================================
 struct FLightRenderParameters
 {
@@ -138,7 +137,7 @@ public:
 	const XMFLOAT4X4& GetWorldToLight() const { return m_WorldToLight; }
 	const XMFLOAT4X4& GetLightToWorld() const { return m_LightToWorld; }
 
-	// 発光方向 (正規化)。UE は LightToWorld の X 軸、本エンジンは +Z [PORT]
+	// 発光方向 (正規化)。LightToWorld の +Z
 	XMFLOAT3 GetDirection() const { return XMFLOAT3(m_LightToWorld._31, m_LightToWorld._32, m_LightToWorld._33); }
 	// ライトの上方向 (正規化)。レクトライトの高さ軸 / チューブの軸
 	XMFLOAT3 GetUpVector() const { return XMFLOAT3(m_LightToWorld._21, m_LightToWorld._22, m_LightToWorld._23); }

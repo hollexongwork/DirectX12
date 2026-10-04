@@ -155,7 +155,7 @@ void SettingsManager::LoadAndApply()
 		ini.GetFloat3("Translucency", "SortAxis", t.SortAxis);
 	}
 
-	// ---- Anti-Aliasing / Screen Percentage (r.AntiAliasingMethod / r.ScreenPercentage / r.TemporalAA.* ...) ----
+	// ---- Anti-Aliasing / Screen Percentage ----
 	// 範囲外 / NaN / 未実装の AA 手法は ReadAntiAliasing が丸める
 	if (m_SceneRenderer && ini.HasSection("AntiAliasing"))
 	{
@@ -207,7 +207,7 @@ void SettingsManager::LoadAndApply()
 		ReadLumen(ini, m_Lumen->GetParams());
 	}
 
-	// ---- Volumetric Fog (r.VolumetricFog.* 相当のレンダラ設定) ----
+	// ---- Volumetric Fog (レンダラ設定) ----
 	if (m_VolumetricFog && ini.HasSection("VolumetricFog"))
 	{
 		ReadVolumetricFog(ini, m_VolumetricFog->GetParams());
@@ -682,7 +682,7 @@ void SettingsManager::ApplyComponent(UActorComponent* Component, const Component
 			primitive->SetTranslucentSortPriority(Snap.TranslucencySortPriority);
 		}
 
-		// 適用 (起動時の INI 読み込み / Reset / Details の Reset Actor) はテレポート扱い (UE bTeleport):
+		// 適用 (起動時の INI 読み込み / Reset / Details の Reset Actor) はテレポート扱い (bTeleport):
 		// 次のトランスフォームプッシュで前フレーム変換 = 今の変換にし、ベロシティを出さない。
 		// ApplyComponent は static なのでワールドへはコンポーネント経由で辿る
 		if (UWorld* world = primitive->GetWorld())
@@ -1266,7 +1266,7 @@ void SettingsManager::WriteComponent(ConfigFile& Ini, const std::string& Section
 
 		Ini.SetString(Section, Prefix + "LightType", Snap.LightTypeName);
 
-		// キー名は UE のプロパティ名 (先頭の b は付けない。既存キーと同じ流儀)
+		// キー名はプロパティ名 (先頭の b は付けない。既存キーと同じ流儀)
 		Ini.SetBool(Section, Prefix + "Visible", Snap.Visible);
 		Ini.SetBool(Section, Prefix + "AffectsWorld", Snap.AffectsWorld);
 		Ini.SetFloat(Section, Prefix + "Intensity", Snap.Intensity);
@@ -1780,7 +1780,7 @@ void SettingsManager::ReadLumen(const ConfigFile& Ini, FLumenSceneData::Params& 
 
 // ------------------------------------------------------------
 //  Volumetric Fog Params <-> [VolumetricFog] セクション
-//  r.VolumetricFog.* 相当のレンダラ設定 (フォグコンポーネントの
+//  Volumetric Fog のレンダラ設定 (フォグコンポーネントの
 //  プロパティは [Actor.N] 側)。キー名はフィールド名と一致させる。
 // ------------------------------------------------------------
 void SettingsManager::WriteVolumetricFog(ConfigFile& Ini, const FVolumetricFog::Params& p)
@@ -1905,7 +1905,6 @@ void SettingsManager::ReadEditorViewport(const ConfigFile& Ini, ACameraActor::FL
 //  Anti-Aliasing / Screen Percentage <-> [AntiAliasing] セクション
 //  キー名は FAntiAliasingParams のフィールド名と一致させる
 //  (INI を手編集するときに AntiAliasingSettings.h を見れば分かるように)。
-//  UE の CVar との対応はフィールドのコメントを参照。
 // ------------------------------------------------------------
 void SettingsManager::WriteAntiAliasing(ConfigFile& Ini, const FAntiAliasingParams& p)
 {

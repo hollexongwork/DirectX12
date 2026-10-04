@@ -2,7 +2,7 @@
 
 // =============================================================
 //  VolumetricFogIntegration_CS
-//  VolumetricFog.usf の FinalIntegrationCS 相当 - Pass 3/3。
+//  FinalIntegrationCS 相当 - Pass 3/3。
 //  XY 列ごとに 1 スレッドを割り当て、Z スライスを手前から奥へ
 //  積分してカメラから各 froxel までの
 //    rgb = 累積インスキャッタ (透過率で重み付け),

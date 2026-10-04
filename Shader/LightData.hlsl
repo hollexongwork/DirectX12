@@ -3,7 +3,7 @@
 
 // =============================================================
 //  LightData
-//  LightData.ush 相当。シェーダが扱うライトのデータ構造。
+//  シェーダが扱うライトのデータ構造。
 //
 //    FLocalLightData      : ライトバッファ (ForwardLightBuffer) の 1 要素。
 //                           C++ FForwardLocalLightData (LightGridInjection.h) と
@@ -18,7 +18,7 @@
 //  コンピュート (Lumen / Volumetric Fog / ライトグリッド構築) が共有する。
 //
 //  規約:
-//    - 位置はワールド空間 [m] (UE の TranslatedWorld は使わない [PORT])
+//    - 位置はワールド空間 [m]
 //    - Direction は受光点からライトへ向かう方向 (発光方向の逆)
 //    - Tangent はライトの上方向 (レクトライトの高さ軸 / チューブの軸)
 //    - 逆二乗フォールオフは FalloffExponent == 0 で表す
@@ -32,7 +32,7 @@
 #define LIGHT_TYPE_MAX         4
 
 // ---- ライトフラグ (C++ LIGHT_FLAG_* と 1:1) ----
-#define LIGHT_FLAG_CAST_DYNAMIC_SHADOW         (1u << 0) // 動的シャドウを落とす (UE ShadowedBits)
+#define LIGHT_FLAG_CAST_DYNAMIC_SHADOW         (1u << 0) // 動的シャドウを落とす (ShadowedBits)
 #define LIGHT_FLAG_AFFECT_TRANSLUCENT_LIGHTING (1u << 1) // 半透明を照らす
 #define LIGHT_FLAG_CAST_VOLUMETRIC_SHADOW      (1u << 2) // Volumetric Fog の中で影を落とす
 
@@ -45,11 +45,11 @@ struct FRectLightData
 
 // -------------------------------------------------------------
 //  FDeferredLightData
-//  ライト 1 灯の展開済みパラメータ (UE FDeferredLightData)。
+//  ライト 1 灯の展開済みパラメータ。
 // -------------------------------------------------------------
 struct FDeferredLightData
 {
-    float3 WorldPosition; // ワールド位置 [m] (UE TranslatedWorldPosition)
+    float3 WorldPosition; // ワールド位置 [m]
     float InvRadius; // 1 / AttenuationRadius
     float3 Color; // 線形色 x 明るさ (距離フェード適用済み)
     float FalloffExponent;
@@ -72,7 +72,7 @@ struct FDeferredLightData
     uint ShadowedBits; // 0 = 影無し、3 = 動的シャドウあり
     FRectLightData RectLightData;
     bool bAffectsTranslucentLighting;
-    // ---- 本エンジンの拡張 [PORT] ----
+    // ---- Volumetric Fog 用 ----
     float VolumetricScatteringIntensity; // Volumetric Fog への散乱寄与
     bool bCastVolumetricShadow; // Volumetric Fog の中で影を落とすか
 };
@@ -81,7 +81,7 @@ struct FDeferredLightData
 //  FLocalLightData
 //  ライトバッファの 1 要素 (逐次パック 128 bytes)。
 //  [0, NumLocalLights) がローカルライト、続く NumDirectionalLights 個が
-//  ディレクショナルライト。フィールド名は UE の FForwardLocalLightData に合わせる。
+//  ディレクショナルライト。C++ 側は FForwardLocalLightData。
 // -------------------------------------------------------------
 struct FLocalLightData
 {

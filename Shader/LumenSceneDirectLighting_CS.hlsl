@@ -5,14 +5,14 @@
 
 // =============================================================
 //  LumenSceneDirectLighting_CS
-//  LumenSceneDirectLighting.usf 相当。Surface Cache の各カード
+//  Surface Cache の各カード
 //  テクセルに対する直接光イラディアンス [lux] を計算して
 //  DirectLightingAtlas (u0) へ書く (アルベド乗算は Combine が行う)。
 //
 //  ライトは Lumen 用ライトバッファ (t3) を全灯巡回する
 //  (ディレクショナル + ローカル。C++ ComputeLightGrid が
 //   bAffectGlobalIllumination のライトだけを IndirectLightingIntensity
-//   込みで積む)。1 灯の評価は UE の GetIrradianceForLight と同じく
+//   込みで積む)。1 灯の評価 (GetIrradianceForLight) は
 //    GetLocalLightAttenuation (半径窓 / コーン / レクト背面)
 //    x IntegrateLight (面光源の形状を考慮したフォールオフ)
 //    x N.L x 遮蔽トレース (メッシュ SDF / Global SDF / HWRT)
@@ -30,7 +30,7 @@ static const float DIRECTIONAL_SHADOW_CONE_TAN = 0.05f;
 static const float LOCAL_SHADOW_CONE_TAN = 0.1f;
 
 // -------------------------------------------------------------
-//  ライト 1 灯のイラディアンス (UE GetIrradianceForLight)
+//  ライト 1 灯のイラディアンス (GetIrradianceForLight)
 //  戻り値: 遮蔽前の寄与。OutL / OutTraceDistance は遮蔽トレース用
 // -------------------------------------------------------------
 float3 GetIrradianceForLight(

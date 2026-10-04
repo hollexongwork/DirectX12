@@ -7,8 +7,7 @@ using namespace DirectX;
 
 // ============================================================
 //  LightRendering
-//  LightRendering.h / LightRendering.cpp / SceneVisibility.cpp の
-//  ライトに関する部分に相当する。
+//  ライトの可視判定 / 収集 / ソート。
 //
 //    FSceneRenderer::ComputeLightVisibility  : ライトの可視判定 (フラスタム / 描画距離)
 //                                              -> FViewInfo::VisibleLightInfos
@@ -20,9 +19,9 @@ using namespace DirectX;
 //  FSceneRenderer::ComputeLightGrid (LightGridInjection.cpp)。
 // ============================================================
 
-// r.MinScreenRadiusForLights: これより画面上で小さくなったローカルライトは描かない
+// これより画面上で小さくなったローカルライトは描かない
 extern float GMinScreenRadiusForLights;
-// r.LightMaxDrawDistanceScale: ULightComponent::MaxDrawDistance に掛けるスケール
+// ULightComponent::MaxDrawDistance に掛けるスケール
 extern float GLightMaxDrawDistanceScale;
 
 // ------------------------------------------------------------
@@ -77,7 +76,7 @@ struct FSortedLightSetSceneInfo
 };
 
 // ローカルライトの距離フェード係数 (GetLightFadeFactor)。
-//   SizeFade     : 画面上で小さくなったライトを消す (r.MinScreenRadiusForLights)
+//   SizeFade     : 画面上で小さくなったライトを消す (GMinScreenRadiusForLights)
 //   DistanceFade : MaxDrawDistance の手前 MaxDistanceFadeRange でフェードアウト
 // ViewOrigin はカメラのワールド位置 [m]
 float GetLightFadeFactor(const XMFLOAT3& ViewOrigin, const FLightSceneProxy* Proxy);

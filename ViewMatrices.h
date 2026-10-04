@@ -4,14 +4,14 @@
 
 // ============================================================
 //  FViewMatrices
-//  UE の FViewMatrices 相当 (ヘッダオンリー)。1 ビュー分の行列一式を
+//  FViewMatrices 相当 (ヘッダオンリー)。1 ビュー分の行列一式を
 //  ジッタ込み / ジッタ無し (NoAA) の 2 系統で保持する。
 //
 //  規約 (§0.2): 行列はすべて転置前 (DirectXMath の行ベクトル: clip = v * M)。
 //  b0 などシェーダーへ渡すときだけ XMMatrixTranspose して詰める。
 //
 //  TAA のジッタは射影行列の _31 / _32 (NDC オフセット) に加算する
-//  (UE HackAddTemporalAAProjectionJitter)。深度行 / _11 / _22 は不変なので
+//  (HackAddTemporalAAProjectionJitter)。深度行 / _11 / _22 は不変なので
 //  全深度で画像がちょうど +J_ndc だけずれる (Appendix A.2)。
 //  NoAA 系はカリング / ClipToPrevClip / Volumetric Fog の履歴に使う。
 // ============================================================
@@ -28,7 +28,7 @@ struct FViewMatrices                               // すべて転置前 (row-ve
 	DirectX::XMFLOAT4X4 InvViewProjectionMatrix = kIdentity4x4;      // ジッタ込み
 	DirectX::XMFLOAT4X4 InvViewProjectionNoAAMatrix = kIdentity4x4;
 	DirectX::XMFLOAT3   ViewOrigin{};
-	DirectX::XMFLOAT2   TemporalAAProjectionJitter{ 0.0f, 0.0f };   // NDC (UE GetTemporalAAJitter)
+	DirectX::XMFLOAT2   TemporalAAProjectionJitter{ 0.0f, 0.0f };   // NDC (GetTemporalAAJitter)
 
 	// ジッタ 0 で全派生行列を計算する
 	void Init(const DirectX::XMFLOAT4X4& View, const DirectX::XMFLOAT4X4& ProjNoAA, const DirectX::XMFLOAT3& Origin)
@@ -41,7 +41,7 @@ struct FViewMatrices                               // すべて転置前 (row-ve
 		RecomputeDerivedMatrices();
 	}
 
-	// UE HackAddTemporalAAProjectionJitter: 射影の _31 / _32 に NDC ジッタを足して派生行列を再計算
+	// HackAddTemporalAAProjectionJitter: 射影の _31 / _32 に NDC ジッタを足して派生行列を再計算
 	void HackAddTemporalAAProjectionJitter(DirectX::XMFLOAT2 J)
 	{
 		assert(TemporalAAProjectionJitter.x == 0.0f && TemporalAAProjectionJitter.y == 0.0f && "jitter already applied");
@@ -51,7 +51,7 @@ struct FViewMatrices                               // すべて転置前 (row-ve
 		RecomputeDerivedMatrices();
 	}
 
-	// UE HackRemoveTemporalAAProjectionJitter: ジッタを取り除いて再計算。
+	// HackRemoveTemporalAAProjectionJitter: ジッタを取り除いて再計算。
 	// 浮動小数の (a + j) - j は a に戻らないことがあるので、ジッタ無しの
 	// 射影行列の _31 / _32 を書き戻す (= ジッタの厳密な減算)
 	void HackRemoveTemporalAAProjectionJitter()

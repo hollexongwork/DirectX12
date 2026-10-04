@@ -4,7 +4,7 @@
 
 // ============================================================
 //  APointLight
-//  APointLight (Engine/Classes/Engine/PointLight.h) に相当。
+//  APointLight に相当。
 //  UPointLightComponent を Root に持つ。
 //  逆二乗フォールオフ + AttenuationRadius の窓関数。
 //  SourceRadius / SourceLength で面光源 (球 / チューブ) になる。

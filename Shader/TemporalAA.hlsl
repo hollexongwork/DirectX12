@@ -1,5 +1,5 @@
 // =============================================================
-//  TemporalAA.hlsl (UE Gen4 TemporalAA.usf の FTAAStandaloneCS 相当)
+//  TemporalAA.hlsl (FTAAStandaloneCS 相当)
 //  全順列 (TemporalAA_{Main,Upsampling}_{Low,Low_Downsample,Medium,High,MediumHigh}_CS /
 //  TemporalAA_SuperSampling_CS) の本体。各ラッパは TAA_PASS_CONFIG / TAA_QUALITY /
 //  TAA_DOWNSAMPLE を #define してからこのヘッダを include する。
@@ -12,8 +12,8 @@
 //    s0 ポイントクランプ           s1 リニアクランプ
 //
 //  規約 (§0.2): 標準 Z (手前 = 小さい)、ScreenPos = NDC.xy (+y 上)、行ベクトル mul(v, M)。
-//  UE (反転 Z) と比較が逆になる箇所は TemporalAACommon.hlsl の SelectClosestDepthCross に
-//  集約し "// UE: >" / "// UE: max" を付けている。
+//  反転 Z と比較が逆になる箇所は TemporalAACommon.hlsl の SelectClosestDepthCross に
+//  集約し、注記を付けている。
 // =============================================================
 
 // ---- 近傍ボックスの種類 ----
@@ -117,7 +117,7 @@ SamplerState        PointClampSampler        : register(s0);
 SamplerState        LinearClampSampler       : register(s1);
 
 int2   ClampInputPixel(int2 p) { return clamp(p, InputMinMaxPixelCoord.xy, InputMinMaxPixelCoord.zw); }
-float3 LoadInputYCoCg(int2 p)  { return RGBToYCoCg(SanitizeColor(InputSceneColor.Load(int3(ClampInputPixel(p), 0)).rgb, 65504.0f)); }  // [PORT] 入力もサニタイズ
+float3 LoadInputYCoCg(int2 p)  { return RGBToYCoCg(SanitizeColor(InputSceneColor.Load(int3(ClampInputPixel(p), 0)).rgb, 65504.0f)); }  // 入力もサニタイズ
 float  LoadViewZ(int2 p)       { return SceneLinearDepth.Load(int3(ClampInputPixel(p), 0)).r; }
 bool   IsDynamicAt(int2 p)     { return IsVelocityWritten(SceneVelocity.Load(int3(ClampInputPixel(p), 0))); }
 
@@ -131,7 +131,7 @@ void FilterCurrentFrame(float3 C[9], float2 dKO, float E, float InvFilterScale, 
 #if AA_FILTERED
   #if AA_UPSAMPLE
     // (早期 return にしない: out 引数が未初期化扱いになり Debug (/Od) の fxc が X4000 を出すため if / else)
-    if ((Flags & TAA_FLAG_UPSAMPLE_FILTERED) == 0u)                       // r.TemporalAAUpsampleFiltered = 0
+    if ((Flags & TAA_FLAG_UPSAMPLE_FILTERED) == 0u)                       // bTemporalAAUpsampleFiltered = 0
     {
         Filtered = C[4];
         FTW = ComputeSampleWeigth(-dKO * InvFilterScale, UpscaleFactor);
@@ -190,7 +190,7 @@ void ComputeNeighborhoodBoundingbox(float3 C[9], float2 dKO, float3 Filtered, ou
     const float3 SquareMin = min(PlusMin, min(min(C[0], C[2]), min(C[6], C[8])));
     const float3 SquareMax = max(PlusMax, max(max(C[0], C[2]), max(C[6], C[8])));
     #if AA_ROUND
-    NeighborMin = 0.5f * (SquareMin + PlusMin);                                // 丸めた箱 (UE AA_ROUND)
+    NeighborMin = 0.5f * (SquareMin + PlusMin);                                // 丸めた箱 (AA_ROUND)
     NeighborMax = 0.5f * (SquareMax + PlusMax);
     #else
     NeighborMin = SquareMin;
@@ -276,12 +276,12 @@ void main(uint2 GroupThreadId : SV_GroupThreadID, uint2 DispatchThreadId : SV_Di
                              LoadViewZ(K + int2(-AA_CROSS,  AA_CROSS)), LoadViewZ(K + int2(AA_CROSS,  AA_CROSS)));
     int2 VelocityOffset;
     float ClosestZ;
-    SelectClosestDepthCross(Z0, Zc, AA_CROSS, VelocityOffset, ClosestZ);      // PosN.xy は動かさない (UE)
+    SelectClosestDepthCross(Z0, Zc, AA_CROSS, VelocityOffset, ClosestZ);      // PosN.xy は動かさない
     const float DeviceZ = ViewZToDeviceZ(ClosestZ, DepthParams);               // 遠方 = d = Q (回転のみ再投影)
 
     // ---- 5. カメラ運動 (NoAA x NoAA) とオブジェクト運動 ----
     const float4 PrevClip = mul(float4(ScreenPos, DeviceZ, 1.0f), ClipToPrevClip);
-    bool   bPrevBehind = PrevClip.w <= 1.0e-6f;                                // [PORT] 大移動 / 背面ガード
+    bool   bPrevBehind = PrevClip.w <= 1.0e-6f;                                // 大移動 / 背面ガード
     float2 BackN = ScreenPos - PrevClip.xy / max(PrevClip.w, 1.0e-6f);
     const float2 EncodedVelocity = SceneVelocity.Load(int3(ClampInputPixel(K + VelocityOffset), 0));
     if (IsVelocityWritten(EncodedVelocity))
@@ -289,7 +289,7 @@ void main(uint2 GroupThreadId : SV_GroupThreadID, uint2 DispatchThreadId : SV_Di
         BackN = DecodeVelocityFromTexture(EncodedVelocity);
         bPrevBehind = false;
     }
-    const float2 BackTemp = BackN * OutputViewportSize.xy;                     // 単位 = 出力 px の 2 倍 (UE)
+    const float2 BackTemp = BackN * OutputViewportSize.xy;                     // 単位 = 出力 px の 2 倍
     const float  Velocity = sqrt(dot(BackTemp, BackTemp));
     const float2 HistoryScreenPosition = ScreenPos - BackN;
     const bool   OffScreen = max(abs(HistoryScreenPosition.x), abs(HistoryScreenPosition.y)) >= 1.0f || bPrevBehind;
@@ -329,9 +329,9 @@ void main(uint2 GroupThreadId : SV_GroupThreadID, uint2 DispatchThreadId : SV_Di
             WSum += TapW[t];
         }
         float4 History = Acc * rcp(WSum);                                     // 角除去で総和 != 1 のため正規化
-        History.rgb = SanitizeColor(History.rgb * HistoryPreExposureCorrection, 65504.0f);   // [PORT] リンギング / NaN
+        History.rgb = SanitizeColor(History.rgb * HistoryPreExposureCorrection, 65504.0f);   // リンギング / NaN
         HistoryY = RGBToYCoCg(History.rgb);
-        HistoryAlpha = ((Flags & TAA_FLAG_HISTORY_HAS_ALPHA) != 0u) ? History.a : 0.0f;     // [PORT] R11G11B10 は a = 1 を返す
+        HistoryAlpha = ((Flags & TAA_FLAG_HISTORY_HAS_ALPHA) != 0u) ? History.a : 0.0f;     // R11G11B10 は a = 1 を返す
     }
 
     // ---- 10. 履歴棄却 ----
@@ -367,7 +367,7 @@ void main(uint2 GroupThreadId : SV_GroupThreadID, uint2 DispatchThreadId : SV_Di
     float BlendFinal = FTW * CurrentFrameWeight;
     BlendFinal = lerp(BlendFinal, 0.2f, saturate(Velocity / 40.0f));
     const float BlendFinalPreFloor = BlendFinal;                               // デバッグ view 5 用 (下限適用前。収束した平坦画素は下限で 1 になるため)
-    BlendFinal = max(BlendFinal, saturate(0.01f * LumaHistory * rcp(max(abs(LumaFiltered - LumaHistory), 1.0e-8f))));   // UE の停滞防止下限 (そのまま)
+    BlendFinal = max(BlendFinal, saturate(0.01f * LumaHistory * rcp(max(abs(LumaFiltered - LumaHistory), 1.0e-8f))));   // 停滞防止の下限
     if (bResponsive)   BlendFinal = 0.25f;
     if (IgnoreHistory) BlendFinal = 1.0f;
 
@@ -377,7 +377,7 @@ void main(uint2 GroupThreadId : SV_GroupThreadID, uint2 DispatchThreadId : SV_Di
     OutRGB = SanitizeColor(OutRGB, OutputQuantizationError.w);                 // AA_NAN: NaN / 負 -> 0, 上限
     {
         const uint2 Rnd = Rand3DPCG16(int3(int2(PixelPos), (int)StateFrameIndexMod8)).xy;
-        const float Eq  = Hammersley16(0u, 1u, Rnd).x;                         // [0, 1) (UE Gen4)
+        const float Eq  = Hammersley16(0u, 1u, Rnd).x;                         // [0, 1)
         OutRGB = min(QuantizeForFloatRenderTarget(OutRGB, Eq, OutputQuantizationError.xyz), OutputQuantizationError.w);
     }
     float OutAlpha = 0.0f;
