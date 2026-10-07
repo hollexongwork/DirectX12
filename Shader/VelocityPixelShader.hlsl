@@ -2,7 +2,7 @@
 #define VELOCITY_PIXEL_SHADER_HLSL
 
 // =============================================================
-//  VelocityPixelShader.hlsl (UE FVelocityPS)
+//  VelocityPixelShader.hlsl (FVelocityPS)
 //  ベロシティパスのピクセルシェーダ本体。ラッパが VELOCITY_MASKED (0/1) を
 //  定義してから include する:
 //    VelocityPS.hlsl       : VELOCITY_MASKED 0 (Opaque / BaseColor 無しの Masked)
@@ -30,7 +30,7 @@ float4 main(VELOCITY_VS_OUTPUT input) : SV_TARGET0
         clip(baseColor.a - Material.OpacityMaskClipValue);
     }
 #endif
-    if (input.PackedVelocityC.w <= 1.0e-4f)                                        // [PORT] 前フレーム位置がカメラ背後
+    if (input.PackedVelocityC.w <= 1.0e-4f)                                        // 前フレーム位置がカメラ背後
     {
         return float4(EncodeVelocityToTexture(float2(2.0f, 2.0f)), 0.0f, 0.0f);    // -> HSP = s - 2 が画面外 -> 履歴棄却
     }

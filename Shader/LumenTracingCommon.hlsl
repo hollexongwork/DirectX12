@@ -3,7 +3,7 @@
 
 // =============================================================
 //  LumenTracingCommon
-//  LumenTracingCommon.ush / LumenSurfaceCacheSampling 相当。
+//  Lumen のトレースと Surface Cache サンプリング。
 //  Lumen シーン (メッシュ SDF 群) へのコーントレースと、ヒット先の
 //  Surface Cache (FinalLighting アトラス) の採光を提供する。
 //

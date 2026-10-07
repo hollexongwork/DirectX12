@@ -1,230 +1,235 @@
 #pragma once
 #include <DirectXMath.h>
+#include <cfloat>
+#include "BoxSphereBounds.h"
 
 using namespace DirectX;
 
 // ============================================================
 //  FLightSceneProxy
-//  FLightSceneProxy に相当するレンダー側ミラー。
-//  ULightComponent::CreateLightSceneProxy() が生成し、FScene
-//  (FLightSceneInfo) が所有する。レンダラ (FSceneRenderer) は
-//  このプロキシだけを読み、ゲーム側オブジェクトには触れない。
+//  FLightSceneProxy に相当する
+//  ライトのレンダー側ミラー。ULightComponent::CreateSceneProxy() が
+//  種別ごとの派生を生成し、FLightSceneInfo が所有する。
+//  レンダラ (FSceneRenderer) はこのプロキシだけを読み、ゲーム側の
+//  コンポーネントには触れない。
 //
-//  データフロー (FPrimitiveSceneProxy と同じ一方向):
-//    - トランスフォーム (位置 / 発光方向 / 幅軸):
-//        UWorld::SendAllEndOfFrameUpdates ->
-//        ULightComponent::SendRenderTransform -> SetTransform
-//    - 強度 / 色 / 半径などのプロパティ変更:
-//        MarkRenderStateDirty -> 次フレーム頭でプロキシ再生成
-//          (FScene::UpdateAllLightSceneInfos)
+//  階層:
+//    FLightSceneProxy
+//      ├ FDirectionalLightSceneProxy          (DirectionalLightSceneProxy.h)
+//      └ FLocalLightSceneProxy                (LocalLightSceneProxy.h)
+//          ├ FPointLightSceneProxy            (PointLightSceneProxy.h)
+//          │   └ FSpotLightSceneProxy         (SpotLightSceneProxy.h)
+//          └ FRectLightSceneProxy             (RectLightSceneProxy.h)
+//
+//  データフロー (一方向):
+//    - 生成 / 破棄              : FScene::AddLight / RemoveLight
+//    - トランスフォーム         : FScene::UpdateLightTransform -> SetTransform
+//    - 色 / 明るさ (軽量経路)   : FScene::UpdateLightColorAndBrightness -> SetColor
+//    - それ以外のプロパティ変更 : MarkRenderStateDirty -> フレーム末尾に作り直し
+//
+//  軸の対応: ライトのローカル軸は (Z = 前方, X = 右, Y = 上)。
+//    GetDirection() = LightToWorld の行 2 (+Z) = 発光方向
+//    Tangent        = LightToWorld の行 1 (+Y) = ライトの上方向
+//  単位はメートル。
 // ============================================================
 
 class ULightComponent;
+class FLightSceneInfo;
+class FScene;
 
-// ---- ライト種別 (HLSL 側 LIGHT_TYPE_* と 1:1。順序変更禁止) ----
-enum class ELightType : unsigned int
+// ---- ライト種別 (ELightComponentType。HLSL 側 LIGHT_TYPE_* と 1:1。順序変更禁止) ----
+enum ELightComponentType
 {
-	Directional = 0,	// VIEW 定数 (b0) 経由。ライトバッファには積まれない
-	Point = 1,
-	Spot = 2,
-	Rect = 3,
+	LightType_Directional = 0,
+	LightType_Point,
+	LightType_Spot,
+	LightType_Rect,
+	LightType_MAX,
+	LightType_NumBits = 2
 };
 
-// ---- GPU へ送るライトフラグ (HLSL 側 LIGHT_FLAG_* と 1:1) ----
-#define LIGHT_FLAG_INVERSE_SQUARED (1u << 0)
+// レンダラが 1 フレームに扱えるライトの上限。
+// ライトバッファ / ローカルシャドウパラメータは固定長のアップロードヒープ
+static const unsigned int MAX_LOCAL_LIGHTS = 64;		// 視界内のローカルライト (Point / Spot / Rect)
+static const unsigned int MAX_DIRECTIONAL_LIGHTS = 4;	// ディレクショナルライト
 
-// レンダラが 1 フレームに扱えるローカルライト (Point/Spot/Rect) の上限。
-// FSceneRenderer のライトバッファ / FShadowSceneRenderer のローカルシャドウ / ライトグリッドが参照する。
-static const unsigned int MAX_LOCAL_LIGHTS = 64;
+// FScene::AtmosphereLights の数
+static const unsigned int NUM_ATMOSPHERE_LIGHTS = 2;
 
 // ============================================================
-//  FLightShaderParameters
-//  FLightShaderParameters に相当する GPU 転送用構造体。
-//  StructuredBuffer<FLightShaderParameters> (t13, ForwardLocalLights) として毎フレーム
-//  アップロードされる。HLSL 側 (Structs.hlsl) と 1:1 ミラー必須。
-//  StructuredBuffer は cbuffer と違いパディング規則が無い逐次
-//  レイアウトなので、両側とも 112 バイトで完全一致させること。
+//  FLightRenderParameters
+//  FLightRenderParameters に相当。FLightSceneProxy::GetLightShaderParameters が
+//  ワールド空間で埋め、レンダラ (FSceneRenderer::ComputeLightGrid) が
+//  GPU 用の FForwardLocalLightData へ詰める。
 //
-//    - Rect ライトは SourceRadius = 半幅、
-//      SourceLength = 半高を流用する
-//    - Direction は「発光方向」(コンポーネント +Z)。
+//    - Direction は -GetDirection() (受光点からライトへ向かう方向)
+//    - Tangent はライトの上方向 (レクトライトの高さ軸 / チューブの軸)
+//    - レクトライトは SourceRadius = 半幅、SourceLength = 半高
+//    - FalloffExponent はプロキシの値そのまま。逆二乗のライトを 0 にするのは
+//      レンダラの役目
 // ============================================================
-struct FLightShaderParameters
+struct FLightRenderParameters
 {
-	XMFLOAT3     Position;              // ワールド位置
-	float        InvRadius;             // 1 / AttenuationRadius
+	XMFLOAT3 WorldPosition = { 0.0f, 0.0f, 0.0f };	// ワールド位置 [m]
+	float    InvRadius = 0.0f;						// 1 / AttenuationRadius
 
-	XMFLOAT3     Color;                 // 線形色 x 強度 (単位換算済み。cd 相当)
-	float        FalloffExponent;       // 逆二乗無効時の指数フォールオフ
+	XMFLOAT3 Color = { 0.0f, 0.0f, 0.0f };			// 線形色 x 明るさ
+	float    FalloffExponent = 0.0f;
 
-	XMFLOAT3     Direction;             // 発光方向 (正規化。コンポーネント +Z)
-	float        SpecularScale;         // スペキュラ寄与スケール
+	XMFLOAT3 Direction = { 0.0f, 0.0f, 1.0f };		// -GetDirection()
+	XMFLOAT3 Tangent = { 0.0f, 1.0f, 0.0f };		// ライトの上方向
 
-	XMFLOAT3     Tangent;               // 幅軸 (正規化。コンポーネント +X。Rect の幅 / チューブの軸)
-	float        SourceRadius;          // 球光源半径 (Rect では半幅) [m]
+	XMFLOAT2 SpotAngles = { 0.0f, 0.0f };			// x = cos(Outer), y = 1 / (cos(Inner) - cos(Outer))
 
-	XMFLOAT2     SpotAngles;            // x = cos(Outer), y = 1 / (cos(Inner) - cos(Outer))
-	float        SoftSourceRadius;      // 見かけだけ柔らかくする追加半径 (エネルギー正規化なし) [m]
-	float        SourceLength;          // チューブ長 (Rect では半高) [m]
+	float    SpecularScale = 1.0f;
+	float    DiffuseScale = 1.0f;
 
-	float        RectLightBarnCosAngle; // バーンドア開き角の cos
-	float        RectLightBarnLength;   // バーンドア長 [m]
-	unsigned int Type;                  // ELightType
-	unsigned int Flags;                 // LIGHT_FLAG_*
+	float    SourceRadius = 0.0f;
+	float    SoftSourceRadius = 0.0f;
+	float    SourceLength = 0.0f;
 
-	// ---- Volumetric Fog (ULightComponentBase::VolumetricScatteringIntensity) ----
-	float        VolumetricScatteringIntensity; // Volumetric Fog への散乱寄与スケール (0 = 寄与なし)
-	float        LightPad0[3];                  // 16 バイト境界合わせ (未使用)
+	float    RectLightBarnCosAngle = 0.0f;
+	float    RectLightBarnLength = 0.0f;
+
+	unsigned int bAffectsTranslucentLighting = 1;
 };
-
-static_assert(sizeof(FLightShaderParameters) == 112,
-	"FLightShaderParameters must be 112 bytes (HLSL Structs.hlsl と 1:1 ミラー)");
 
 class FLightSceneProxy
 {
-protected:
-	// ---- トランスフォーム (ダーティ時に SendRenderTransform が更新) ----
-	XMFLOAT3 m_Position = { 0.0f, 0.0f, 0.0f };
-	XMFLOAT3 m_Direction = { 0.0f, 0.0f, 1.0f };	// 発光方向 (コンポーネント +Z)
-	XMFLOAT3 m_Tangent = { 1.0f, 0.0f, 0.0f };		// 幅軸 (コンポーネント +X)
-
-	// ---- レンダーステート (プロキシ再生成時にのみ変わる) ----
-	ELightType m_Type = ELightType::Point;
-	XMFLOAT3   m_Color = { 1.0f, 1.0f, 1.0f };		// 強度・色温度込みの最終線形色
-	float      m_InvRadius = 0.0f;					// 1 / AttenuationRadius (Directional は 0)
-	float      m_FalloffExponent = 8.0f;
-	float      m_SpecularScale = 1.0f;
-	float      m_SourceRadius = 0.0f;
-	float      m_SoftSourceRadius = 0.0f;
-	float      m_SourceLength = 0.0f;
-	XMFLOAT2   m_SpotAngles = { -2.0f, 1.0f };		// cos(Outer) = -2 -> 全方位 (スポット以外)
-	float      m_RectBarnCosAngle = 0.0f;			// 0 (= 90 度) -> バーンドア無効
-	float      m_RectBarnLength = 0.0f;
-	bool       m_bInverseSquared = true;
-	bool       m_bAffectsWorld = true;
-
-	// ---- Volumetric Fog (ULightComponentBase::VolumetricScatteringIntensity) ----
-	float      m_VolumetricScatteringIntensity = 1.0f;	// Volumetric Fog への散乱寄与スケール
-
-	// ---- シャドウ (FShadowSceneRenderer が参照) ----
-	bool  m_bCastShadows = true;
-	float m_ShadowBias = 0.5f;						// 受光側深度バイアススケール (既定 0.5)
-	float m_ShadowSlopeBias = 0.5f;					// 法線オフセット (スロープバイアス相当) スケール
-
-	// ディレクショナル CSM 専用 (UDirectionalLightComponent から流し込まれる)
-	float m_DynamicShadowDistance = 100.0f;			// CSM カバー距離 [m]
-	int   m_NumDynamicShadowCascades = 4;			// カスケード数 (1..MAX_SHADOW_CASCADES)
-	float m_CascadeDistributionExponent = 3.0f;		// 分割の指数 (大きいほど手前が細かい)
-	float m_ShadowDistanceFadeoutFraction = 0.1f;	// 遠端フェード比率
-
-	// ---- Distance Field Shadows (RayTraced Distance Field Shadows) ----
-	bool  m_bUseRTDFShadows = false;				// SDF レイマーチで影を評価するか
-	float m_DistanceFieldShadowDistance = 300.0f;	// (Directional) DF シャドウのカバー距離 [m]
-	float m_DistanceFieldTraceDistance = 100.0f;	// (Directional) 1 レイの最大トレース距離 [m]
-	float m_LightSourceAngle = 1.0f;				// (Directional) 光源の見かけ全角 [度]
-
 public:
-	// 生成時にコンポーネントから共通プロパティをスナップショットする。
-	// 種別ごとの追加パラメータは各 CreateLightSceneProxy が Set* で流し込む。
-	FLightSceneProxy(const ULightComponent* Component);
-	virtual ~FLightSceneProxy() = default;
+	// 生成時にコンポーネントから共通プロパティをスナップショットする
+	explicit FLightSceneProxy(const ULightComponent* InLightComponent);
+	virtual ~FLightSceneProxy();
 
-	// ---- トランスフォームダーティ時に更新 (ULightComponent::SendRenderTransform) ----
-	void SetTransform(const XMFLOAT3& Position, const XMFLOAT3& Direction, const XMFLOAT3& Tangent)
+	// ---- 仮想インターフェース ----
+	// 境界がこのライトの影響範囲と交差するか
+	virtual bool AffectsBounds(const FBoxSphereBounds& Bounds) const { return true; }
+
+	// ライトの影響範囲を包む球
+	virtual FSphere GetBoundingSphere() const
 	{
-		m_Position = Position;
-		m_Direction = Direction;
-		m_Tangent = Tangent;
+		// ディレクショナルライトはシーン全体
+		return FSphere(XMFLOAT3(0.0f, 0.0f, 0.0f), HALF_WORLD_MAX);
 	}
 
-	// ---- CreateLightSceneProxy (コンポーネント側) から呼ばれるセットアップ ----
-	void SetRadialParameters(float InvRadius, float FalloffExponent, bool bInverseSquared)
-	{
-		m_InvRadius = InvRadius;
-		m_FalloffExponent = FalloffExponent;
-		m_bInverseSquared = bInverseSquared;
-	}
+	// 減衰半径 [m]
+	virtual float GetRadius() const { return FLT_MAX; }
+	// スポットライトの外側コーン半角 [rad]
+	virtual float GetOuterConeAngle() const { return 0.0f; }
+	virtual float GetSourceRadius() const { return 0.0f; }
+	virtual bool  IsInverseSquared() const { return true; }
+	virtual bool  IsRectLight() const { return false; }
+	virtual bool  IsLocalLight() const { return false; }
+	// ディレクショナルライトの見かけの全角 [度]
+	virtual float GetLightSourceAngle() const { return 0.0f; }
+	// Distance Field シャドウの 1 レイの最大トレース距離 [m]
+	virtual float GetTraceDistance() const { return 0.0f; }
+	// 描画距離 [m] (0 = 無制限) とフェード幅 [m]。FLocalLightSceneProxy が持つ
+	virtual float GetMaxDrawDistance() const { return 0.0f; }
+	virtual float GetFadeRange() const { return 0.0f; }
+	// フォワードシェーディング (半透明 / Volumetric Fog) のディレクショナルライト選択の優先度
+	virtual int   GetDirectionalLightForwardShadingPriority() const { return 0; }
 
-	void SetSourceShape(float SourceRadius, float SoftSourceRadius, float SourceLength)
-	{
-		m_SourceRadius = SourceRadius;
-		m_SoftSourceRadius = SoftSourceRadius;
-		m_SourceLength = SourceLength;
-	}
+	// GPU へ渡すパラメータをワールド空間で構築する
+	virtual void GetLightShaderParameters(FLightRenderParameters& OutLightParameters) const {}
 
-	void SetSpotAngles(float CosOuterCone, float InvCosConeDifference)
-	{
-		m_SpotAngles = { CosOuterCone, InvCosConeDifference };
-	}
+	// ---- アクセサ ----
+	const XMFLOAT4X4& GetWorldToLight() const { return m_WorldToLight; }
+	const XMFLOAT4X4& GetLightToWorld() const { return m_LightToWorld; }
 
-	void SetRectBarnDoor(float BarnCosAngle, float BarnLength)
-	{
-		m_RectBarnCosAngle = BarnCosAngle;
-		m_RectBarnLength = BarnLength;
-	}
+	// 発光方向 (正規化)。LightToWorld の +Z
+	XMFLOAT3 GetDirection() const { return XMFLOAT3(m_LightToWorld._31, m_LightToWorld._32, m_LightToWorld._33); }
+	// ライトの上方向 (正規化)。レクトライトの高さ軸 / チューブの軸
+	XMFLOAT3 GetUpVector() const { return XMFLOAT3(m_LightToWorld._21, m_LightToWorld._22, m_LightToWorld._23); }
+	// ライトの右方向 (正規化)。レクトライトの幅軸
+	XMFLOAT3 GetRightVector() const { return XMFLOAT3(m_LightToWorld._11, m_LightToWorld._12, m_LightToWorld._13); }
+	// ワールド位置
+	XMFLOAT3 GetOrigin() const { return XMFLOAT3(m_LightToWorld._41, m_LightToWorld._42, m_LightToWorld._43); }
+	// 同次位置 (ローカルライトは w = 1、ディレクショナルライトは -方向 x WORLD_MAX で w = 0)
+	const XMFLOAT4& GetPosition() const { return m_Position; }
 
-	void SetDirectionalShadowParameters(float DynamicShadowDistance, int NumCascades, float DistributionExponent, float FadeoutFraction)
-	{
-		m_DynamicShadowDistance = DynamicShadowDistance;
-		m_NumDynamicShadowCascades = NumCascades;
-		m_CascadeDistributionExponent = DistributionExponent;
-		m_ShadowDistanceFadeoutFraction = FadeoutFraction;
-	}
-
-	void SetDistanceFieldParameters(float DFShadowDistance, float DFTraceDistance, float SourceAngleDeg)
-	{
-		m_DistanceFieldShadowDistance = DFShadowDistance;
-		m_DistanceFieldTraceDistance = DFTraceDistance;
-		m_LightSourceAngle = SourceAngleDeg;
-	}
-
-	// ---- レンダラ (FSceneRenderer) 用アクセサ ----
-	ELightType      GetLightType() const { return m_Type; }
-	bool            AffectsWorld() const { return m_bAffectsWorld; }
+	// 線形色 x 明るさ (色温度 / 単位換算込み)
 	const XMFLOAT3& GetColor() const { return m_Color; }
-	const XMFLOAT3& GetDirection() const { return m_Direction; }
-	const XMFLOAT3& GetPosition() const { return m_Position; }
-
-	// ---- Volumetric Fog (FFogSceneRenderer) 用アクセサ ----
+	float GetIndirectLightingScale() const { return m_IndirectLightingScale; }
 	float GetVolumetricScatteringIntensity() const { return m_VolumetricScatteringIntensity; }
+	float GetSpecularScale() const { return m_SpecularScale; }
+	float GetDiffuseScale() const { return m_DiffuseScale; }
 
-	// ---- シャドウ (FShadowSceneRenderer) 用アクセサ ----
-	bool  CastsShadows() const { return m_bCastShadows; }
-	float GetShadowBias() const { return m_ShadowBias; }
-	float GetShadowSlopeBias() const { return m_ShadowSlopeBias; }
-	float GetAttenuationRadius() const { return (m_InvRadius > 0.0f) ? (1.0f / m_InvRadius) : 0.0f; }
-	const XMFLOAT2& GetSpotAngles() const { return m_SpotAngles; }
-	float GetRectBarnCosAngle() const { return m_RectBarnCosAngle; }
-	float GetDynamicShadowDistance() const { return m_DynamicShadowDistance; }
-	int   GetNumDynamicShadowCascades() const { return m_NumDynamicShadowCascades; }
-	float GetCascadeDistributionExponent() const { return m_CascadeDistributionExponent; }
-	float GetShadowDistanceFadeoutFraction() const { return m_ShadowDistanceFadeoutFraction; }
-	bool  UseRayTracedDistanceFieldShadows() const { return m_bUseRTDFShadows; }
-	float GetDistanceFieldShadowDistance() const { return m_DistanceFieldShadowDistance; }
-	float GetDistanceFieldTraceDistance() const { return m_DistanceFieldTraceDistance; }
-	float GetLightSourceAngle() const { return m_LightSourceAngle; }
+	float GetUserShadowBias() const { return m_ShadowBias; }
+	float GetUserShadowSlopeBias() const { return m_ShadowSlopeBias; }
+	float GetContactShadowLength() const { return m_ContactShadowLength; }
+	bool  IsContactShadowLengthInWS() const { return m_bContactShadowLengthInWS; }
+	float GetContactShadowCastingIntensity() const { return m_ContactShadowCastingIntensity; }
+	float GetContactShadowNonCastingIntensity() const { return m_ContactShadowNonCastingIntensity; }
 
-	// GPU 転送用パラメータ構築 (FLightSceneProxy::GetLightShaderParameters)
-	void GetLightShaderParameters(FLightShaderParameters& Out) const
-	{
-		Out.Position = m_Position;
-		Out.InvRadius = m_InvRadius;
-		Out.Color = m_Color;
-		Out.FalloffExponent = m_FalloffExponent;
-		Out.Direction = m_Direction;
-		Out.SpecularScale = m_SpecularScale;
-		Out.Tangent = m_Tangent;
-		Out.SourceRadius = m_SourceRadius;
-		Out.SpotAngles = m_SpotAngles;
-		Out.SoftSourceRadius = m_SoftSourceRadius;
-		Out.SourceLength = m_SourceLength;
-		Out.RectLightBarnCosAngle = m_RectBarnCosAngle;
-		Out.RectLightBarnLength = m_RectBarnLength;
-		Out.Type = (unsigned int)m_Type;
-		Out.Flags = m_bInverseSquared ? LIGHT_FLAG_INVERSE_SQUARED : 0u;
-		Out.VolumetricScatteringIntensity = m_VolumetricScatteringIntensity;
-		Out.LightPad0[0] = 0.0f;
-		Out.LightPad0[1] = 0.0f;
-		Out.LightPad0[2] = 0.0f;
-	}
+	bool CastsDynamicShadow() const { return m_bCastDynamicShadow; }
+	bool CastsVolumetricShadow() const { return m_bCastVolumetricShadow; }
+	bool AffectGlobalIllumination() const { return m_bAffectGlobalIllumination; }
+	bool AffectsTranslucentLighting() const { return m_bAffectTranslucentLighting; }
+	bool UseRayTracedDistanceFieldShadows() const { return m_bUseRayTracedDistanceFieldShadows; }
+
+	bool IsUsedAsAtmosphereSunLight() const { return m_bUsedAsAtmosphereSunLight; }
+	unsigned char GetAtmosphereSunLightIndex() const { return m_AtmosphereSunLightIndex; }
+
+	unsigned char GetLightType() const { return m_LightType; }
+
+	const ULightComponent* GetLightComponent() const { return m_LightComponent; }
+	FLightSceneInfo* GetLightSceneInfo() const { return m_LightSceneInfo; }
+
+	// ---- FScene だけが呼ぶ更新 ----
+	// LightToWorld はスケール無し (行 = 右 / 上 / 前方 / 位置)
+	void SetTransform(const XMFLOAT4X4& InLightToWorld, const XMFLOAT4& InPosition);
+	void SetColor(const XMFLOAT3& InColor) { m_Color = InColor; }
+
+protected:
+	friend class FScene;
+	friend class FLightSceneInfo;
+
+	// このプロキシを持つ FLightSceneInfo (FScene::AddLight が設定する)
+	FLightSceneInfo* m_LightSceneInfo = nullptr;
+
+	// 生成元のコンポーネント (識別用。レンダラは内容を読まない)
+	const ULightComponent* m_LightComponent = nullptr;
+
+	// ---- トランスフォーム ----
+	XMFLOAT4X4 m_LightToWorld;
+	XMFLOAT4X4 m_WorldToLight;
+	XMFLOAT4   m_Position = { 0.0f, 0.0f, 0.0f, 1.0f };
+
+	// ---- 色 / スケール ----
+	XMFLOAT3 m_Color = { 1.0f, 1.0f, 1.0f };
+	float    m_IndirectLightingScale = 1.0f;
+	float    m_VolumetricScatteringIntensity = 1.0f;
+	float    m_SpecularScale = 1.0f;
+	float    m_DiffuseScale = 1.0f;
+
+	// ---- シャドウ ----
+	float m_ShadowBias = 0.5f;
+	float m_ShadowSlopeBias = 0.5f;
+	float m_ContactShadowLength = 0.0f;
+	float m_ContactShadowCastingIntensity = 1.0f;
+	float m_ContactShadowNonCastingIntensity = 0.0f;
+	bool  m_bContactShadowLengthInWS = false;
+
+	bool m_bCastDynamicShadow = true;
+	bool m_bCastVolumetricShadow = false;
+	bool m_bAffectGlobalIllumination = true;
+	bool m_bAffectTranslucentLighting = true;
+	bool m_bUseRayTracedDistanceFieldShadows = false;
+	bool m_bUsedAsAtmosphereSunLight = false;
+
+	unsigned char m_AtmosphereSunLightIndex = 0;
+	unsigned char m_LightType = LightType_Point;
 };
+
+// FLinearColor::GetLuminance / IsAlmostBlack 相当 (ライトの選択 / 描画要否の判定に使う)
+inline float GetLightColorLuminance(const XMFLOAT3& Color)
+{
+	return Color.x * 0.3f + Color.y * 0.59f + Color.z * 0.11f;
+}
+
+inline bool IsLightColorAlmostBlack(const XMFLOAT3& Color)
+{
+	const float Delta = 0.00001f;
+	return (Color.x * Color.x < Delta) && (Color.y * Color.y < Delta) && (Color.z * Color.z < Delta);
+}

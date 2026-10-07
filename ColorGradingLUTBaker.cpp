@@ -266,7 +266,7 @@ void ColorGradingLUTBaker::LoadArtistLUT(const char* ddsFile)
 	// タイル辺長 = 高さ (UpdateIfDirty で ArtistLUTTileSize に使用)
 	// sanity: a 256x16 strip -> tile 16, 16*16=256 == width. If the strip is
 	// authored differently the tile size still follows height, which matches
-	// the Unreal convention used by SampleArtistLUT in the shader.
+	// the convention used by SampleArtistLUT in the shader.
 
 	m_Dirty = true;   // force re-bake with the new artist LUT
 }

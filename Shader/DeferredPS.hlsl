@@ -1,8 +1,9 @@
+// コンタクトシャドウ (GetShadowTerms -> ShadowRayCast) はシーン深度 (t3) を読むので、
+// デファードライティングパスだけが有効にする
+#define SUPPORT_CONTACT_SHADOWS 1
+
 #include "PBR_Utility.hlsl"
-#include "DeferredLightingCommon.hlsl"
-#include "SubstrateEvaluation.hlsl"
-#include "ShadowFilteringCommon.hlsl"
-#include "LightGridCommon.hlsl"
+#include "ForwardLightingCommon.hlsl"	// DeferredLightingCommon / SubstrateEvaluation / ShadowFilteringCommon / LightGridCommon
 #include "TemporalAACommon.hlsl"	// InterleavedGradientNoise (自己テスト Out[36] と同じ関数。レジスタ宣言無し)
 
 // ---- Lumen スクリーン GI (半球コーントレース + Surface Cache 採光) ----
@@ -30,7 +31,7 @@ void LumenScreenGather(float3 WorldPos, float3 Normal, uint2 PixelPos,
     const uint numCones = clamp(LumenNumScreenCones, 1u, 8u);
 
     // Interleaved Gradient Noise でピクセルごとにコーンリングを回転。
-    // UE InterleavedGradientNoise と同じフレーム項 (View.StateFrameIndexMod8) で 8 フレーム周期に回し、
+    // フレーム項 (View.StateFrameIndexMod8) で 8 フレーム周期に回し、
     // 静止ノイズを TAA に積分させる。AA 無効時は StateFrameIndexMod8 = 0 なので従来の画像と同一
     float ign = InterleavedGradientNoise(float2(PixelPos), (float)StateFrameIndexMod8);
     float randomRotation = ign * 6.2831853f;
@@ -73,8 +74,11 @@ void LumenScreenGather(float3 WorldPos, float3 Normal, uint2 PixelPos,
 //      (SubstrateEvaluation.hlsl。SSS / F0-F90 / 第2ローブ / ファズ)
 //    - それ以外                  : レガシー Metallic/Specular
 //      (CookTorrance + IBL_Ambient)
-//  ローカルライトの減衰 / MRP セットアップ (FAreaLight) は両経路で
-//  共有 (DeferredLightingCommon.hlsl)。
+//  直接光は両経路とも ForwardLightingCommon.hlsl の
+//  GetForwardDirectLighting / GetForwardDirectLightingSubstrate
+//  (全ディレクショナルライト + ライトグリッドのローカルライト)。
+//  ライト 1 灯の減衰 / シャドウ / 面光源の積分は
+//  GetDynamicLighting (DeferredLightingCommon.hlsl)。
 // =============================================================
 
 PS_OUTPUT main(PS_INPUT input)
@@ -121,9 +125,9 @@ PS_OUTPUT main(PS_INPUT input)
 
     // ---- ライティング ----
     float3 viewDir = normalize(WorldCameraOrigin.xyz - worldPos.xyz);
-    float3 lightDir = normalize(DirectionalLightDirection.xyz);
 
-    // ---- ディレクショナルシャドウ (CSM) ----
+    // ---- ディレクショナルシャドウ (CSM + DF) ----
+    // 選択されたフォワードディレクショナルライトの影。
     // カスケード選択はカメラビュー空間の深度で行う
     float viewDepth = mul(float4(worldPos.xyz, 1.0f), View).z;
     float directionalShadow = GetDirectionalShadow(worldPos.xyz, normal, viewDepth);
@@ -175,6 +179,13 @@ PS_OUTPUT main(PS_INPUT input)
     float3 sceneLighting;
     float3 lumenDiffuseAlbedo; // GI の拡散反射に使うアルベド (経路ごとに解決)
 
+    // ---- 直接光 (ディレクショナル全灯 + ライトグリッドのローカルライト) ----
+    // ライト 1 灯の評価は GetDynamicLighting / SubstrateDeferredLighting
+    // (ForwardLightingCommon.hlsl)。コンタクトシャドウのディザは 8 フレーム周期で回す
+    // (AA 無効時は StateFrameIndexMod8 = 0 で固定パターン)
+    const float3 cameraVector = -viewDir;
+    const float contactShadowDither = InterleavedGradientNoise(input.Position.xy, (float) StateFrameIndexMod8);
+
     [branch]
     if (SubstrateIsSubstrateMaterial(substrateData0.x))
     {
@@ -189,50 +200,9 @@ PS_OUTPUT main(PS_INPUT input)
         SlabBSDF.DiffuseAlbedo = baseColor.rgb;
         SlabBSDF.Roughness = max(roughness, 0.001f);
 
-        // ---- ディレクショナルライト ----
-        float3 light = SubstrateEvaluateSlabDirect(
-            SlabBSDF, normal, viewDir,
-            lightDir, lightDir,
-            0.0f, 0.0f, 1.0f, 1.0f, 1.0f)
-            * DirectionalLightColor.rgb * directionalShadow;
-
-        // ---- ローカルライト (Point / Spot / Rect) ----
-        float3 localLight = float3(0.0f, 0.0f, 0.0f);
-
-        [branch]
-        if (bUseLightGrid != 0u)
-        {
-            FCulledLightsGridHeader GridHeader = GetCulledLightsGridHeader(GridIndex);
-
-            for (uint i = 0; i < GridHeader.NumLights; ++i)
-            {
-                uint LightIndex = GetCulledLightDataGrid(GridHeader.DataStartIndex + i);
-                FLightShaderParameters localLightParams = ForwardLocalLights[LightIndex];
-
-                float localShadow = GetLocalLightShadow(
-                    localLightParams, LocalShadowParams[LightIndex], worldPos.xyz, normal);
-
-                localLight += IntegrateLocalLightSubstrate(
-                    localLightParams,
-                    worldPos.xyz, normal, viewDir,
-                    SlabBSDF) * localShadow;
-            }
-        }
-        else
-        {
-            for (uint i = 0; i < NumLocalLights; ++i)
-            {
-                FLightShaderParameters localLightParams = ForwardLocalLights[i];
-
-                float localShadow = GetLocalLightShadow(
-                    localLightParams, LocalShadowParams[i], worldPos.xyz, normal);
-
-                localLight += IntegrateLocalLightSubstrate(
-                    localLightParams,
-                    worldPos.xyz, normal, viewDir,
-                    SlabBSDF) * localShadow;
-            }
-        }
+        float3 directLighting = GetForwardDirectLightingSubstrate(
+            GridIndex, worldPos.xyz, cameraVector, SlabBSDF, normal, viewDepth,
+            directionalShadow, contactShadowDither, false);
 
         // ---- IBL + エミッシブ ----
         // IBL はスカイ可視率で減衰 (Lumen GI との二重計上防止 + DFAO)。
@@ -241,64 +211,22 @@ PS_OUTPUT main(PS_INPUT input)
             SlabBSDF, normal, viewDir, occlusion,
             lumenReflection.rgb, lumenReflection.a) * skyOcclusion;
 
-        sceneLighting = light + localLight + iblAmbient + SlabBSDF.Emissive;
+        sceneLighting = directLighting + iblAmbient + SlabBSDF.Emissive;
         lumenDiffuseAlbedo = SlabBSDF.DiffuseAlbedo;
     }
     else
     {
         // ============================================================
-        //  レガシー Metallic/Specular 経路 (従来と同一)
+        //  レガシー Metallic/Specular 経路
         // ============================================================
-        float3 light = CookTorrance(
-            normal, lightDir, viewDir,
-            baseColor.rgb, roughness, metallic,
-            DirectionalLightColor.rgb) * directionalShadow;
+        FGBufferData GBuffer = MakeGBufferData(normal, baseColor.rgb, metallic, msra.g, roughness, occlusion, viewDepth);
 
-        // ---- ローカルライト (Point / Spot / Rect) ----
         // タイルドライトカリング: LightGridInjection_CS / LightGridCompact_CS
         // が毎フレーム構築したライトグリッド (t19/t20) から、このピクセルの
         // 属するセルのライトだけを巡回する (LightGridCommon.hlsl)。
-        // グリッドが持つインデックスはライトバッファ (t13) / ローカル
-        // シャドウパラメータ (t16) と共通なので 1:1 対応はそのまま。
-        float3 localLight = float3(0.0f, 0.0f, 0.0f);
-
-        [branch]
-        if (bUseLightGrid != 0u)
-        {
-            FCulledLightsGridHeader GridHeader = GetCulledLightsGridHeader(GridIndex);
-
-            for (uint i = 0; i < GridHeader.NumLights; ++i)
-            {
-                uint LightIndex = GetCulledLightDataGrid(GridHeader.DataStartIndex + i);
-                FLightShaderParameters localLightParams = ForwardLocalLights[LightIndex];
-
-                // ローカルシャドウ (t16 はライトバッファ t13 と同じインデックスで 1:1)
-                float localShadow = GetLocalLightShadow(
-                    localLightParams, LocalShadowParams[LightIndex], worldPos.xyz, normal);
-
-                localLight += IntegrateLocalLight(
-                    localLightParams,
-                    worldPos.xyz, normal, viewDir,
-                    baseColor.rgb, roughness, metallic) * localShadow;
-            }
-        }
-        else
-        {
-            // フォールバック: 全灯ループ (グリッド無効時の従来経路)。
-            // 有効数は b3 (ForwardLightData) の NumLocalLights。
-            for (uint i = 0; i < NumLocalLights; ++i)
-            {
-                FLightShaderParameters localLightParams = ForwardLocalLights[i];
-
-                float localShadow = GetLocalLightShadow(
-                    localLightParams, LocalShadowParams[i], worldPos.xyz, normal);
-
-                localLight += IntegrateLocalLight(
-                    localLightParams,
-                    worldPos.xyz, normal, viewDir,
-                    baseColor.rgb, roughness, metallic) * localShadow;
-            }
-        }
+        float3 directLighting = GetForwardDirectLighting(
+            GridIndex, worldPos.xyz, cameraVector, GBuffer,
+            directionalShadow, contactShadowDither, false);
 
         // --- IBL Ambient (diffuse irradiance + specular split-sum) ---
         // IBL はスカイ可視率で減衰 (Lumen GI との二重計上防止 + DFAO)。
@@ -309,7 +237,7 @@ PS_OUTPUT main(PS_INPUT input)
             normal, viewDir,
             lumenReflection.rgb, lumenReflection.a) * skyOcclusion;
 
-        sceneLighting = light + localLight + iblAmbient;
+        sceneLighting = directLighting + iblAmbient;
         lumenDiffuseAlbedo = baseColor.rgb * (1.0f - metallic);
     }
 
@@ -350,15 +278,15 @@ PS_OUTPUT main(PS_INPUT input)
     //   1 = セルのライト数ヒートマップ (緑 -> 黄 -> 赤)
     //   2 = Z スライス可視化
     [branch]
-    if (LightGridDebugMode != 0u)
+    if (ForwardLightData.LightGridDebugMode != 0u)
     {
         FCulledLightsGridHeader DebugHeader = GetCulledLightsGridHeader(GridIndex);
-        float3 debugColor = (LightGridDebugMode == 1u)
+        float3 debugColor = (ForwardLightData.LightGridDebugMode == 1u)
             ? GetLightGridComplexityColor(DebugHeader.NumLights)
             : GetLightGridZSliceColor(GridCoordinate.z);
 
         // 64px タイル境界に細線を引いてセルを見やすくする
-        uint2 pixelInTile = uint2(input.Position.xy) & ((1u << LightGridPixelSizeShift) - 1u);
+        uint2 pixelInTile = uint2(input.Position.xy) & ((1u << ForwardLightData.LightGridPixelSizeShift) - 1u);
         float border = (pixelInTile.x == 0u || pixelInTile.y == 0u) ? 0.35f : 1.0f;
 
         output.Color.rgb = lerp(output.Color.rgb, debugColor * border, 0.6f);

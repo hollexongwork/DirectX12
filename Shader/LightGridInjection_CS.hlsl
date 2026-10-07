@@ -2,8 +2,7 @@
 //  LightGridInjection_CS.hlsl
 //
 //  タイルドライトカリング (クラスタードライトグリッド) - Pass 1/2。
-//  LightGridInjection.usf の TLightGridInjectionCS
-//  (bLightGridUsesLinkedList = true) に相当する。
+//  TLightGridInjectionCS (リンクリスト方式) に相当する。
 //
 //  画面を XY = 64px タイル、Z = ビュー深度の指数スライスに分割した
 //  3D セル (froxel) ごとに 1 スレッドを割り当て、全ローカルライトを
@@ -15,14 +14,14 @@
 //  ※ 各セルは担当スレッドのみが書くため StartOffsetGrid の事前
 //    クリアは不要。アロケータ (8 bytes) のみ毎フレームゼロクリア。
 //
-//  交差判定 (LightGridInjection.usf と同型):
+//  交差判定:
 //    - 全ライト : 減衰球 vs セル AABB
 //    - スポット : + SphereIntersectCone (セル外接球 vs コーン)
 //    - レクト   : + 発光面背面の半空間カリング
 //
 //  Root signature (compute, グラフィックス RS から独立):
 //    b0 : FLightGridParams      (cbuffer)
-//    t0 : ForwardLocalLights    (StructuredBuffer<FLightShaderParameters>)
+//    t0 : ForwardLightBuffer    (StructuredBuffer<FLocalLightData>。先頭 NumLocalLights 個だけを見る)
 //    u0 : RWStartOffsetGrid     (RWStructuredBuffer<uint>)
 //    u1 : RWCulledLightLinks    (RWStructuredBuffer<uint2>)
 //    u2 : RWLightGridAllocator  (RWByteAddressBuffer)
@@ -32,14 +31,14 @@
 //  このファイルは b0 を独自所有するため、グラフィックス用の
 //  共有ヘッダ (ConstantBuffers/Resources) は include しない。
 //  b0/u0-u4 は Pass 2 と共通の LightGridInjectionCommon.hlsl、
-//  FLightShaderParameters / LIGHT_TYPE_* はレジスタ非依存の
-//  Structs.hlsl から取り込む。
+//  FLocalLightData / LIGHT_TYPE_* はレジスタ非依存の
+//  LightData.hlsl から取り込む。
 // ============================================================
 
-#include "Structs.hlsl"
+#include "LightData.hlsl"
 #include "LightGridInjectionCommon.hlsl"
 
-StructuredBuffer<FLightShaderParameters> ForwardLocalLights : register(t0);
+StructuredBuffer<FLocalLightData> ForwardLightBuffer : register(t0);
 
 // -------------------------------------------------------------
 //  Z スライス s の開始ビュー深度
@@ -138,10 +137,15 @@ void main(uint3 GridCoordinate : SV_DispatchThreadID)
 
     for (uint LightIndex = 0; LightIndex < NumLocalLights; ++LightIndex)
     {
-        FLightShaderParameters Light = ForwardLocalLights[LightIndex];
+        FLocalLightData Light = ForwardLightBuffer[LightIndex];
 
-        float Radius = (Light.InvRadius > 0.0f) ? rcp(Light.InvRadius) : 1e10f;
-        float3 ViewPosition = mul(float4(Light.Position, 1.0f), ViewMatrix).xyz;
+        const float InvRadius = Light.LightPositionAndInvRadius.w;
+        const float2 SpotAngles = Light.SpotAnglesAndSourceRadiusPacked.xy;
+        // ライトバッファの Direction は受光点 -> ライト方向。発光方向はその逆
+        const float3 EmissionDirection = -Light.LightDirectionAndSpecularScale.xyz;
+
+        float Radius = (InvRadius > 0.0f) ? rcp(InvRadius) : 1e10f;
+        float3 ViewPosition = mul(float4(Light.LightPositionAndInvRadius.xyz, 1.0f), ViewMatrix).xyz;
 
         // ---- 減衰球 vs セル AABB ----
         float3 ClosestPoint = clamp(ViewPosition, ViewMin, ViewMax);
@@ -149,15 +153,15 @@ void main(uint3 GridCoordinate : SV_DispatchThreadID)
         bool bIntersect = dot(ToCenter, ToCenter) <= Radius * Radius;
 
         // ---- スポット: コーン vs セル外接球で絞り込む ----
-        if (bIntersect && Light.Type == LIGHT_TYPE_SPOT && Light.SpotAngles.x > -1.0f)
+        if (bIntersect && Light.LightType == LIGHT_TYPE_SPOT && SpotAngles.x > -1.0f)
         {
-            float CosOuterCone = Light.SpotAngles.x;
+            float CosOuterCone = SpotAngles.x;
             float SinOuterCone = sqrt(saturate(1.0f - CosOuterCone * CosOuterCone));
 
             [branch]
             if (SinOuterCone > 1e-4f)
             {
-                float3 ViewDirection = normalize(mul(float4(Light.Direction, 0.0f), ViewMatrix).xyz);
+                float3 ViewDirection = normalize(mul(float4(EmissionDirection, 0.0f), ViewMatrix).xyz);
                 bIntersect = SphereIntersectCone(
                     float4(CellCenter, CellRadius),
                     ViewPosition, ViewDirection,
@@ -166,11 +170,11 @@ void main(uint3 GridCoordinate : SV_DispatchThreadID)
         }
 
         // ---- レクト: 発光面の背面半空間を捨てる ----
-        // (受光側は dot(Direction, -L) <= 0 で無光になるため、
+        // (受光側は発光面の裏で無光になるため、
         //  セル外接球が丸ごと背面ならスキップできる)
-        if (bIntersect && Light.Type == LIGHT_TYPE_RECT)
+        if (bIntersect && Light.LightType == LIGHT_TYPE_RECT)
         {
-            float3 ViewDirection = normalize(mul(float4(Light.Direction, 0.0f), ViewMatrix).xyz);
+            float3 ViewDirection = normalize(mul(float4(EmissionDirection, 0.0f), ViewMatrix).xyz);
             float PlaneDistance = dot(CellCenter - ViewPosition, ViewDirection);
             bIntersect = (PlaneDistance > -CellRadius);
         }

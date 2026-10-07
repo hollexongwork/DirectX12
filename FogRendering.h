@@ -93,10 +93,10 @@ public:
 
 	// ---- 毎フレーム: FScene のフォグ + ビュー -> FOG 定数 (InitFogConstants) ----
 	//  Scene            : ExponentialFogs[0] を使う (無ければ「フォグなし」の恒等値)
-	//  View             : 解決済み VIEW 定数 (カメラ位置 / 行列 / 太陽光)
-	//  DirectionalLight : SetupLightConstants が選んだ太陽ライトのプロキシ (null = なし)
-	// RenderBasePass の SetupLightConstants 直後に呼ぶこと。
-	void InitFogConstants(const FScene* Scene, const VIEW_CONSTANT& View, const FLightSceneProxy* DirectionalLight);
+	//  View             : 解決済み VIEW 定数 (カメラ位置 / 行列)
+	// Directional Inscattering の太陽は FScene::AtmosphereLights[0] (null = なし)。
+	// RenderBasePass の GatherLightsAndComputeLightGrid 直後に呼ぶこと。
+	void InitFogConstants(const FScene* Scene, const VIEW_CONSTANT& View);
 
 	// ---- Volumetric Fog のコンピュートパス (ComputeVolumetricFog) ----
 	// RenderLighting のライトグリッド構築後 / デファードパス前に呼ぶ。
@@ -111,7 +111,6 @@ public:
 		FLightGridInjection* LightGrid = nullptr;
 		FShadowSceneRenderer* ShadowRenderer = nullptr;
 		unsigned int                  SkyIrradianceSRVIndex = 0;
-		const FLightSceneProxy* DirectionalLight = nullptr;
 	};
 	void ComputeVolumetricFog(const FComputeInputs& Inputs);
 

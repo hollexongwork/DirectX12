@@ -7,7 +7,6 @@
 
 // =============================================================
 //  ShadowFilteringCommon
-//  ShadowProjectionCommon.ush / ShadowFilteringCommon.ush に相当する
 //  シャドウマップの受光側評価。
 //
 //    - ディレクショナル : CSM (ビュー深度でカスケード選択 + 距離フェード)
@@ -74,7 +73,8 @@ float GetDirectionalShadow(float3 WorldPos, float3 N, float ViewDepth)
     [branch]
     if (bDF && csmFade < 1.0f && ViewDepth < dfDistance)
     {
-        float3 lightDir = normalize(DirectionalLightDirection.xyz); // 受光面 -> ライト
+        // CSM / DF シャドウを持つのは選択されたフォワードディレクショナルライト (b3)
+        float3 lightDir = normalize(ForwardLightData.DirectionalLightDirection); // 受光面 -> ライト
         // 自己遮蔽オフセット: y=レイ方向 (ShadowBias 由来), z=法線方向 (SlopeBias 由来)
         float3 rayStart = WorldPos + N * DFShadowParams1.z + lightDir * DFShadowParams1.y;
 
@@ -90,9 +90,9 @@ float GetDirectionalShadow(float3 WorldPos, float3 N, float ViewDepth)
 
 // -------------------------------------------------------------
 //  ローカルライト (Point / Spot / Rect) のシャドウ係数 (1 = 影なし)
-//  Light と Shadow は同じインデックスの t13 / t16 要素を渡すこと。
+//  LightData と Shadow は同じインデックスの t13 / t16 要素を渡すこと。
 // -------------------------------------------------------------
-float GetLocalLightShadow(FLightShaderParameters Light, FLocalShadowParameters Shadow,
+float GetLocalLightShadow(FDeferredLightData LightData, FLocalShadowParameters Shadow,
     float3 WorldPos, float3 N)
 {
     // ---- DF シャドウ指定 (bUseRayTracedDistanceFieldShadows) ----
@@ -101,10 +101,10 @@ float GetLocalLightShadow(FLightShaderParameters Light, FLocalShadowParameters S
     [branch]
     if (Shadow.DFShadow > 0.5f)
     {
-        float3 toLight = Light.Position - WorldPos;
+        float3 toLight = LightData.WorldPosition - WorldPos;
         float distToLight = length(toLight);
         float3 dir = toLight / max(distToLight, 1e-4f);
-        float tanCone = max(Light.SourceRadius, 0.02f) / max(distToLight, 0.01f);
+        float tanCone = max(LightData.SourceRadius, 0.02f) / max(distToLight, 0.01f);
         // 自己遮蔽オフセットはライトごと (t16):
         //   NormalOffsetWorld = SlopeBias 由来 / DFSelfShadowBias = ShadowBias 由来
         float3 rayStart = WorldPos + N * Shadow.NormalOffsetWorld + dir * Shadow.DFSelfShadowBias;
@@ -119,7 +119,7 @@ float GetLocalLightShadow(FLightShaderParameters Light, FLocalShadowParameters S
 
     float3 offsetPos = WorldPos + N * Shadow.NormalOffsetWorld;
 
-    return ProjectLocalLightShadowMap(LocalLightShadows, ShadowSampler, Light, Shadow, offsetPos);
+    return ProjectLocalLightShadowMap(LocalLightShadows, ShadowSampler, LightData, Shadow, offsetPos);
 }
 
 #endif

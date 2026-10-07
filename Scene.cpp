@@ -116,52 +116,218 @@ void FScene::UpdateAllPrimitiveSceneInfos()
 }
 
 // ============================================================
-//  ライト (FScene::AddLight / RemoveLight)
-//  プリミティブと同じプロキシ + ダーティリストパターン。
+//  ライト (FScene::AddLight / RemoveLight / UpdateLightTransform /
+//  UpdateLightColorAndBrightness)
+//  登録簿を書き換えるのは *_RenderThread。シングルスレッドなので直接呼ぶ。
+//  呼ばれるのはゲーム側フェーズ (Tick / SendAllEndOfFrameUpdates / UI) だけで、
+//  レンダラがプロキシを読んでいる最中には呼ばれない。
 // ============================================================
+
+FScene::~FScene()
+{
+	// 通常は UWorld の破棄で全コンポーネントが登録解除済み。残っていれば破棄する
+	for (FLightSceneInfoCompact& compact : m_Lights)
+	{
+		delete compact.LightSceneInfo;
+		compact.LightSceneInfo = nullptr;
+	}
+}
 
 void FScene::AddLight(ULightComponent* Light)
 {
-	for (const auto& info : m_Lights)
+	// 二重登録防止
+	if (Light->GetSceneProxy() != nullptr)
 	{
-		if (info.Component == Light) return;
+		return;
 	}
 
-	// レンダー側ミラー (プロキシ) を生成してシーンが所有する
-	FLightSceneInfo info;
-	info.Component = Light;
-	info.Proxy.reset(Light->CreateLightSceneProxy());
+	// レンダー側ミラー (プロキシ) を生成する
+	FLightSceneProxy* Proxy = Light->CreateSceneProxy();
+	if (Proxy == nullptr)
+	{
+		return;
+	}
 
-	Light->SetSceneProxy(info.Proxy.get());
-	Light->ClearRenderStateDirty();	// 生成直後は最新スナップショット
+	// プロキシをライトへ関連付ける
+	Light->SetSceneProxy(Proxy);
 
-	m_Lights.push_back(std::move(info));
+	// トランスフォームと位置を入れる
+	Proxy->SetTransform(Light->GetLightToWorldNoScale(), Light->GetLightPosition());
 
-	// 初回フレームのトランスフォームプッシュを予約する (プリミティブと同じ)
-	Light->ClearRenderTransformDirty();
-	Light->MarkRenderTransformDirty();
+	// FLightSceneInfo を作る (プロキシの所有者)
+	Proxy->m_LightSceneInfo = new FLightSceneInfo(Proxy, true);
+	Proxy->m_LightSceneInfo->Scene = this;
+
+	AddLightSceneInfo_RenderThread(Proxy->m_LightSceneInfo);
+}
+
+void FScene::AddLightSceneInfo_RenderThread(FLightSceneInfo* LightSceneInfo)
+{
+	// ライトリストへ追加する (空き番号があれば再利用)
+	if (!m_FreeLightIds.empty())
+	{
+		LightSceneInfo->Id = m_FreeLightIds.back();
+		m_FreeLightIds.pop_back();
+		m_Lights[LightSceneInfo->Id] = FLightSceneInfoCompact(LightSceneInfo);
+	}
+	else
+	{
+		LightSceneInfo->Id = (int)m_Lights.size();
+		m_Lights.push_back(FLightSceneInfoCompact(LightSceneInfo));
+	}
+
+	const bool bDirectionalLight = LightSceneInfo->Proxy->GetLightType() == LightType_Directional;
+	if (bDirectionalLight)
+	{
+		m_DirectionalLights.push_back(LightSceneInfo);
+
+		if (m_SimpleDirectionalLight == nullptr)
+		{
+			m_SimpleDirectionalLight = LightSceneInfo;
+		}
+	}
+
+	ProcessAtmosphereLightAddition_RenderThread(LightSceneInfo);
+}
+
+void FScene::ProcessAtmosphereLightAddition_RenderThread(FLightSceneInfo* LightSceneInfo)
+{
+	if (LightSceneInfo->Proxy->IsUsedAsAtmosphereSunLight())
+	{
+		const unsigned char Index = LightSceneInfo->Proxy->GetAtmosphereSunLightIndex();
+		if (m_AtmosphereLights[Index] == nullptr ||	// 未設定なら採用
+			GetLightColorLuminance(LightSceneInfo->Proxy->GetColor()) > GetLightColorLuminance(m_AtmosphereLights[Index]->Proxy->GetColor()))	// 設定済みなら明るい方
+		{
+			m_AtmosphereLights[Index] = LightSceneInfo;
+		}
+	}
+}
+
+void FScene::ProcessAtmosphereLightRemoval_RenderThread(FLightSceneInfo* LightSceneInfo)
+{
+	// 明るさ / 添字の変更は「外してから入れ直す」ので、外されるライトの添字だけを見ればよい
+	const unsigned char Index = LightSceneInfo->Proxy->GetAtmosphereSunLightIndex();
+	if (m_AtmosphereLights[Index] == LightSceneInfo)
+	{
+		m_AtmosphereLights[Index] = nullptr;
+		float SelectedLightLuminance = 0.0f;
+
+		for (FLightSceneInfo* LightInfo : m_DirectionalLights)
+		{
+			const float LightLuminance = GetLightColorLuminance(LightInfo->Proxy->GetColor());
+			if (LightInfo != LightSceneInfo
+				&& LightInfo->Proxy->IsUsedAsAtmosphereSunLight() && LightInfo->Proxy->GetAtmosphereSunLightIndex() == Index
+				&& (m_AtmosphereLights[Index] == nullptr || SelectedLightLuminance < LightLuminance))
+			{
+				m_AtmosphereLights[Index] = LightInfo;
+				SelectedLightLuminance = LightLuminance;
+			}
+		}
+	}
 }
 
 void FScene::RemoveLight(ULightComponent* Light)
 {
-	auto it = std::find_if(m_Lights.begin(), m_Lights.end(),
-		[Light](const FLightSceneInfo& info) { return info.Component == Light; });
-
-	if (it != m_Lights.end())
+	FLightSceneProxy* Proxy = Light->GetSceneProxy();
+	if (Proxy == nullptr)
 	{
-		Light->SetSceneProxy(nullptr);
-		m_Lights.erase(it);
+		return;
 	}
 
-	// ダーティリストからも除去する (ダングリングポインタ防止)
+	FLightSceneInfo* LightSceneInfo = Proxy->GetLightSceneInfo();
+
+	// プロキシとライトの関連を切る
+	Light->SetSceneProxy(nullptr);
+
+	RemoveLightSceneInfo_RenderThread(LightSceneInfo);
+}
+
+void FScene::RemoveLightSceneInfo_RenderThread(FLightSceneInfo* LightSceneInfo)
+{
+	const bool bDirectionalLight = LightSceneInfo->Proxy->GetLightType() == LightType_Directional;
+
+	if (bDirectionalLight)
+	{
+		m_DirectionalLights.erase(
+			std::remove(m_DirectionalLights.begin(), m_DirectionalLights.end(), LightSceneInfo),
+			m_DirectionalLights.end());
+
+		if (LightSceneInfo == m_SimpleDirectionalLight)
+		{
+			// 外したのが SimpleDirectionalLight なら、残りの先頭を代わりにする
+			m_SimpleDirectionalLight = m_DirectionalLights.empty() ? nullptr : m_DirectionalLights.front();
+		}
+	}
+
+	ProcessAtmosphereLightRemoval_RenderThread(LightSceneInfo);
+
+	// ライトリストから外し、番号を空きへ戻す
+	if (LightSceneInfo->Id >= 0 && (size_t)LightSceneInfo->Id < m_Lights.size())
+	{
+		m_Lights[LightSceneInfo->Id] = FLightSceneInfoCompact();
+		m_FreeLightIds.push_back(LightSceneInfo->Id);
+		LightSceneInfo->Id = -1;
+	}
+
+	// FLightSceneInfo とプロキシを破棄する (プロキシは FLightSceneInfo のデストラクタが破棄)
+	delete LightSceneInfo;
+}
+
+void FScene::UpdateLightTransform(ULightComponent* Light)
+{
+	FLightSceneProxy* Proxy = Light->GetSceneProxy();
+	if (Proxy == nullptr)
+	{
+		return;
+	}
+
+	FLightSceneInfo* LightSceneInfo = Proxy->GetLightSceneInfo();
+	if (LightSceneInfo && LightSceneInfo->bVisible)
+	{
+		// トランスフォームと位置を更新する
+		Proxy->SetTransform(Light->GetLightToWorldNoScale(), Light->GetLightPosition());
+
+		// FLightSceneInfoCompact (境界球) も取り直す
+		if (LightSceneInfo->Id != -1)
+		{
+			m_Lights[LightSceneInfo->Id].Init(LightSceneInfo);
+		}
+	}
+}
+
+void FScene::UpdateLightColorAndBrightness(ULightComponent* Light)
+{
+	FLightSceneProxy* Proxy = Light->GetSceneProxy();
+	if (Proxy == nullptr)
+	{
+		return;
+	}
+
+	FLightSceneInfo* LightSceneInfo = Proxy->GetLightSceneInfo();
+	if (LightSceneInfo && LightSceneInfo->bVisible)
+	{
+		const XMFLOAT3 NewColor = Light->GetColoredLightBrightness();
+
+		Proxy->SetColor(NewColor);
+		Proxy->m_IndirectLightingScale = Light->GetIndirectLightingIntensity();
+		Proxy->m_VolumetricScatteringIntensity = fmaxf(Light->GetVolumetricScatteringIntensity(), 0.0f);
+
+		// FLightSceneInfoCompact の色も更新する
+		if (LightSceneInfo->Id != -1)
+		{
+			m_Lights[LightSceneInfo->Id].Color = NewColor;
+		}
+	}
+}
+
+void FScene::RemoveLightFromDirtyLists(ULightComponent* Light)
+{
 	m_LightRenderStateDirtyList.erase(
 		std::remove(m_LightRenderStateDirtyList.begin(), m_LightRenderStateDirtyList.end(), Light),
 		m_LightRenderStateDirtyList.end());
 	m_LightTransformDirtyList.erase(
 		std::remove(m_LightTransformDirtyList.begin(), m_LightTransformDirtyList.end(), Light),
 		m_LightTransformDirtyList.end());
-
-	Light->ClearRenderTransformDirty();
 }
 
 void FScene::UpdateAllLightSceneInfos()
@@ -173,27 +339,22 @@ void FScene::UpdateAllLightSceneInfos()
 	std::vector<ULightComponent*> transformDirty;
 	transformDirty.swap(m_LightTransformDirtyList);
 
-	// ---- レンダーステートダーティ (プッシュ型) ----
-	// プロパティ変更 -> プロキシをその場で作り直す
-	// (強度 / 色 / 半径 / コーン角などは全てここで反映される。
-	//  プロキシ生成時にトランスフォームもスナップショットされる)
+	// ---- レンダーステートダーティ ----
+	// プロパティ変更 -> プロキシを作り直す (RecreateRenderState_Concurrent)。
+	// シーンへの出し入れ (bAffectsWorld / 可視性 / Intensity の 0 跨ぎ) もここで決まる。
+	// 空いた番号はすぐ再利用されるので、作り直しても FScene::Lights 内の位置は変わらない
 	for (ULightComponent* component : renderStateDirty)
 	{
-		auto it = std::find_if(m_Lights.begin(), m_Lights.end(),
-			[component](const FLightSceneInfo& info) { return info.Component == component; });
-		if (it == m_Lights.end()) continue;
-
-		it->Proxy.reset(component->CreateLightSceneProxy());
-		component->SetSceneProxy(it->Proxy.get());
 		component->ClearRenderStateDirty();
+		component->RecreateRenderState();
 	}
 
-	// ---- トランスフォームダーティ (プッシュ型) ----
-	// 移動したライトだけ位置 / 発光方向 / 幅軸をプッシュする
+	// ---- トランスフォームダーティ ----
+	// 移動したライトだけトランスフォームを送る (作り直したライトは最新を持つので何も変わらない)
 	for (ULightComponent* component : transformDirty)
 	{
-		component->SendRenderTransform();
 		component->ClearRenderTransformDirty();
+		component->SendRenderTransform();
 	}
 }
 

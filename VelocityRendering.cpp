@@ -14,7 +14,7 @@
 
 // ============================================================
 //  VelocityRendering : FSceneVelocityData / PrimitiveHasVelocityForView /
-//  FSceneRenderer::RenderVelocities (UE VelocityRendering.cpp, ScenePrivate.h)
+//  FSceneRenderer::RenderVelocities
 // ============================================================
 
 namespace
@@ -34,7 +34,7 @@ bool FComponentVelocityData::HasVelocity() const
 	const float* b = &PreviousLocalToWorld._11;
 	for (int i = 0; i < 16; ++i)
 	{
-		if (std::fabs(a[i] - b[i]) > 1.0e-4f)	// UE FMatrix::Equals(…, 0.0001)
+		if (std::fabs(a[i] - b[i]) > 1.0e-4f)	// FMatrix::Equals(…, 0.0001)
 		{
 			return true;
 		}
@@ -107,13 +107,13 @@ const FComponentVelocityData* FSceneVelocityData::Find(const UPrimitiveComponent
 
 
 // ============================================================
-//  PrimitiveHasVelocityForView (UE 4.x VelocityRendering.cpp)
+//  PrimitiveHasVelocityForView
 // ============================================================
 bool PrimitiveHasVelocityForView(const FViewInfo& View, const FPrimitiveSceneProxy& Proxy, bool bDisableSmallObjectCull)
 {
 	if (View.bCameraCut)
 	{
-		return false;	// UE: カット時は速度を描かない (前フレーム情報は捨てる)
+		return false;	// カット時は速度を描かない (前フレーム情報は捨てる)
 	}
 	if (bDisableSmallObjectCull || kMotionBlurPerObjectSize <= 0.0f)
 	{
@@ -135,7 +135,7 @@ bool PrimitiveHasVelocityForView(const FViewInfo& View, const FPrimitiveScenePro
 // ============================================================
 XMFLOAT2 EncodeVelocityToTextureCPU(XMFLOAT2 V)
 {
-	// [PORT] ±2 クランプ (|V| > 2.0038 は UNORM 0 = 未書き込みと衝突する)
+	// ±2 クランプ (|V| > 2.0038 は UNORM 0 = 未書き込みと衝突する)
 	const float x = std::clamp(V.x, -2.0f, 2.0f);
 	const float y = std::clamp(V.y, -2.0f, 2.0f);
 	return { x * kVelocityEncodeScale + kVelocityEncodeBias, y * kVelocityEncodeScale + kVelocityEncodeBias };
@@ -148,7 +148,7 @@ XMFLOAT2 DecodeVelocityFromTextureCPU(XMFLOAT2 E)
 
 
 // ============================================================
-//  FSceneRenderer::RenderVelocities (UE RenderVelocities)
+//  FSceneRenderer::RenderVelocities
 //  GameManager::Draw が RenderBasePass の直後に呼ぶ。
 //  深度はベースパス直後の DEPTH_WRITE (テストのみ、書き込まない)、ビューポートは R (既定)、
 //  b0 はカメラ (念のため積み直す)。Velocity: RD -> RT, クリア (0,0,0,1), 描画, RT -> RD。

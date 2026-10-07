@@ -2,9 +2,9 @@
 #define POSTPROCESS_UPSCALE_HLSL
 
 // =============================================================
-//  PostProcessUpscale.hlsl  (UE PostProcessUpscale.usf, r.Upscale.Quality)
+//  PostProcessUpscale.hlsl
 //  一次空間アップスケール: トーンマップ済み LDR (ポスト解像度 P, t0) ->
-//  バックバッファ (出力解像度 O)。UE と同じくトーンマップの後に走る
+//  バックバッファ (出力解像度 O)。トーンマップの後に走る
 //  (表示参照の LDR を拡大する)。
 //
 //  ラッパ (PostProcessUpscale_<Name>_PS.hlsl) が UPSCALE_METHOD を定義してから include する:
@@ -100,7 +100,7 @@ PS_OUTPUT main(PS_INPUT input)
     rgb = SampleUpscaleInput(uv);
 
 #elif UPSCALE_METHOD == UPSCALE_METHOD_DIRECTIONAL
-    // ---- 2: 方向性ブラー + アンシャープマスク (UE の Directional blur with unsharp mask) [M] ----
+    // ---- 2: 方向性ブラー + アンシャープマスク (Directional blur with unsharp mask) [M] ----
     const float2 t = 0.5f * InSize.zw;
     const float3 ColorNW = SampleUpscaleInput(uv + float2(-t.x, -t.y));
     const float3 ColorNE = SampleUpscaleInput(uv + float2( t.x, -t.y));

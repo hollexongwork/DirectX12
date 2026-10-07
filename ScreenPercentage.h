@@ -4,7 +4,7 @@
 
 // ============================================================
 //  ScreenPercentage
-//  UE の FLegacyScreenPercentageDriver + PrepareViewRectsForRendering +
+//  FLegacyScreenPercentageDriver + PrepareViewRectsForRendering +
 //  FDefaultTemporalUpscaler のパス構成選択に相当する「ビューファミリ」の
 //  解像度 / AA 構成の決定。毎フレーム BeginFrame 先頭
 //  (FSceneRenderer::PrepareViewRectsForRendering) で FAntiAliasingParams と
@@ -18,10 +18,10 @@
 //    P : ポストプロセス解像度 (TAA 実行時 S, AA 無効時 R)
 // ============================================================
 
-constexpr float kMinTAAUpsampleResolutionFraction = 0.5f;   // UE
-constexpr float kMaxTAAUpsampleResolutionFraction = 2.0f;   // UE
-constexpr float kMinSpatialResolutionFraction     = 0.1f;   // [PORT] UE 0.01
-constexpr float kMaxSpatialResolutionFraction     = 2.0f;   // [PORT] UE 4.0
+constexpr float kMinTAAUpsampleResolutionFraction = 0.5f;
+constexpr float kMaxTAAUpsampleResolutionFraction = 2.0f;
+constexpr float kMinSpatialResolutionFraction     = 0.1f;
+constexpr float kMaxSpatialResolutionFraction     = 2.0f;
 
 enum class ETAAPassConfig : int { Main = 0, MainUpsampling = 1, MainSuperSampling = 2 };
 enum class ETAAQuality    : int { Low = 0, Medium = 1, High = 2, MediumHigh = 3 };
@@ -34,7 +34,7 @@ struct FViewFamilyInfo
 	EAntiAliasingMethod            AntiAliasingMethod = EAntiAliasingMethod::None;   // 実効値
 	EPrimaryScreenPercentageMethod PrimaryScreenPercentageMethod = EPrimaryScreenPercentageMethod::SpatialUpscale;
 	float    ResolutionFraction = 1.0f;                // クランプ後の要求値
-	float    EffectivePrimaryResolutionFraction = 1.0f;// R.x / O.x (UE と同じく X で定義)
+	float    EffectivePrimaryResolutionFraction = 1.0f;// R.x / O.x (X で定義)
 	DirectX::XMUINT2 OutputExtent{};                   // O
 	DirectX::XMUINT2 RenderExtent{};                   // R
 	DirectX::XMUINT2 SecondaryExtent{};                // S (TAA 無効時は R)
@@ -49,15 +49,15 @@ struct FViewFamilyInfo
 	bool     bSpatialUpscale = false;                  // P != O
 };
 
-// UE GetTemporalAAHistoryUpscaleFactor (Main にも適用 [H]): clamp(HSP/100, 1, 2)
+// GetTemporalAAHistoryUpscaleFactor (Main にも適用 [H]): clamp(HSP/100, 1, 2)
 float           GetTemporalAAHistoryUpscaleFactor(const FAntiAliasingParams& P);
 // FAntiAliasingParams + 出力解像度 O -> FViewFamilyInfo (§4.2)。
 // bR11G11B10Supported = R11G11B10_FLOAT の UAV 型付きストア対応 (FDefaultTemporalUpscaler::IsR11G11B10HistorySupported)。
 // 毎フレーム PrepareViewRectsForRendering から呼ぶ。自己テスト T12 も同じ関数で §4.2 の表を照合する
 FViewFamilyInfo ComputeViewFamilyInfo(const FAntiAliasingParams& Params, DirectX::XMUINT2 OutputExtent, bool bR11G11B10Supported);
 
-// Automatic View Mip Bias (UE 4.26 は TAAU 分岐内で計算): TemporalUpscale 時のみ
-// max(min(log2 f, 0) + r.ViewTextureMipBias.Offset, r.ViewTextureMipBias.Min)、それ以外は 0。
+// Automatic View Mip Bias: TemporalUpscale 時のみ
+// max(min(log2 f, 0) + ViewTextureMipBiasOffset, ViewTextureMipBiasMin)、それ以外は 0。
 // f = EffectivePrimaryResolutionFraction。b0 MaterialTextureMipBias と自己テスト T12 が使う
 float ComputeViewTextureMipBias(const FViewFamilyInfo& Family, const FAntiAliasingParams& Params);
 

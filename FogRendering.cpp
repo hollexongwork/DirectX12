@@ -108,7 +108,7 @@ void FFogSceneRenderer::SetInscatteringColorCubemap(unsigned int SRVIndex, unsig
 //  フォグ不在のフレームは「フォグなし」の恒等値 (密度 0 / 透過率 1 /
 //  Directional 無効 / ApplyVolumetricFog 0) を積む。
 // ============================================================
-void FFogSceneRenderer::InitFogConstants(const FScene* Scene, const VIEW_CONSTANT& View, const FLightSceneProxy* DirectionalLight)
+void FFogSceneRenderer::InitFogConstants(const FScene* Scene, const VIEW_CONSTANT& View)
 {
 	m_FogConstant = FOG_CONSTANT{};
 	m_bHasFog = (Scene != nullptr) && Scene->HasAnyExponentialHeightFog();
@@ -178,10 +178,22 @@ void FFogSceneRenderer::InitFogConstants(const FScene* Scene, const VIEW_CONSTAN
 	}
 
 	// ---- Directional Inscattering (太陽ライトがあるときのみ) ----
+	// フォグが見るのは添字 0 のアトモスフィアライト 1 灯だけ (FScene::AtmosphereLights[0]。
+	// bAtmosphereSunLight のディレクショナルライトのうち最も明るいもの)
 	{
-		const bool bUseDirectionalInscattering = (DirectionalLight != nullptr);
+		const FLightSceneInfo* SunLight = Scene->GetAtmosphereLight(0);
+		const bool bUseDirectionalInscattering = (SunLight != nullptr);
+
+		// 受光点 -> ライト方向 (発光方向の逆)。太陽不在時は上向き (従来の既定値)
+		XMFLOAT3 inscatteringLightDirection = { 0.0f, 1.0f, 0.0f };
+		if (SunLight)
+		{
+			const XMFLOAT3 direction = SunLight->Proxy->GetDirection();
+			inscatteringLightDirection = { -direction.x, -direction.y, -direction.z };
+		}
+
 		m_FogConstant.InscatteringLightDirection = {
-			View.DirectionalLightDirection.x, View.DirectionalLightDirection.y, View.DirectionalLightDirection.z,
+			inscatteringLightDirection.x, inscatteringLightDirection.y, inscatteringLightDirection.z,
 			bUseDirectionalInscattering ? (std::max)(0.0f, FogInfo.DirectionalInscatteringStartDistance) : -1.0f };
 		m_FogConstant.DirectionalInscatteringColor = {
 			FogInfo.DirectionalInscatteringColor.x, FogInfo.DirectionalInscatteringColor.y, FogInfo.DirectionalInscatteringColor.z,
@@ -224,15 +236,6 @@ void FFogSceneRenderer::ComputeVolumetricFog(const FComputeInputs& Inputs)
 	in.LightGrid = Inputs.LightGrid;
 	in.ShadowRenderer = Inputs.ShadowRenderer;
 	in.SkyIrradianceSRVIndex = Inputs.SkyIrradianceSRVIndex;
-
-	if (Inputs.View)
-	{
-		in.DirectionalLightDirection = Inputs.View->DirectionalLightDirection;
-		in.DirectionalLightColor = Inputs.View->DirectionalLightColor;
-	}
-	in.bHasDirectionalLight = (Inputs.DirectionalLight != nullptr);
-	in.DirectionalLightVolumetricScatteringIntensity =
-		Inputs.DirectionalLight ? Inputs.DirectionalLight->GetVolumetricScatteringIntensity() : 0.0f;
 
 	// 無効フレームは null を渡す (履歴を捨てて何もしない)
 	in.FogInfo = (m_bHasFog && m_bVolumetricFogActive) ? &m_FogInfo : nullptr;

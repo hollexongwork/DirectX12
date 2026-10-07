@@ -249,7 +249,7 @@ public:
 	// Masked          : BaseColor テクスチャがある時だけ t0 + b2 をバインドして
 	//                   VelocityMaskedPS が GeometryPS と同じ OpacityMask で clip (シャドウ深度と同じ規則)
 	// Two Sided       : カリング無効 PSO
-	// Translucent / Additive : 描かない (UE 既定: 半透明は速度を書かない)
+	// Translucent / Additive : 描かない (半透明は速度を書かない)
 	void DrawVelocity(RenderManager* RM, const XMFLOAT4X4& PreviousLocalToWorld) const override
 	{
 		if (!IsMeshValid()) return;
@@ -287,7 +287,7 @@ public:
 	// マテリアルが bEnableResponsiveAA の Translucent / Additive サブセット (bForceAll なら全半透明
 	// サブセット) だけを ResponsiveAA[TwoSided] でマスク (R8_UNORM) へ描く。VS / b0 / b1 は
 	// 半透明の描画と同じなので、半透明深度プリパスの深度に対する LESS_EQUAL がビット一致で通り、
-	// 最前面の Translucent 層 (+ その手前の Additive) が残る (UE のステンシル bit 3 相当 [PORT])。
+	// 最前面の Translucent 層 (+ その手前の Additive) が残る。
 	// ResponsiveAAPS は定数 1 を返すだけなのでテクスチャ / b2 はバインドしない
 	bool HasResponsiveAATranslucency(bool bForceAll) const override
 	{

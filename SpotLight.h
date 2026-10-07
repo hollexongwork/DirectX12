@@ -1,9 +1,10 @@
 #pragma once
 #include "Light.h"
+#include "SpotLightComponent.h"
 
 // ============================================================
 //  ASpotLight
-//  ALight 直下。
+//  ASpotLight に相当。ALight 直下。
 //  USpotLightComponent を Root に持ち、アクターの前方 (+Z) へ
 //  Inner / OuterConeAngle のコーンで照射する。
 // ============================================================
@@ -17,4 +18,8 @@ public:
 	ASpotLight();
 
 	USpotLightComponent* GetSpotLightComponent() const { return m_SpotLightComponent; }
+
+	// コーン角 [度]
+	void SetInnerConeAngle(float NewInnerConeAngle);
+	void SetOuterConeAngle(float NewOuterConeAngle);
 };

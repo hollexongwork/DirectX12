@@ -4,38 +4,75 @@
 #include "Scene.h"
 
 // ============================================================
-//  ULightComponentBase
-// ============================================================
-
-XMFLOAT3 ULightComponentBase::DirectionToRotator(const XMFLOAT3& Direction)
-{
-	XMFLOAT3 d;
-	XMStoreFloat3(&d, XMVector3Normalize(XMLoadFloat3(&Direction)));
-
-	// 前方 +Z 規約: forward = (cosP * sinY, -sinP, cosP * cosY)
-	// (XMMatrixRotationRollPitchYaw に行ベクトルを掛けた結果)
-	float pitch = asinf(-d.y);
-	float yaw = atan2f(d.x, d.z);
-	return XMFLOAT3(pitch, yaw, 0.0f);
-}
-
-// ============================================================
-//  ULightComponent
+//  ULightComponent : 登録 / レンダーステート
 // ============================================================
 
 void ULightComponent::OnRegister()
 {
-	if (GetWorld())
-	{
-		GetWorld()->GetScene()->AddLight(this);
-	}
+	// 登録直後はプロキシが最新なので、未エンキューのフラグを下ろしてから作る
+	m_RenderStateDirty = false;
+	m_RenderTransformDirty = false;
+
+	CreateRenderState();
 }
 
 void ULightComponent::OnUnregister()
 {
+	DestroyRenderState();
+
+	// 「フラグ = エンキュー済み」の対応を保つため、ダーティリストからも外す
+	// (解放済みポインタを FScene に残さない)
 	if (GetWorld())
 	{
-		GetWorld()->GetScene()->RemoveLight(this);
+		GetWorld()->GetScene()->RemoveLightFromDirtyLists(this);
+	}
+	m_RenderStateDirty = false;
+	m_RenderTransformDirty = false;
+}
+
+// ULightComponent::CreateRenderState_Concurrent 相当。
+// ワールドに影響し、可視で、明るさが正のライトだけをシーンへ入れる
+void ULightComponent::CreateRenderState()
+{
+	UWorld* world = GetWorld();
+	if (world == nullptr)
+	{
+		return;
+	}
+
+	if (m_bAffectsWorld)
+	{
+		const bool bHidden = !m_bVisible || m_Intensity <= 0.0f;
+		if (!bHidden)
+		{
+			world->GetScene()->AddLight(this);
+			m_bAddedToSceneVisible = (m_SceneProxy != nullptr);
+		}
+	}
+}
+
+// ULightComponent::DestroyRenderState_Concurrent 相当
+void ULightComponent::DestroyRenderState()
+{
+	if (UWorld* world = GetWorld())
+	{
+		world->GetScene()->RemoveLight(this);
+	}
+	m_bAddedToSceneVisible = false;
+}
+
+void ULightComponent::RecreateRenderState()
+{
+	DestroyRenderState();
+	CreateRenderState();
+}
+
+// ULightComponent::SendRenderTransform_Concurrent 相当
+void ULightComponent::SendRenderTransform()
+{
+	if (UWorld* world = GetWorld())
+	{
+		world->GetScene()->UpdateLightTransform(this);
 	}
 }
 
@@ -43,7 +80,7 @@ void ULightComponent::OnUnregister()
 //  ダーティ通知 (プッシュ型更新)
 //  フラグの立ち上がり (false -> true) のときだけ FScene の
 //  ダーティリストへ自分を積む (二重登録防止)。未登録時はフラグのみ
-//  立て、FScene::AddLight が登録時に処理する。
+//  立て、OnRegister が登録時に下ろす (登録時に最新のプロキシを作るため)。
 // ============================================================
 
 void ULightComponent::MarkRenderStateDirty()
@@ -73,12 +110,240 @@ void ULightComponent::MarkRenderTransformDirty()
 	USceneComponent::MarkRenderTransformDirty();
 }
 
-void ULightComponent::SendRenderTransform()
+// ULightComponent::UpdateColorAndBrightness 相当
+void ULightComponent::UpdateColorAndBrightness()
 {
-	if (m_SceneProxy)
+	UWorld* world = GetWorld();
+	if (world == nullptr || !IsRegistered())
 	{
-		m_SceneProxy->SetTransform(GetComponentLocation(), GetForwardVector(), GetRightVector());
+		return;
 	}
+
+	const bool bNeedsToBeAddedToScene = (!m_bAddedToSceneVisible && m_Intensity > 0.0f);
+	const bool bNeedsToBeRemovedFromScene = (m_bAddedToSceneVisible && m_Intensity <= 0.0f);
+	if (bNeedsToBeAddedToScene || bNeedsToBeRemovedFromScene)
+	{
+		// 明るさが 0 を跨いだ (または非表示だった)。シーンへの出し入れが要るので作り直す
+		MarkRenderStateDirty();
+	}
+	else if (m_bAddedToSceneVisible && m_Intensity > 0.0f)
+	{
+		// 既にシーンに居る。軽量経路で色だけ更新する
+		world->GetScene()->UpdateLightColorAndBrightness(this);
+	}
+}
+
+// ============================================================
+//  可視性
+// ============================================================
+
+void ULightComponent::SetVisibility(bool bNewVisibility)
+{
+	if (m_bVisible != bNewVisibility)
+	{
+		m_bVisible = bNewVisibility;
+		MarkRenderStateDirty();
+	}
+}
+
+// ============================================================
+//  軽量経路で反映されるプロパティ
+// ============================================================
+
+void ULightComponent::SetIntensity(float NewIntensity)
+{
+	if (m_Intensity != NewIntensity)
+	{
+		m_Intensity = NewIntensity;
+		UpdateColorAndBrightness();
+	}
+}
+
+void ULightComponent::SetIndirectLightingIntensity(float NewIntensity)
+{
+	if (m_IndirectLightingIntensity != NewIntensity)
+	{
+		m_IndirectLightingIntensity = NewIntensity;
+		UpdateColorAndBrightness();
+	}
+}
+
+void ULightComponent::SetVolumetricScatteringIntensity(float NewIntensity)
+{
+	if (m_VolumetricScatteringIntensity != NewIntensity)
+	{
+		m_VolumetricScatteringIntensity = NewIntensity;
+		UpdateColorAndBrightness();
+	}
+}
+
+void ULightComponent::SetLightColor(const XMFLOAT4& NewLightColor)
+{
+	if (m_LightColor.x != NewLightColor.x || m_LightColor.y != NewLightColor.y
+		|| m_LightColor.z != NewLightColor.z || m_LightColor.w != NewLightColor.w)
+	{
+		m_LightColor = NewLightColor;
+		UpdateColorAndBrightness();
+	}
+}
+
+void ULightComponent::SetTemperature(float NewTemperature)
+{
+	if (m_Temperature != NewTemperature)
+	{
+		m_Temperature = NewTemperature;
+		UpdateColorAndBrightness();
+	}
+}
+
+void ULightComponent::SetUseTemperature(bool bNewValue)
+{
+	if (m_bUseTemperature != bNewValue)
+	{
+		m_bUseTemperature = bNewValue;
+		UpdateColorAndBrightness();
+	}
+}
+
+// ============================================================
+//  プロキシを作り直すプロパティ
+// ============================================================
+
+void ULightComponent::SetAffectTranslucentLighting(bool bNewValue)
+{
+	if (m_bAffectTranslucentLighting != bNewValue)
+	{
+		m_bAffectTranslucentLighting = bNewValue;
+		MarkRenderStateDirty();
+	}
+}
+
+void ULightComponent::SetShadowBias(float NewValue)
+{
+	if (m_ShadowBias != NewValue)
+	{
+		m_ShadowBias = NewValue;
+		MarkRenderStateDirty();
+	}
+}
+
+void ULightComponent::SetShadowSlopeBias(float NewValue)
+{
+	if (m_ShadowSlopeBias != NewValue)
+	{
+		m_ShadowSlopeBias = NewValue;
+		MarkRenderStateDirty();
+	}
+}
+
+void ULightComponent::SetSpecularScale(float NewValue)
+{
+	if (m_SpecularScale != NewValue)
+	{
+		m_SpecularScale = NewValue;
+		MarkRenderStateDirty();
+	}
+}
+
+void ULightComponent::SetDiffuseScale(float NewValue)
+{
+	if (m_DiffuseScale != NewValue)
+	{
+		m_DiffuseScale = NewValue;
+		MarkRenderStateDirty();
+	}
+}
+
+void ULightComponent::SetMaxDrawDistance(float NewValue)
+{
+	if (m_MaxDrawDistance != NewValue)
+	{
+		m_MaxDrawDistance = NewValue;
+		MarkRenderStateDirty();
+	}
+}
+
+void ULightComponent::SetMaxDistanceFadeRange(float NewValue)
+{
+	if (m_MaxDistanceFadeRange != NewValue)
+	{
+		m_MaxDistanceFadeRange = NewValue;
+		MarkRenderStateDirty();
+	}
+}
+
+void ULightComponent::SetContactShadowLength(float NewValue)
+{
+	if (m_ContactShadowLength != NewValue)
+	{
+		m_ContactShadowLength = NewValue;
+		MarkRenderStateDirty();
+	}
+}
+
+void ULightComponent::SetContactShadowLengthInWS(bool bNewValue)
+{
+	if (m_ContactShadowLengthInWS != bNewValue)
+	{
+		m_ContactShadowLengthInWS = bNewValue;
+		MarkRenderStateDirty();
+	}
+}
+
+void ULightComponent::SetContactShadowCastingIntensity(float NewValue)
+{
+	if (m_ContactShadowCastingIntensity != NewValue)
+	{
+		m_ContactShadowCastingIntensity = NewValue;
+		MarkRenderStateDirty();
+	}
+}
+
+void ULightComponent::SetContactShadowNonCastingIntensity(float NewValue)
+{
+	if (m_ContactShadowNonCastingIntensity != NewValue)
+	{
+		m_ContactShadowNonCastingIntensity = NewValue;
+		MarkRenderStateDirty();
+	}
+}
+
+void ULightComponent::SetUseRayTracedDistanceFieldShadows(bool bNewValue)
+{
+	if (m_bUseRayTracedDistanceFieldShadows != bNewValue)
+	{
+		m_bUseRayTracedDistanceFieldShadows = bNewValue;
+		MarkRenderStateDirty();
+	}
+}
+
+// ============================================================
+//  明るさ / 色
+// ============================================================
+
+// ULightComponent::ComputeLightBrightness。IES が無いので Intensity そのまま
+float ULightComponent::ComputeLightBrightness() const
+{
+	return m_Intensity;
+}
+
+XMFLOAT4X4 ULightComponent::GetLightToWorldNoScale() const
+{
+	const XMMATRIX world = GetComponentToWorld();
+
+	// 各軸を正規化してスケールを落とす (FTransform::ToMatrixNoScale 相当)
+	XMFLOAT3 right, up, forward, location;
+	XMStoreFloat3(&right, XMVector3Normalize(world.r[0]));
+	XMStoreFloat3(&up, XMVector3Normalize(world.r[1]));
+	XMStoreFloat3(&forward, XMVector3Normalize(world.r[2]));
+	XMStoreFloat3(&location, world.r[3]);
+
+	XMFLOAT4X4 lightToWorld;
+	lightToWorld._11 = right.x;    lightToWorld._12 = right.y;    lightToWorld._13 = right.z;    lightToWorld._14 = 0.0f;
+	lightToWorld._21 = up.x;       lightToWorld._22 = up.y;       lightToWorld._23 = up.z;       lightToWorld._24 = 0.0f;
+	lightToWorld._31 = forward.x;  lightToWorld._32 = forward.y;  lightToWorld._33 = forward.z;  lightToWorld._34 = 0.0f;
+	lightToWorld._41 = location.x; lightToWorld._42 = location.y; lightToWorld._43 = location.z; lightToWorld._44 = 1.0f;
+	return lightToWorld;
 }
 
 XMFLOAT3 ULightComponent::GetColoredLightBrightness() const
@@ -89,7 +354,7 @@ XMFLOAT3 ULightComponent::GetColoredLightBrightness() const
 
 	if (m_bUseTemperature)
 	{
-		const XMFLOAT3 temperature = ColorTemperatureToRGB(m_Temperature);
+		const XMFLOAT3 temperature = MakeFromColorTemperature(m_Temperature);
 		color.x *= temperature.x;
 		color.y *= temperature.y;
 		color.z *= temperature.z;
@@ -101,9 +366,9 @@ XMFLOAT3 ULightComponent::GetColoredLightBrightness() const
 	return color;
 }
 
-XMFLOAT3 ULightComponent::ColorTemperatureToRGB(float TemperatureKelvin)
+XMFLOAT3 ULightComponent::MakeFromColorTemperature(float TemperatureKelvin)
 {
-	// FLinearColor::MakeFromColorTemperature の移植。
+	// FLinearColor::MakeFromColorTemperature 相当。
 	// Planckian locus (黒体軌跡) の CIE 1960 UCS 近似 -> xy 色度 -> XYZ -> リニア sRGB。
 	const float t = fmaxf(fminf(TemperatureKelvin, 15000.0f), 1000.0f);
 
@@ -130,138 +395,4 @@ XMFLOAT3 ULightComponent::ColorTemperatureToRGB(float TemperatureKelvin)
 	color.y = fmaxf(color.y, 0.0f);
 	color.z = fmaxf(color.z, 0.0f);
 	return color;
-}
-
-// ============================================================
-//  UDirectionalLightComponent
-// ============================================================
-
-FLightSceneProxy* UDirectionalLightComponent::CreateLightSceneProxy() const
-{
-	// 共通スナップショット (種別 / 色 x lux 強度 / トランスフォーム / CastShadows / シャドウバイアス)
-	// + CSM パラメータを流し込む
-	FLightSceneProxy* proxy = new FLightSceneProxy(this);
-	proxy->SetDirectionalShadowParameters(
-		m_DynamicShadowDistance, m_DynamicShadowCascades,
-		m_CascadeDistributionExponent, m_ShadowDistanceFadeoutFraction);
-	proxy->SetDistanceFieldParameters(
-		m_DistanceFieldShadowDistance, m_DistanceFieldTraceDistance, m_LightSourceAngle);
-	return proxy;
-}
-
-// ============================================================
-//  ULocalLightComponent
-// ============================================================
-
-float ULocalLightComponent::ConvertIntensityUnitsToCandelas(float LumensSolidAngle) const
-{
-	float LightBrightness = m_Intensity;
-
-	switch (m_IntensityUnits)
-	{
-	case ELightUnits::Candelas:
-		// cd はそのまま (1000 cd = 1m で 1000 lux)
-		break;
-	case ELightUnits::Lumens:
-		// 光の立体角 (LumensSolidAngle) で除して cd 化
-		LightBrightness *= 1.0f / LumensSolidAngle;
-		break;
-	case ELightUnits::EV:
-		LightBrightness = powf(2.0f, m_Intensity);
-		break;
-	default:	// Unitless
-		// legacy 係数 16 / 10000 (cm^2 -> m^2 換算込み) = 1/625
-		LightBrightness *= 1.0f / 625.0f;
-		break;
-	}
-	return LightBrightness;
-}
-
-// ============================================================
-//  UPointLightComponent
-// ============================================================
-
-float UPointLightComponent::ComputeLightBrightness() const
-{
-	// UPointLightComponent::ComputeLightBrightness のメートル世界版。
-	// Lumens は全球 4π sr で除して cd 化
-	return m_bUseInverseSquaredFalloff ? ConvertIntensityUnitsToCandelas(4.0f * XM_PI) : m_Intensity;
-}
-
-FLightSceneProxy* UPointLightComponent::CreateLightSceneProxy() const
-{
-	FLightSceneProxy* proxy = new FLightSceneProxy(this);
-	proxy->SetRadialParameters(
-		1.0f / fmaxf(m_AttenuationRadius, 0.0001f),
-		m_LightFalloffExponent,
-		m_bUseInverseSquaredFalloff);
-	proxy->SetSourceShape(m_SourceRadius, m_SoftSourceRadius, m_SourceLength);
-	return proxy;
-}
-
-// ============================================================
-//  USpotLightComponent
-// ============================================================
-
-float USpotLightComponent::GetHalfConeAngle() const
-{
-	// 1..80 度にクランプ
-	const float clamped = fmaxf(fminf(m_OuterConeAngle, 80.0f), 1.0f);
-	return XMConvertToRadians(clamped);
-}
-
-float USpotLightComponent::GetCosHalfConeAngle() const
-{
-	return cosf(GetHalfConeAngle());
-}
-
-float USpotLightComponent::ComputeLightBrightness() const
-{
-	// Lumens はコーン立体角 2π(1 - cosθ) で除して cd 化
-	return m_bUseInverseSquaredFalloff
-		? ConvertIntensityUnitsToCandelas(2.0f * XM_PI * (1.0f - GetCosHalfConeAngle()))
-		: m_Intensity;
-}
-
-FLightSceneProxy* USpotLightComponent::CreateLightSceneProxy() const
-{
-	// 減衰 / 球光源形状 / シャドウは UPointLightComponent と共通
-	FLightSceneProxy* proxy = UPointLightComponent::CreateLightSceneProxy();
-
-	// SpotAngles: x = cos(Outer), y = 1 / (cos(Inner) - cos(Outer))
-	// (FSpotLightSceneProxy と同じ詰め方。Inner は Outer 以下にクランプ)
-	const float clampedOuterDeg = fmaxf(fminf(m_OuterConeAngle, 80.0f), 1.0f);
-	const float clampedInnerDeg = fmaxf(fminf(m_InnerConeAngle, clampedOuterDeg), 0.0f);
-	const float cosOuter = GetCosHalfConeAngle();
-	const float cosInner = cosf(XMConvertToRadians(clampedInnerDeg));
-	proxy->SetSpotAngles(cosOuter, 1.0f / fmaxf(cosInner - cosOuter, 0.0001f));
-	return proxy;
-}
-
-// ============================================================
-//  URectLightComponent
-// ============================================================
-
-float URectLightComponent::ComputeLightBrightness() const
-{
-	// レクトライトは常に逆二乗
-	// Lumens は半球コサイン分布の実効立体角 π で除して cd 化
-	return ConvertIntensityUnitsToCandelas(XM_PI);
-}
-
-FLightSceneProxy* URectLightComponent::CreateLightSceneProxy() const
-{
-	FLightSceneProxy* proxy = new FLightSceneProxy(this);
-
-	// レクトライトは逆二乗固定 (FalloffExponent は未使用)
-	proxy->SetRadialParameters(1.0f / fmaxf(m_AttenuationRadius, 0.0001f), 8.0f, true);
-
-	// FRectLightSceneProxy と同じ詰め方:
-	//   SourceRadius = 半幅 / SourceLength = 半高
-	proxy->SetSourceShape(m_SourceWidth * 0.5f, 0.0f, m_SourceHeight * 0.5f);
-
-	// バーンドア (88 度以上 ≒ 全開はシェーダ側で早期スキップされる)
-	const float clampedBarnDeg = fmaxf(fminf(m_BarnDoorAngle, 88.0f), 0.0f);
-	proxy->SetRectBarnDoor(cosf(XMConvertToRadians(clampedBarnDeg)), fmaxf(m_BarnDoorLength, 0.0f));
-	return proxy;
 }

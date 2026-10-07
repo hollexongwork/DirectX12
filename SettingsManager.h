@@ -37,25 +37,25 @@ using namespace DirectX;
 //    - FSceneRenderer       : トランスルーセンシーソート設定 ([Translucency]) /
 //                             FAntiAliasingParams 一式 ([AntiAliasing] セクション。
 //                             [Translucency] の後、[Lumen] の前に書く。
-//                             キー = フィールド名 = UE の CVar 対応:
-//                               AntiAliasingMethod                 r.AntiAliasingMethod (0 None / 2 TemporalAA)
-//                               ScreenPercentage                   r.ScreenPercentage [10, 200]
-//                               bTemporalAAUpsampling              r.TemporalAA.Upsampling (既定 1 [PORT])
-//                               TemporalAAQuality                  r.TemporalAA.Quality [0, 3]
-//                               TemporalAASamples                  r.TemporalAASamples [1, 64]
-//                               TemporalAACurrentFrameWeight       r.TemporalAACurrentFrameWeight [0, 1]
-//                               TemporalAAFilterSize               r.TemporalAAFilterSize [0.1, 2]
-//                               bTemporalAACatmullRom              r.TemporalAACatmullRom
-//                               bTemporalAAUpsampleFiltered        r.TemporalAAUpsampleFiltered
-//                               TemporalAAHistoryScreenPercentage  r.TemporalAA.HistoryScreenPercentage [100, 200]
-//                               bTemporalAAR11G11B10History        r.TemporalAA.R11G11B10History
-//                               bTemporalAAAllowDownsampling       r.TemporalAA.AllowDownsampling
-//                               UpscaleQuality                     r.Upscale.Quality [0, 5]
-//                               UpscaleSoftness                    r.Upscale.Softness [0, 1]
-//                               TonemapperMergeWithUpscaleMode     r.Tonemapper.MergeWithUpscale.Mode [0, 2]
-//                               TonemapperMergeWithUpscaleThreshold r.Tonemapper.MergeWithUpscale.Threshold [0, 1]
-//                               ViewTextureMipBiasOffset           r.ViewTextureMipBias.Offset [-2, 1]
-//                               ViewTextureMipBiasMin              r.ViewTextureMipBias.Min [-4, 0]
+//                             キー = フィールド名:
+//                               AntiAliasingMethod                 0 None / 2 TemporalAA
+//                               ScreenPercentage                   [10, 200]
+//                               bTemporalAAUpsampling              既定 1
+//                               TemporalAAQuality                  [0, 3]
+//                               TemporalAASamples                  [1, 64]
+//                               TemporalAACurrentFrameWeight       [0, 1]
+//                               TemporalAAFilterSize               [0.1, 2]
+//                               bTemporalAACatmullRom
+//                               bTemporalAAUpsampleFiltered
+//                               TemporalAAHistoryScreenPercentage  [100, 200]
+//                               bTemporalAAR11G11B10History
+//                               bTemporalAAAllowDownsampling
+//                               UpscaleQuality                     [0, 5]
+//                               UpscaleSoftness                    [0, 1]
+//                               TonemapperMergeWithUpscaleMode     [0, 2]
+//                               TonemapperMergeWithUpscaleThreshold [0, 1]
+//                               ViewTextureMipBiasOffset           [-2, 1]
+//                               ViewTextureMipBiasMin              [-4, 0]
 //                               CameraRotationThreshold            カメラカット判定の回転 [0, 180] 度
 //                               CameraTranslationThreshold         カメラカット判定の移動 [0, 10000] m)。
 //                             読み込み時にスライダーと同じ範囲へクランプし、
@@ -66,7 +66,7 @@ using namespace DirectX;
 //                             DebugMode (Debug View) はデバッグ表示は
 //                             毎回 Off で起動
 //    - FVolumetricFog       : Params 一式 ([VolumetricFog] セクション。
-//                             r.VolumetricFog.* 相当のレンダラ設定)
+//                             Volumetric Fog のレンダラ設定)
 //    - ImGuiManager         : FLayoutSettings ([ImGui] セクション):
 //                             メニューバー / 各ウィンドウの表示フラグ
 //                             (Anti-Aliasing ウィンドウの bShowAntiAliasing を含む) /
@@ -76,7 +76,6 @@ using namespace DirectX;
 //    - ACameraActor         : FLevelEditorViewportSettings
 //                             ([EditorViewport] セクション): フライト速度 /
 //                             ホイールドリー / マウス感度 / スムージング。
-//                             UE の ULevelEditorViewportSettings と同様に
 //                             アクター ([Actor.N]) とは別枠の操作設定
 //    - ワールド内の全アクター ([Actor.N] セクション):
 //        アクターラベル / APostProcessVolume 固有プロパティ /
@@ -86,7 +85,7 @@ using namespace DirectX;
 //                                 Min・MaxDrawDistance / TranslucencySortPriority
 //                                 (適用 = テレポート扱い: FScene::MarkPrimitiveTeleported で
 //                                  次のトランスフォーム転送の前フレーム変換を今の変換にし、
-//                                  ベロシティを出さない。UE bTeleport 相当)
+//                                  ベロシティを出さない。bTeleport 相当)
 //          - UCameraComponent   : FOV / NearClip / FarClip
 //                                 (適用 = テレポート扱い: NotifyCameraCut でカメラカットを要求)
 //          - UPolygon2DComponent: VertexColor
@@ -206,18 +205,30 @@ private:
 		std::string LightTypeName;				// "Directional" / "Point" / "Spot" / "Rect"
 
 		// ULightComponentBase / ULightComponent
+		// (Visible / MaxDrawDistance はプリミティブと同名のフィールドを共用する)
 		bool     AffectsWorld = true;
 		float    Intensity = 0.0f;
 		XMFLOAT4 LightColor = { 1.0f, 1.0f, 1.0f, 1.0f };
 		bool     UseTemperature = false;
 		float    Temperature = 6500.0f;
 		float    SpecularScale = 1.0f;
+		float    DiffuseScale = 1.0f;
+		float    IndirectLightingIntensity = 1.0f;
+		bool     AffectTranslucentLighting = true;
+		bool     AffectGlobalIllumination = true;
+		float    MaxDistanceFadeRange = 0.0f;			// m
 
-		// シャドウ (ULightComponentBase)
+		// シャドウ (ULightComponentBase / ULightComponent)
 		bool  CastShadows = true;
+		bool  CastDynamicShadows = true;
 		float ShadowBias = 0.5f;
 		float ShadowSlopeBias = 0.5f;
 		bool  UseRayTracedDistanceFieldShadows = false;
+		bool  CastVolumetricShadow = false;				// 既定はライト種別で異なる (読み込み時は現在値から)
+		float ContactShadowLength = 0.0f;
+		bool  ContactShadowLengthInWS = false;
+		float ContactShadowCastingIntensity = 1.0f;
+		float ContactShadowNonCastingIntensity = 0.0f;
 
 		// Volumetric Fog への散乱寄与 (ULightComponentBase)
 		float VolumetricScatteringIntensity = 1.0f;
@@ -251,6 +262,10 @@ private:
 		float DistanceFieldShadowDistance = 300.0f;		// m
 		float DistanceFieldTraceDistance = 100.0f;		// m
 		float LightSourceAngle = 1.0f;					// 度
+		float LightSourceSoftAngle = 0.0f;				// 度
+		int   ForwardShadingPriority = 0;
+		bool  AtmosphereSunLight = true;
+		int   AtmosphereSunLightIndex = 0;
 
 		// ---- UExponentialHeightFogComponent ----
 		// 既定値は ExponentialHeightFogComponent.h のコンストラクタと一致させる
@@ -311,7 +326,7 @@ private:
 	ColorGradingLUTBaker* m_LUTBaker = nullptr;
 	FSceneRenderer* m_SceneRenderer = nullptr;	// トランスルーセンシーソート設定の永続化用
 	FLumenSceneData* m_Lumen = nullptr;			// Lumen Params の永続化用
-	FVolumetricFog* m_VolumetricFog = nullptr;	// Volumetric Fog Params (r.VolumetricFog.*) の永続化用
+	FVolumetricFog* m_VolumetricFog = nullptr;	// Volumetric Fog Params の永続化用
 	ACameraActor* m_CameraActor = nullptr;		// ビューポート操作設定の永続化用
 
 	// ---- Default スナップショット (INI 適用「前」のコード初期値) ----
@@ -413,7 +428,7 @@ public:
 	void ResetLight(int Index);		// ライト 1 灯 (ライトのスポーン順インデックス)
 	void ResetAllLights();
 	void ResetLumen();				// Lumen Params (DebugMode は現在値を維持)
-	void ResetVolumetricFog();		// Volumetric Fog Params (r.VolumetricFog.* 相当)
+	void ResetVolumetricFog();		// Volumetric Fog Params
 	void ResetEditorViewport();		// ビューポート操作設定 (カメラ速度 / 感度 / スムージング)
 	void ResetAntiAliasing();		// FAntiAliasingParams (デバッグ設定 FTemporalAADebugSettings は別構造体なので不変)
 	void ResetAll();

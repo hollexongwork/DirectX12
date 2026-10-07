@@ -106,11 +106,11 @@ void FTAATexture::Allocate(RenderManager* RHI, XMUINT2 E, DXGI_FORMAT F, const w
 
 bool IsLargeCameraMovement(const FViewMatrices& Cur, const FViewMatrices& Prev, float RotationThresholdDeg, float TranslationThresholdM)
 {
-	// UE (4.26 / 5.x):
+	// 判定:
 	//   bIsLargeMovement = FVector::DotProduct(Cur.GetColumn(j), Prev.GetColumn(j)) < cos(RotationThreshold) (j = 0..2)
 	//                   || (Cur.ViewOrigin - Prev.ViewOrigin).SizeSquared() > TranslationThreshold^2
 	// DirectXMath の行ベクトル規約では ViewMatrix (XMMatrixLookToLH) の上 3x3 の列 0/1/2 が
-	// ワールド空間のカメラ右 / 上 / 前方向で、UE の GetColumn(j) と同じ意味になる
+	// ワールド空間のカメラ右 / 上 / 前方向で、GetColumn(j) にあたる
 	const float c = std::cos(RotationThresholdDeg * (XM_PI / 180.0f));
 
 	for (int j = 0; j < 3; ++j)
@@ -134,7 +134,7 @@ bool IsLargeCameraMovement(const FViewMatrices& Cur, const FViewMatrices& Prev, 
 
 XMFLOAT4X4 ComputeClipToPrevClip(const FViewMatrices& Cur, const FViewMatrices& Prev)
 {
-	// UE: ClipToPrevClip = InvTranslatedViewProj(cur) * Translation(PreViewTranslation 差) * TranslatedViewProj(prev)
+	// ClipToPrevClip = InvTranslatedViewProj(cur) * Translation(PreViewTranslation 差) * TranslatedViewProj(prev)
 	// XMMatrixLookToLH の ViewMatrix は Translation(-O) * Rot (行ベクトル) なので、
 	// InvVP_NoAA(cur) * VP_NoAA(prev) = InvProj(cur) * InvRot(cur) * Translation(O_cur - O_prev) * Rot(prev) * Proj(prev)。
 	// 絶対座標を行列に入れず原点差分のみを使う -> 静止カメラで厳密に単位行列 (float 逆行列の |O| 比例誤差を除去)
@@ -160,7 +160,7 @@ int ComputeTemporalAASampleCount(bool bTemporalUpsampling, int SamplesCVar, floa
 	int N = SamplesCVar;
 	if (bTemporalUpsampling)
 	{
-		// 出力画素あたりのサンプル密度を一定に保つ (UE: float を int32 へ代入 = 切り捨て。四捨五入しない)
+		// 出力画素あたりのサンプル密度を一定に保つ (切り捨て。四捨五入しない)
 		const float f = ResolutionFraction;
 		N = (int)((float)N * (std::max)(1.0f, 1.0f / (f * f)));
 	}
@@ -175,18 +175,18 @@ int ComputeTemporalAASampleCount(bool bTemporalUpsampling, int SamplesCVar, floa
 XMFLOAT2 ComputeTemporalAASample(bool bTemporalUpsampling, int SamplesCVar, int SequenceLength, int Index, float FilterSize)
 {
 	if (SequenceLength == 1)
-		return { 0.0f, 0.0f };	// [PORT] UE は Gaussian #0 の定数オフセット。0 にして AA Off と厳密比較可能にする
+		return { 0.0f, 0.0f };	// オフセット 0 (AA Off と厳密比較可能にする)
 
 	if (Index < 0)
 		Index = 0;
 
 	if (bTemporalUpsampling)
 	{
-		// 一様分布 (入出力画素の整列が無いため)。パターン分岐より先に判定する (UE 4.26 / 5.x の分岐順)
+		// 一様分布 (入出力画素の整列が無いため)。パターン分岐より先に判定する
 		return { Halton((uint32_t)Index + 1, 2) - 0.5f, Halton((uint32_t)Index + 1, 3) - 0.5f };
 	}
 
-	// UE 4.26: CVarTemporalAASamplesValue で分岐 (添字は % 長さで保護)
+	// サンプル数の設定で分岐 (添字は % 長さで保護)
 	switch (SamplesCVar)
 	{
 	case 2:

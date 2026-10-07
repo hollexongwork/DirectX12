@@ -590,7 +590,7 @@ void RenderManager::InitRootSignature()
 	const unsigned int CBV_COUNT = (unsigned int)CONSTANT_TYPE::FOG + 1; // VIEW/PRIMITIVE/MATERIAL/FORWARD_LIGHT/POST_PROCESS/SHADOW/LUMEN/FOG
 
 	// ルートパラメータは全てデスクリプタテーブル (1 DWORD ずつ) なので
-	// 上限 64 DWORD に対して b0..b7 + t0..t36 = 45 DWORD
+	// 上限 64 DWORD に対して b0..b7 + t0..t38 = 47 DWORD
 	static_assert((unsigned int)TEXTURE_TYPE::COUNT <= 64,
 		"root signature exceeds 64 DWORDs (CONSTANT_TYPE + TEXTURE_TYPE)");
 
@@ -825,9 +825,9 @@ void RenderManager::InitPipelines()
 			lumenCard, _countof(lumenCard), 0, 0.0f,
 			EBlendStatePreset::Opaque, ECullModePreset::None);
 
-	// ---- 一次空間アップスケール (UE AddUpscalePass, r.Upscale.Quality 0..5) ----
+	// ---- 一次空間アップスケール ----
 	// トーンマップ済み LDR (ポスト解像度 P) -> バックバッファ (出力解像度 O)。
-	// DSV を渡さないフルスクリーンパスなので深度無効。名前の添字 = r.Upscale.Quality。
+	// DSV を渡さないフルスクリーンパスなので深度無効。名前の添字 = UpscaleQuality。
 	// オプション PSO: .cso が欠落していても起動を止めず、登録もしない
 	// (FSceneRenderer::SelectPrimaryUpscalePipeline が HasPipelineState で確かめ、
 	//  Bilinear (1) -> トーンマップ統合 (bilinear) の順にフォールバックする)
@@ -879,8 +879,8 @@ void RenderManager::InitPipelines()
 	}
 
 	// ---- Responsive AA マスク (FSceneRenderer::RenderResponsiveAAMask) ----
-	// bEnableResponsiveAA の Translucent / Additive サブセットを R8_UNORM のマスクへ 1 で描く
-	// (UE のステンシル bit 3 の代わり [PORT])。RenderTranslucency の最後に半透明深度プリパスの
+	// bEnableResponsiveAA の Translucent / Additive サブセットを R8_UNORM のマスクへ 1 で描く。
+	// RenderTranslucency の最後に半透明深度プリパスの
 	// 深度を DSV にバインドしたまま描く: VS は半透明と同じ GeometryVS (GetBasePassClipPosition, precise)
 	// なので LESS_EQUAL (書き込み無し) がビット一致で通り、最前面の Translucent 層だけが残る
 	{

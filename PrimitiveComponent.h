@@ -32,7 +32,7 @@ protected:
 	// (bAffectDistanceFieldLighting)。空ドームは false にすること。
 	bool m_bAffectDistanceFieldLighting = true;
 
-	// ベロシティパスに参加するか (UE の空 = IsSky マテリアルは速度を書かない相当)。
+	// ベロシティパスに参加するか (空 = IsSky マテリアルは速度を書かない)。
 	// カメラ追従の空ドームは false にすること (平行移動のみでカメラと一緒に動くため、
 	// 遠方画素の回転のみ再投影 (d = Q) で正しく再構成される。速度を書くとアンチゴースト判定を誤らせる)。
 	bool m_bRenderVelocity = true;

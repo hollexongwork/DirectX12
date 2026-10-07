@@ -9,6 +9,10 @@
 #include "ColorGradingLUTBaker.h"
 #include "Light.h"
 #include "LightComponent.h"
+#include "DirectionalLightComponent.h"
+#include "PointLightComponent.h"
+#include "SpotLightComponent.h"
+#include "RectLightComponent.h"
 #include "ExponentialHeightFog.h"
 #include "ExponentialHeightFogComponent.h"
 #include "FogRendering.h"
@@ -151,7 +155,7 @@ void SettingsManager::LoadAndApply()
 		ini.GetFloat3("Translucency", "SortAxis", t.SortAxis);
 	}
 
-	// ---- Anti-Aliasing / Screen Percentage (r.AntiAliasingMethod / r.ScreenPercentage / r.TemporalAA.* ...) ----
+	// ---- Anti-Aliasing / Screen Percentage ----
 	// 範囲外 / NaN / 未実装の AA 手法は ReadAntiAliasing が丸める
 	if (m_SceneRenderer && ini.HasSection("AntiAliasing"))
 	{
@@ -203,7 +207,7 @@ void SettingsManager::LoadAndApply()
 		ReadLumen(ini, m_Lumen->GetParams());
 	}
 
-	// ---- Volumetric Fog (r.VolumetricFog.* 相当のレンダラ設定) ----
+	// ---- Volumetric Fog (レンダラ設定) ----
 	if (m_VolumetricFog && ini.HasSection("VolumetricFog"))
 	{
 		ReadVolumetricFog(ini, m_VolumetricFog->GetParams());
@@ -678,7 +682,7 @@ void SettingsManager::ApplyComponent(UActorComponent* Component, const Component
 			primitive->SetTranslucentSortPriority(Snap.TranslucencySortPriority);
 		}
 
-		// 適用 (起動時の INI 読み込み / Reset / Details の Reset Actor) はテレポート扱い (UE bTeleport):
+		// 適用 (起動時の INI 読み込み / Reset / Details の Reset Actor) はテレポート扱い (bTeleport):
 		// 次のトランスフォームプッシュで前フレーム変換 = 今の変換にし、ベロシティを出さない。
 		// ApplyComponent は static なのでワールドへはコンポーネント経由で辿る
 		if (UWorld* world = primitive->GetWorld())
@@ -859,10 +863,11 @@ const char* SettingsManager::LightTypeNameOf(const ULightComponent* Light)
 
 	switch (Light->GetLightType())
 	{
-	case ELightType::Directional:	return "Directional";
-	case ELightType::Point:			return "Point";
-	case ELightType::Spot:			return "Spot";
-	case ELightType::Rect:			return "Rect";
+	case LightType_Directional:	return "Directional";
+	case LightType_Point:		return "Point";
+	case LightType_Spot:		return "Spot";
+	case LightType_Rect:		return "Rect";
+	default:					break;
 	}
 	return "None";
 }
@@ -874,28 +879,45 @@ void SettingsManager::CaptureLightComponent(const ULightComponent* Light, Compon
 
 	InOut.LightTypeName = LightTypeNameOf(Light);
 
+	InOut.Visible = Light->IsVisible();
 	InOut.AffectsWorld = Light->GetAffectsWorld();
 	InOut.Intensity = Light->GetIntensity();
 	InOut.LightColor = Light->GetLightColor();
 	InOut.UseTemperature = Light->GetUseTemperature();
 	InOut.Temperature = Light->GetTemperature();
 	InOut.SpecularScale = Light->GetSpecularScale();
+	InOut.DiffuseScale = Light->GetDiffuseScale();
+	InOut.IndirectLightingIntensity = Light->GetIndirectLightingIntensity();
+	InOut.AffectTranslucentLighting = Light->GetAffectTranslucentLighting();
+	InOut.AffectGlobalIllumination = Light->GetAffectGlobalIllumination();
+	InOut.MaxDrawDistance = Light->GetMaxDrawDistance();
+	InOut.MaxDistanceFadeRange = Light->GetMaxDistanceFadeRange();
 
 	InOut.CastShadows = Light->GetCastShadows();
+	InOut.CastDynamicShadows = Light->GetCastDynamicShadows();
 	InOut.ShadowBias = Light->GetShadowBias();
 	InOut.ShadowSlopeBias = Light->GetShadowSlopeBias();
 	InOut.UseRayTracedDistanceFieldShadows = Light->GetUseRayTracedDistanceFieldShadows();
+	InOut.CastVolumetricShadow = Light->GetCastVolumetricShadow();
+	InOut.ContactShadowLength = Light->GetContactShadowLength();
+	InOut.ContactShadowLengthInWS = Light->GetContactShadowLengthInWS();
+	InOut.ContactShadowCastingIntensity = Light->GetContactShadowCastingIntensity();
+	InOut.ContactShadowNonCastingIntensity = Light->GetContactShadowNonCastingIntensity();
 	InOut.VolumetricScatteringIntensity = Light->GetVolumetricScatteringIntensity();
 
 	if (auto* directional = dynamic_cast<const UDirectionalLightComponent*>(Light))
 	{
-		InOut.DynamicShadowDistance = directional->GetDynamicShadowDistance();
+		InOut.DynamicShadowDistance = directional->GetDynamicShadowDistanceMovableLight();
 		InOut.DynamicShadowCascades = directional->GetDynamicShadowCascades();
 		InOut.CascadeDistributionExponent = directional->GetCascadeDistributionExponent();
 		InOut.ShadowDistanceFadeoutFraction = directional->GetShadowDistanceFadeoutFraction();
 		InOut.DistanceFieldShadowDistance = directional->GetDistanceFieldShadowDistance();
-		InOut.DistanceFieldTraceDistance = directional->GetDistanceFieldTraceDistance();
+		InOut.DistanceFieldTraceDistance = directional->GetTraceDistance();
 		InOut.LightSourceAngle = directional->GetLightSourceAngle();
+		InOut.LightSourceSoftAngle = directional->GetLightSourceSoftAngle();
+		InOut.ForwardShadingPriority = directional->GetForwardShadingPriority();
+		InOut.AtmosphereSunLight = directional->GetAtmosphereSunLight();
+		InOut.AtmosphereSunLightIndex = (int)directional->GetAtmosphereSunLightIndex();
 	}
 
 	if (auto* local = dynamic_cast<const ULocalLightComponent*>(Light))
@@ -935,28 +957,45 @@ void SettingsManager::ApplyLightComponent(ULightComponent* Light, const Componen
 
 	// セッター経由なので変更は自動で MarkRenderStateDirty され、
 	// 次フレームのプロキシ再生成に乗る。
+	Light->SetVisibility(Snap.Visible);
 	Light->SetAffectsWorld(Snap.AffectsWorld);
 	Light->SetIntensity(Snap.Intensity);
 	Light->SetLightColor(Snap.LightColor);
 	Light->SetUseTemperature(Snap.UseTemperature);
 	Light->SetTemperature(Snap.Temperature);
 	Light->SetSpecularScale(Snap.SpecularScale);
+	Light->SetDiffuseScale(Snap.DiffuseScale);
+	Light->SetIndirectLightingIntensity(Snap.IndirectLightingIntensity);
+	Light->SetAffectTranslucentLighting(Snap.AffectTranslucentLighting);
+	Light->SetAffectGlobalIllumination(Snap.AffectGlobalIllumination);
+	Light->SetMaxDrawDistance(Snap.MaxDrawDistance);
+	Light->SetMaxDistanceFadeRange(Snap.MaxDistanceFadeRange);
 
 	Light->SetCastShadows(Snap.CastShadows);
+	Light->SetCastDynamicShadows(Snap.CastDynamicShadows);
 	Light->SetShadowBias(Snap.ShadowBias);
 	Light->SetShadowSlopeBias(Snap.ShadowSlopeBias);
 	Light->SetUseRayTracedDistanceFieldShadows(Snap.UseRayTracedDistanceFieldShadows);
+	Light->SetCastVolumetricShadow(Snap.CastVolumetricShadow);
+	Light->SetContactShadowLength(Snap.ContactShadowLength);
+	Light->SetContactShadowLengthInWS(Snap.ContactShadowLengthInWS);
+	Light->SetContactShadowCastingIntensity(Snap.ContactShadowCastingIntensity);
+	Light->SetContactShadowNonCastingIntensity(Snap.ContactShadowNonCastingIntensity);
 	Light->SetVolumetricScatteringIntensity(Snap.VolumetricScatteringIntensity);
 
 	if (auto* directional = dynamic_cast<UDirectionalLightComponent*>(Light))
 	{
-		directional->SetDynamicShadowDistance(Snap.DynamicShadowDistance);
+		directional->SetDynamicShadowDistanceMovableLight(Snap.DynamicShadowDistance);
 		directional->SetDynamicShadowCascades(Snap.DynamicShadowCascades);
 		directional->SetCascadeDistributionExponent(Snap.CascadeDistributionExponent);
 		directional->SetShadowDistanceFadeoutFraction(Snap.ShadowDistanceFadeoutFraction);
 		directional->SetDistanceFieldShadowDistance(Snap.DistanceFieldShadowDistance);
-		directional->SetDistanceFieldTraceDistance(Snap.DistanceFieldTraceDistance);
+		directional->SetTraceDistance(Snap.DistanceFieldTraceDistance);
 		directional->SetLightSourceAngle(Snap.LightSourceAngle);
+		directional->SetLightSourceSoftAngle(Snap.LightSourceSoftAngle);
+		directional->SetForwardShadingPriority(Snap.ForwardShadingPriority);
+		directional->SetAtmosphereSunLight(Snap.AtmosphereSunLight);
+		directional->SetAtmosphereSunLightIndex(Snap.AtmosphereSunLightIndex);
 	}
 
 	if (auto* local = dynamic_cast<ULocalLightComponent*>(Light))
@@ -1227,17 +1266,29 @@ void SettingsManager::WriteComponent(ConfigFile& Ini, const std::string& Section
 
 		Ini.SetString(Section, Prefix + "LightType", Snap.LightTypeName);
 
+		// キー名はプロパティ名 (先頭の b は付けない。既存キーと同じ流儀)
+		Ini.SetBool(Section, Prefix + "Visible", Snap.Visible);
 		Ini.SetBool(Section, Prefix + "AffectsWorld", Snap.AffectsWorld);
 		Ini.SetFloat(Section, Prefix + "Intensity", Snap.Intensity);
 		Ini.SetFloat4(Section, Prefix + "LightColor", Snap.LightColor);
 		Ini.SetBool(Section, Prefix + "UseTemperature", Snap.UseTemperature);
 		Ini.SetFloat(Section, Prefix + "Temperature", Snap.Temperature);
 		Ini.SetFloat(Section, Prefix + "SpecularScale", Snap.SpecularScale);
+		Ini.SetFloat(Section, Prefix + "DiffuseScale", Snap.DiffuseScale);
+		Ini.SetFloat(Section, Prefix + "IndirectLightingIntensity", Snap.IndirectLightingIntensity);
+		Ini.SetBool(Section, Prefix + "AffectTranslucentLighting", Snap.AffectTranslucentLighting);
+		Ini.SetBool(Section, Prefix + "AffectGlobalIllumination", Snap.AffectGlobalIllumination);
 
 		Ini.SetBool(Section, Prefix + "CastShadows", Snap.CastShadows);
+		Ini.SetBool(Section, Prefix + "CastDynamicShadows", Snap.CastDynamicShadows);
 		Ini.SetFloat(Section, Prefix + "ShadowBias", Snap.ShadowBias);
 		Ini.SetFloat(Section, Prefix + "ShadowSlopeBias", Snap.ShadowSlopeBias);
 		Ini.SetBool(Section, Prefix + "UseRayTracedDFShadows", Snap.UseRayTracedDistanceFieldShadows);
+		Ini.SetBool(Section, Prefix + "CastVolumetricShadow", Snap.CastVolumetricShadow);
+		Ini.SetFloat(Section, Prefix + "ContactShadowLength", Snap.ContactShadowLength);
+		Ini.SetBool(Section, Prefix + "ContactShadowLengthInWS", Snap.ContactShadowLengthInWS);
+		Ini.SetFloat(Section, Prefix + "ContactShadowCastingIntensity", Snap.ContactShadowCastingIntensity);
+		Ini.SetFloat(Section, Prefix + "ContactShadowNonCastingIntensity", Snap.ContactShadowNonCastingIntensity);
 		Ini.SetFloat(Section, Prefix + "VolumetricScatteringIntensity", Snap.VolumetricScatteringIntensity);
 
 		if (isDirectional)
@@ -1249,12 +1300,18 @@ void SettingsManager::WriteComponent(ConfigFile& Ini, const std::string& Section
 			Ini.SetFloat(Section, Prefix + "DistanceFieldShadowDistance", Snap.DistanceFieldShadowDistance);
 			Ini.SetFloat(Section, Prefix + "DistanceFieldTraceDistance", Snap.DistanceFieldTraceDistance);
 			Ini.SetFloat(Section, Prefix + "LightSourceAngle", Snap.LightSourceAngle);
+			Ini.SetFloat(Section, Prefix + "LightSourceSoftAngle", Snap.LightSourceSoftAngle);
+			Ini.SetInt(Section, Prefix + "ForwardShadingPriority", Snap.ForwardShadingPriority);
+			Ini.SetBool(Section, Prefix + "AtmosphereSunLight", Snap.AtmosphereSunLight);
+			Ini.SetInt(Section, Prefix + "AtmosphereSunLightIndex", Snap.AtmosphereSunLightIndex);
 		}
 
 		if (isLocal)
 		{
 			Ini.SetFloat(Section, Prefix + "AttenuationRadius", Snap.AttenuationRadius);
 			Ini.SetInt(Section, Prefix + "IntensityUnits", Snap.IntensityUnits);
+			Ini.SetFloat(Section, Prefix + "MaxDrawDistance", Snap.MaxDrawDistance);
+			Ini.SetFloat(Section, Prefix + "MaxDistanceFadeRange", Snap.MaxDistanceFadeRange);
 		}
 
 		if (isPoint)
@@ -1384,18 +1441,31 @@ void SettingsManager::ReadComponent(const ConfigFile& Ini, const std::string& Se
 		Ini.GetFloat(Section, mp + "RefractionDepthBias", mat.RefractionDepthBias);
 	}
 
-	// ライト (クラス名一致は呼び出し側で確認済み = 型も一致)
+	// ライト (クラス名一致は呼び出し側で確認済み = 型も一致)。
+	// 無いキー (旧 INI) は現在値 = コンポーネントの既定値のまま
+	// (Visible / MaxDrawDistance は上のプリミティブ共通キーで読み込み済み)
 	Ini.GetBool(Section, Prefix + "AffectsWorld", InOut.AffectsWorld);
 	Ini.GetFloat(Section, Prefix + "Intensity", InOut.Intensity);
 	Ini.GetFloat4(Section, Prefix + "LightColor", InOut.LightColor);
 	Ini.GetBool(Section, Prefix + "UseTemperature", InOut.UseTemperature);
 	Ini.GetFloat(Section, Prefix + "Temperature", InOut.Temperature);
 	Ini.GetFloat(Section, Prefix + "SpecularScale", InOut.SpecularScale);
+	Ini.GetFloat(Section, Prefix + "DiffuseScale", InOut.DiffuseScale);
+	Ini.GetFloat(Section, Prefix + "IndirectLightingIntensity", InOut.IndirectLightingIntensity);
+	Ini.GetBool(Section, Prefix + "AffectTranslucentLighting", InOut.AffectTranslucentLighting);
+	Ini.GetBool(Section, Prefix + "AffectGlobalIllumination", InOut.AffectGlobalIllumination);
+	Ini.GetFloat(Section, Prefix + "MaxDistanceFadeRange", InOut.MaxDistanceFadeRange);
 
 	Ini.GetBool(Section, Prefix + "CastShadows", InOut.CastShadows);
+	Ini.GetBool(Section, Prefix + "CastDynamicShadows", InOut.CastDynamicShadows);
 	Ini.GetFloat(Section, Prefix + "ShadowBias", InOut.ShadowBias);
 	Ini.GetFloat(Section, Prefix + "ShadowSlopeBias", InOut.ShadowSlopeBias);
 	Ini.GetBool(Section, Prefix + "UseRayTracedDFShadows", InOut.UseRayTracedDistanceFieldShadows);
+	Ini.GetBool(Section, Prefix + "CastVolumetricShadow", InOut.CastVolumetricShadow);
+	Ini.GetFloat(Section, Prefix + "ContactShadowLength", InOut.ContactShadowLength);
+	Ini.GetBool(Section, Prefix + "ContactShadowLengthInWS", InOut.ContactShadowLengthInWS);
+	Ini.GetFloat(Section, Prefix + "ContactShadowCastingIntensity", InOut.ContactShadowCastingIntensity);
+	Ini.GetFloat(Section, Prefix + "ContactShadowNonCastingIntensity", InOut.ContactShadowNonCastingIntensity);
 	Ini.GetFloat(Section, Prefix + "VolumetricScatteringIntensity", InOut.VolumetricScatteringIntensity);
 
 	Ini.GetFloat(Section, Prefix + "DynamicShadowDistance", InOut.DynamicShadowDistance);
@@ -1405,6 +1475,10 @@ void SettingsManager::ReadComponent(const ConfigFile& Ini, const std::string& Se
 	Ini.GetFloat(Section, Prefix + "DistanceFieldShadowDistance", InOut.DistanceFieldShadowDistance);
 	Ini.GetFloat(Section, Prefix + "DistanceFieldTraceDistance", InOut.DistanceFieldTraceDistance);
 	Ini.GetFloat(Section, Prefix + "LightSourceAngle", InOut.LightSourceAngle);
+	Ini.GetFloat(Section, Prefix + "LightSourceSoftAngle", InOut.LightSourceSoftAngle);
+	Ini.GetInt(Section, Prefix + "ForwardShadingPriority", InOut.ForwardShadingPriority);
+	Ini.GetBool(Section, Prefix + "AtmosphereSunLight", InOut.AtmosphereSunLight);
+	Ini.GetInt(Section, Prefix + "AtmosphereSunLightIndex", InOut.AtmosphereSunLightIndex);
 
 	Ini.GetFloat(Section, Prefix + "AttenuationRadius", InOut.AttenuationRadius);
 	Ini.GetInt(Section, Prefix + "IntensityUnits", InOut.IntensityUnits);
@@ -1706,7 +1780,7 @@ void SettingsManager::ReadLumen(const ConfigFile& Ini, FLumenSceneData::Params& 
 
 // ------------------------------------------------------------
 //  Volumetric Fog Params <-> [VolumetricFog] セクション
-//  r.VolumetricFog.* 相当のレンダラ設定 (フォグコンポーネントの
+//  Volumetric Fog のレンダラ設定 (フォグコンポーネントの
 //  プロパティは [Actor.N] 側)。キー名はフィールド名と一致させる。
 // ------------------------------------------------------------
 void SettingsManager::WriteVolumetricFog(ConfigFile& Ini, const FVolumetricFog::Params& p)
@@ -1831,7 +1905,6 @@ void SettingsManager::ReadEditorViewport(const ConfigFile& Ini, ACameraActor::FL
 //  Anti-Aliasing / Screen Percentage <-> [AntiAliasing] セクション
 //  キー名は FAntiAliasingParams のフィールド名と一致させる
 //  (INI を手編集するときに AntiAliasingSettings.h を見れば分かるように)。
-//  UE の CVar との対応はフィールドのコメントを参照。
 // ------------------------------------------------------------
 void SettingsManager::WriteAntiAliasing(ConfigFile& Ini, const FAntiAliasingParams& p)
 {

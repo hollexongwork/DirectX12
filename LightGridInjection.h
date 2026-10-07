@@ -5,7 +5,7 @@
 // ============================================================
 //  FLightGridInjection
 //  FSceneRenderer::GatherLightsAndComputeLightGrid /
-//  LightGridInjection.cpp (FLightGridInjectionCS + FLightGridCompactCS)
+//  FLightGridInjectionCS + FLightGridCompactCS
 //  に相当するタイルドライトカリング (クラスタードライトグリッド)。
 //
 //  画面を XY = LIGHT_GRID_PIXEL_SIZE (64px) タイル、
@@ -35,11 +35,43 @@
 //    - フレーム内 Dispatch (コマンドリストは flush しない)
 // ============================================================
 
-// ---- グリッド定数 (r.Forward.* の既定値と同一) ----
-static const unsigned int LIGHT_GRID_PIXEL_SIZE = 64; // r.Forward.LightGridPixelSize
+// ============================================================
+//  ライトバッファの 1 要素 (FForwardLocalLightData)。
+//  ビューのライトバッファ (t13 ForwardLightBuffer) と Lumen 用ライトバッファ (Lumen t3) の
+//  要素型。HLSL FLocalLightData (LightData.hlsl) と 1:1 ミラー必須 (逐次パック 128 B)。
+//  ContactShadowParams / LightType / Flags は独立フィールドで持つ (ビットパックしない)。
+//    Direction は「受光点 -> ライト」(= 発光方向の逆)、Tangent はライトの上方向 (+Y)。
+//    FalloffExponent == 0 が逆二乗減衰。
+// ============================================================
+#define LIGHT_FLAG_CAST_DYNAMIC_SHADOW         (1u << 0)	// 動的シャドウを落とす (ShadowedBits。コンタクトシャドウの対象)
+#define LIGHT_FLAG_AFFECT_TRANSLUCENT_LIGHTING (1u << 1)	// 半透明を照らす
+#define LIGHT_FLAG_CAST_VOLUMETRIC_SHADOW      (1u << 2)	// Volumetric Fog の中で影を落とす
+
+struct FForwardLocalLightData
+{
+	XMFLOAT4     LightPositionAndInvRadius;			//   0 xyz = ワールド位置, w = 1 / AttenuationRadius
+	XMFLOAT4     LightColorAndFalloffExponent;		//  16 rgb = 色 x 明るさ, w = FalloffExponent (0 = 逆二乗)
+	XMFLOAT4     LightDirectionAndSpecularScale;	//  32 xyz = Direction, w = SpecularScale
+	XMFLOAT4     SpotAnglesAndSourceRadiusPacked;	//  48 xy = SpotAngles, z = SourceRadius, w = SourceLength
+	XMFLOAT4     LightTangentAndSoftSourceRadius;	//  64 xyz = Tangent, w = SoftSourceRadius
+	XMFLOAT4     RectBarnDoorAndScales;				//  80 x = BarnCosAngle, y = BarnLength, z = DiffuseScale, w = VolumetricScatteringIntensity
+	XMFLOAT4     ContactShadowParams;				//  96 x = ContactShadowLength (負 = ワールド空間), y = CastingIntensity, z = NonCastingIntensity, w = 予約
+	unsigned int LightType;							// 112 ELightComponentType
+	unsigned int Flags;								// 116 LIGHT_FLAG_*
+	unsigned int Pad0;								// 120
+	unsigned int Pad1;								// 124
+};
+static_assert(sizeof(FForwardLocalLightData) == 128,
+	"FForwardLocalLightData must mirror HLSL FLocalLightData (LightData.hlsl)");
+
+// ライトバッファの要素数 (ローカル + ディレクショナル)
+static const unsigned int MAX_FORWARD_LIGHT_BUFFER_ENTRIES = MAX_LOCAL_LIGHTS + MAX_DIRECTIONAL_LIGHTS;
+
+// ---- グリッド定数 ----
+static const unsigned int LIGHT_GRID_PIXEL_SIZE = 64; // 画面タイルの一辺 [px]
 static const unsigned int LIGHT_GRID_PIXEL_SIZE_SHIFT = 6; // log2(LIGHT_GRID_PIXEL_SIZE)
-static const unsigned int LIGHT_GRID_SIZE_Z = 32; // r.Forward.LightGridSizeZ
-static const unsigned int MAX_CULLED_LIGHTS_PER_CELL = 32; // r.Forward.MaxCulledLightsPerCell
+static const unsigned int LIGHT_GRID_SIZE_Z = 32; // 深度スライス数
+static const unsigned int MAX_CULLED_LIGHTS_PER_CELL = 32; // セルあたりのライト数上限
 
 class FLightGridInjection
 {
@@ -101,7 +133,7 @@ private:
 
 	// 独立コンピュートルートシグネチャ (両パス共通):
 	//  [0] CBV  b0 (FLightGridParams)
-	//  [1] SRV table t0 (ForwardLocalLights)
+	//  [1] SRV table t0 (ForwardLightBuffer)
 	//  [2] UAV table u0 (StartOffsetGrid)
 	//  [3] UAV table u1 (CulledLightLinks)
 	//  [4] UAV table u2 (Allocator)
@@ -160,14 +192,14 @@ public:
 	void SetViewSize(unsigned int Width, unsigned int Height);
 
 	// b3 (FORWARD_LIGHT_CONSTANT) のグリッドフィールドを埋める。
-	// NumLocalLights は呼び出し側 (SetupLightConstants) が設定する。
+	// ライトのフィールド (NumLocalLights / ディレクショナルライト) は呼び出し側 (ComputeLightGrid) が設定する。
 	// Z スライスパラメータ (GetLightGridZParams 相当) もここで解決。
 	void FillForwardLightData(FORWARD_LIGHT_CONSTANT& Out, float NearPlane, float FarPlane) const;
 
 	// 今フレームのライトグリッド構築 (Injection -> Compact) を記録する。
 	//  ViewConstant        : カメラの VIEW 定数 (View/Projection/NearFar)
 	//  lightBufferSRVIndex : 今フレームのライトバッファ SRV (t13 と同じもの)
-	//  numLocalLights      : 有効ローカルライト数
+	//  numLocalLights      : 有効ローカルライト数 (バッファ先頭のローカルライトだけをグリッドへ入れる)
 	void Dispatch(const VIEW_CONSTANT& ViewConstant,
 	              unsigned int lightBufferSRVIndex,
 	              unsigned int numLocalLights);

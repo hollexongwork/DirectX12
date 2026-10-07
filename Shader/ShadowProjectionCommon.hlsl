@@ -2,11 +2,11 @@
 #define SHADOW_PROJECTION_COMMON_HLSL
 
 #include "Structs.hlsl"
+#include "LightData.hlsl"
 
 // =============================================================
 //  ShadowProjectionCommon
-//  ShadowProjectionCommon.ush / ShadowFilteringCommon.ush の
-//  「レジスタ非依存」部分。シャドウマップの投影 + 3x3 PCF を、
+//  シャドウ評価の「レジスタ非依存」部分。シャドウマップの投影 + 3x3 PCF を、
 //  テクスチャ / 比較サンプラを引数で受け取る純関数として提供する。
 //
 //  利用側:
@@ -18,9 +18,8 @@
 //      直接光遮蔽をここで評価する
 //
 //  このファイルは cbuffer / register を一切宣言しない
-//  (Structs.hlsl の FLightShaderParameters / FLocalShadowParameters
-//   のみ参照)。数式は従来 ShadowFilteringCommon.hlsl から逐語移動
-//  (挙動不変)。
+//  (LightData.hlsl の FDeferredLightData と Structs.hlsl の
+//   FLocalShadowParameters のみ参照)。
 // =============================================================
 
 // -------------------------------------------------------------
@@ -99,19 +98,20 @@ static const float POINT_SHADOW_GUARD_TEXELS = 6.0f;
 
 // -------------------------------------------------------------
 //  ローカルライト (Point / Spot / Rect) のシャドウマップ投影 (1 = 影なし)
-//  Light と Shadow は同じインデックスの t13 / t16 要素を渡すこと。
+//  LightData と Shadow は同じインデックスの t13 / t16 要素を渡すこと。
 //  OffsetPos は法線オフセット適用済みの受光点 (オフセット不要なら
 //  受光点そのもの)。DF シャドウ (Shadow.DFShadow) と
 //  ShadowSliceIndex < 0 の判定は呼び出し側の責務。
 // -------------------------------------------------------------
 float ProjectLocalLightShadowMap(Texture2DArray<float> Atlas, SamplerComparisonState CmpSampler,
-    FLightShaderParameters Light, FLocalShadowParameters Shadow, float3 OffsetPos)
+    FDeferredLightData LightData, FLocalShadowParameters Shadow, float3 OffsetPos)
 {
+    // ポイントライト = スポットでもレクトでもないローカルライト
     [branch]
-    if (Light.Type == LIGHT_TYPE_POINT)
+    if (!LightData.bSpotLight && !LightData.bRectLight)
     {
         // ---- ポイント: 支配軸から面選択 -> デバイス深度再構築 ----
-        float3 d = OffsetPos - Light.Position; // ライト -> 受光点
+        float3 d = OffsetPos - LightData.WorldPosition; // ライト -> 受光点
         float3 ad = abs(d);
 
         uint face;

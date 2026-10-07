@@ -2,7 +2,7 @@
 
 // =============================================================
 //  HeightFogPS
-//  HeightFogPixelShader.usf (ExponentialPixelMain) 相当のフルスクリーン
+//  ExponentialPixelMain 相当のフルスクリーン
 //  フォグパス。デファードライティング後の HDR SceneColor に対し、
 //  深度からワールド座標を再構築して Exponential Height Fog
 //  (+ Volumetric Fog の froxel 積分結果) を合成する。
@@ -10,7 +10,7 @@
 //  出力: rgb = インスキャッタ (加算), a = 透過率 (乗算)
 //  ブレンド (PSO "HeightFog", EBlendStatePreset::HeightFog):
 //    SceneColor' = Src.rgb * 1 + SceneColor * Src.a   (RGB のみ書き込み)
-//  = UE の TStaticBlendState<CW_RGB, BO_Add, BF_One, BF_SourceAlpha>
+//  = TStaticBlendState<CW_RGB, BO_Add, BF_One, BF_SourceAlpha>
 //
 //  トランスルーセントはこのパスの対象外 (TranslucentPS が
 //  サーフェス位置でフォグを直接評価して合成する)。

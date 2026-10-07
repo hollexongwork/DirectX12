@@ -1,10 +1,12 @@
 #pragma once
 #include "Light.h"
+#include "RectLightComponent.h"
 
 // ============================================================
 //  ARectLight
+//  ARectLight に相当。
 //  URectLightComponent を Root に持つ。
-//  発光面はアクターの前方 (+Z) を向き、幅は +X / 高さは +Y。
+//  発光面はアクターの前方 (+Z) を向き、幅は +X、高さは +Y。
 //  バーンドア (BarnDoorAngle / BarnDoorLength) で照射範囲を絞れる。
 // ============================================================
 

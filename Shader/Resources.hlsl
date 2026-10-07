@@ -2,9 +2,10 @@
 #define RESOURCES_HLSL
 
 #include "Structs.hlsl"
+#include "LightData.hlsl"
 
 // =============================================================
-//  SRV レジスタレイアウト (C++ TEXTURE_TYPE と 1:1 ミラー必須, t0..t36)
+//  SRV レジスタレイアウト (C++ TEXTURE_TYPE と 1:1 ミラー必須, t0..t38)
 //  ワールド座標 (深度 + InvViewProjection から再構築する)。
 // =============================================================
 
@@ -37,9 +38,11 @@ Buffer<float> AutoExposureBuffer : register(t11);
 Texture2D<float4> TextureDOFBlur : register(t12); // ハーフ解像度 DOF ブラー
 
 // ---- Lights ----
-// ローカルライト (Point/Spot/Rect)。有効数は b3 (ForwardLightData) の
-// NumLocalLights。毎フレーム FSceneRenderer::SetupLightConstants が詰め直す。
-StructuredBuffer<FLightShaderParameters> ForwardLocalLights : register(t13);
+// ライトバッファ。[0, NumLocalLights) が視界内のローカルライト
+// (Point / Spot / Rect)、続く NumDirectionalLights 個がディレクショナルライト
+// (数は b3 ForwardLightData)。毎フレーム FSceneRenderer::ComputeLightGrid が詰め直す。
+// 読むときは LightGridCommon.hlsl の GetLocalLightData を使う。
+StructuredBuffer<FLocalLightData> ForwardLightBuffer : register(t13);
 
 // ---- Shadow maps ----
 // CSM (t14) はディレクショナル、ローカルアトラス (t15) は
@@ -121,6 +124,12 @@ Texture3D<float4> IntegratedLightScattering : register(t34);
 // t36: TAA の DebugOutput / TAA 出力 (可視化パス VisualizeTemporalAAPS 用)
 Texture2D<float2> SceneVelocityTexture : register(t35); // 0 = 未書き込み (カメラ運動へフォールバック)
 Texture2D<float4> TemporalAADebugTexture : register(t36);
+
+// ---- LTC (t37-t38, SystemTextures.h / RectLightLTC.hlsl) ----
+// レクトライトのスペキュラ (RectGGXApproxLTC) が引く 64x64 のテーブル。
+// UV = (Roughness, sqrt(1 - NoV))。s1 (線形クランプ) でサンプルする。
+Texture2D<float4> LTCMatTexture : register(t37); // LTC の逆行列の 4 成分
+Texture2D<float2> LTCAmpTexture : register(t38); // x = ローブの大きさ, y = フレネル項
 
 // ---- サンプラー ----
 SamplerState Sampler : register(s0); // ANISOTROPIC, WRAP

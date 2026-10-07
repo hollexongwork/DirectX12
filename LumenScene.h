@@ -140,10 +140,10 @@ static_assert(sizeof(LUMEN_CONSTANT) == 96,
 struct FLumenFrameInputs
 {
 	// ---- ライト ----
-	XMFLOAT4 DirectionalLightDirection = { 0.0f, 1.0f, 0.0f, 0.0f };	// 受光面 -> ライト
-	XMFLOAT4 DirectionalLightColor = { 0.0f, 0.0f, 0.0f, 0.0f };
-	unsigned int LightBufferSRVIndex = 0;	// t13 と同一の StructuredBuffer
-	unsigned int NumLocalLights = 0;
+	// Lumen 用ライトバッファ (StructuredBuffer<FLocalLightData>。ディレクショナル + ローカル。
+	// bAffectGlobalIllumination のライトだけを IndirectLightingIntensity 込みで積んだもの)
+	unsigned int LightBufferSRVIndex = 0;
+	unsigned int NumLumenLights = 0;
 
 	// ---- IBL ----
 	unsigned int IrradianceSRVIndex = 0;	// 拡散 irradiance キューブ (t11。現状どの Lumen シェーダーもサンプルしない。スカイライティング用に予約)
@@ -253,10 +253,10 @@ private:
 		unsigned int CardStartIndex;		// GDF ビルドではクリップマップ番号
 		unsigned int NumCardsToProcess;	// カードパスでは Dispatch の Z と一致 (シェーダ未参照。レイアウト維持のため残す)
 		unsigned int PassNumLumenObjects;
-		unsigned int PassNumLocalLights;
+		unsigned int PassNumLumenLights;		// Lumen 用ライトバッファ (t3) のライト数 (ディレクショナル + ローカル)
 
-		XMFLOAT4 PassDirectionalLightDirection;	// xyz=受光面->ライト, w=有効
-		XMFLOAT4 PassDirectionalLightColor;		// rgb=線形色 x 強度 (lux)
+		XMFLOAT4 PassReserved0;					// 予約 (レイアウト維持。以前のディレクショナルライト方向)
+		XMFLOAT4 PassReserved1;					// 予約 (レイアウト維持。以前のディレクショナルライト色)
 		XMFLOAT4 PassAtlasParams;				// xy=1/アトラスサイズ, z=カード解像度, w=フレーム番号
 		XMFLOAT4 PassTraceParams;				// x=最大距離, y=面バイアス, z=Radiosityレイ数, w=Emissiveブースト
 		XMFLOAT4 PassGlobalSDF0;				// xyz=クリップマップ0中心, w=半径 (0=無効)

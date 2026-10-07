@@ -3,6 +3,7 @@
 #include "LightSceneProxy.h"
 
 class FScene;
+class FDirectionalLightSceneProxy;
 struct FSceneView;
 
 // ============================================================
@@ -22,7 +23,7 @@ struct FSceneView;
 //        支配軸から面を選び、デバイス深度を再構築して比較する。
 //
 //  データフロー:
-//    FSceneRenderer::SetupLightConstants が集めたプロキシ列
+//    FSceneRenderer::ComputeLightGrid が集めたプロキシ列
 //      -> InitDynamicShadows      (シャドウビュー構築 + GPU パラメータ)
 //      -> UpdateDistanceFieldObjects (DF オブジェクトバッファ t18 詰め直し)
 //      -> RenderShadowDepthMaps   (深度パス: FScene のプロキシ列を巡回)
@@ -197,7 +198,7 @@ private:
 
 	// CSM カスケード構築 (サブフラスタ外接球 + テクセルスナップ)。
 	// カメラ情報は FSceneView (ゲーム側スナップショット) から読む。
-	void SetupDirectionalShadows(const FLightSceneProxy* Directional,
+	void SetupDirectionalShadows(const FDirectionalLightSceneProxy* Directional,
 		const FSceneView& View);
 
 	// スポット / レクト / ポイントのシャドウビュー + t16 パラメータ構築
@@ -212,8 +213,10 @@ public:
 	// LocalLights はライトバッファ (t13) と同順であること (t16 と 1:1 対応)。
 	// View はゲーム側で構築済みの FSceneView (カメラスナップショット)。
 	// View.bValid = false のフレームは CSM をスキップする。
+	// Directional は CSM / Distance Field シャドウを持つディレクショナルライト
+	// (選択されたフォワードディレクショナルライト。null = なし)。
 	void InitDynamicShadows(
-		const FLightSceneProxy* Directional,
+		const FDirectionalLightSceneProxy* Directional,
 		const std::vector<const FLightSceneProxy*>& LocalLights,
 		const FSceneView& View);
 

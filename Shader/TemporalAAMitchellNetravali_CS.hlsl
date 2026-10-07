@@ -2,9 +2,9 @@
 
 // =============================================================
 //  TemporalAAMitchellNetravali_CS (§6.6, [L])
-//  MainSuperSampling (r.TemporalAA.HistoryScreenPercentage > 100) の後段ダウンサンプル。
+//  MainSuperSampling (HistoryScreenPercentage > 100) の後段ダウンサンプル。
 //  TAA が書いた拡大履歴 H (= 入力) を Mitchell-Netravali (B = C = 1/3) で S (= 出力) へ戻す。
-//  UE FDefaultTemporalUpscaler::AddPasses の ComputeMitchellNetravaliDownsample に相当。
+//  FDefaultTemporalUpscaler::AddPasses の ComputeMitchellNetravaliDownsample に相当。
 //    ・分離可能な 2D カーネル。台は出力 2 px (= 入力 2 x InputPerOutputPixel px)
 //    ・入力比 InputPerOutputPixel = H / S は 1..2 なので 1 軸 9 タップで足りる
 //      (台の開区間の長さ 4 x 比 <= 8 入力 px)

@@ -5,7 +5,7 @@
 
 // =============================================================
 //  HeightFogCommon
-//  HeightFogCommon.ush の移植。Exponential Height Fog の解析積分
+//  Exponential Height Fog の解析積分
 //  (2 層の指数密度 + Directional Inscattering + Inscattering Cubemap +
 //   Start / End / Cutoff Distance + Max Opacity) と、Volumetric Fog
 //  (froxel 積分結果 t34) との合成 (CombineVolumetricFog) を提供する。
@@ -72,7 +72,7 @@ float3 ComputeInscatteringColor(float3 CameraToReceiver, float CameraToReceiverL
 // -------------------------------------------------------------
 float CalculateLineIntegralShared(float FogHeightFalloff, float RayDirectionY, float RayOriginTerms)
 {
-    // -127 未満は exp2 が発散する (UE と同じクランプ)
+    // -127 未満は exp2 が発散する
     float Falloff = max(-127.0f, FogHeightFalloff * RayDirectionY);
     float LineIntegral = (1.0f - exp2(-Falloff)) / Falloff;
     // 0 近傍のテイラー展開 (0 除算回避)
@@ -95,7 +95,7 @@ float4 GetExponentialHeightFog(float3 WorldPositionRelativeToCamera, float Exclu
     const float MinFogOpacity = ExponentialFogColorParameter.w;
     const float MaxWorldObserverHeight = ExponentialFogParameters.z;
 
-    // 観測者高さをクランプ (高空からの数値精度対策。UE と同じ)
+    // 観測者高さをクランプ (高空からの数値精度対策。)
     const float3 CameraOrigin = WorldCameraOrigin.xyz;
     const float3 WorldObserverOrigin = float3(CameraOrigin.x, min(CameraOrigin.y, MaxWorldObserverHeight), CameraOrigin.z);
 
@@ -134,7 +134,7 @@ float4 GetExponentialHeightFog(float3 WorldPositionRelativeToCamera, float Exclu
         RayOriginTermsSecond = ExponentialFogParameters2.z * exp2(-ExponentSecond);
     }
 
-    // ---- EndDistance (UE 5.4): この距離以遠は密度を積み増さない ----
+    // ---- EndDistance : この距離以遠は密度を積み増さない ----
     [flatten]
     if (ExponentialFogParameters4.x > 0.0f)
     {
@@ -154,7 +154,7 @@ float4 GetExponentialHeightFog(float3 WorldPositionRelativeToCamera, float Exclu
 
     // ---- Directional Inscattering ----
     // InscatteringLightDirection.w が負なら無効、非負なら開始距離。
-    // キューブマップ使用時は無効 (UE と同じ: 指向性はキューブマップが担う)
+    // キューブマップ使用時は無効 (指向性はキューブマップが担う)
     [branch]
     if (InscatteringLightDirection.w >= 0.0f && ExponentialFogParameters3.z == 0.0f)
     {

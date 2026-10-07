@@ -1,6 +1,8 @@
 #include "Main.h"
 #include "RenderManager.h"
 #include "ShadowRendering.h"
+#include "DirectionalLightSceneProxy.h"
+#include "RectLightSceneProxy.h"
 #include "ConvexVolume.h"
 #include "Scene.h"
 #include "PrimitiveSceneProxy.h"
@@ -203,7 +205,7 @@ void FShadowSceneRenderer::InitShadowParamBuffers()
 //  (FSceneRenderer::InitDynamicShadows)
 // ============================================================
 void FShadowSceneRenderer::InitDynamicShadows(
-	const FLightSceneProxy* Directional,
+	const FDirectionalLightSceneProxy* Directional,
 	const std::vector<const FLightSceneProxy*>& LocalLights,
 	const FSceneView& View)
 {
@@ -234,7 +236,7 @@ void FShadowSceneRenderer::InitDynamicShadows(
 
 	// ---- ディレクショナル (Whole-Scene CSM) ----
 	// View.bValid = false (カメラ不在) のフレームはスキップする
-	if (Directional && Directional->AffectsWorld() && Directional->CastsShadows() && View.bValid)
+	if (Directional && Directional->CastsDynamicShadow() && View.bValid)
 	{
 		SetupDirectionalShadows(Directional, View);
 	}
@@ -269,7 +271,7 @@ void FShadowSceneRenderer::AddShadowView(const XMMATRIX& View, const XMMATRIX& P
 //  各カスケードはサブフラスタ 8 頂点の外接球でフィットし、
 //  ライトビューのテクセルグリッドへスナップして安定化する。
 // ------------------------------------------------------------
-void FShadowSceneRenderer::SetupDirectionalShadows(const FLightSceneProxy* Directional,
+void FShadowSceneRenderer::SetupDirectionalShadows(const FDirectionalLightSceneProxy* Directional,
 	const FSceneView& View)
 {
 	// ---- カメラ基底 (LookToLH と同じ構成 = 描画ビューと一致) ----
@@ -286,7 +288,7 @@ void FShadowSceneRenderer::SetupDirectionalShadows(const FLightSceneProxy* Direc
 	XMVECTOR camUp = XMVector3Cross(camFwd, camRight);
 
 	const float nearClip = View.NearClip;
-	const float shadowDistance = fminf(Directional->GetDynamicShadowDistance(), View.FarClip);
+	const float shadowDistance = fminf(Directional->GetWholeSceneDynamicShadowRadius(), View.FarClip);
 	const int   numCascades = max(1, min(Directional->GetNumDynamicShadowCascades(), (int)MAX_SHADOW_CASCADES));
 	const float exponent = fmaxf(Directional->GetCascadeDistributionExponent(), 1.0f);
 	const float fadeFraction = fmaxf(fminf(Directional->GetShadowDistanceFadeoutFraction(), 0.9f), 0.0f);
@@ -295,7 +297,7 @@ void FShadowSceneRenderer::SetupDirectionalShadows(const FLightSceneProxy* Direc
 	const float tanHalfFovX = tanHalfFovY * View.AspectRatio;
 
 	// ---- ライト方向 (発光方向) ----
-	const XMFLOAT3& lightDirection = Directional->GetDirection();
+	const XMFLOAT3 lightDirection = Directional->GetDirection();
 	XMVECTOR lightDir = XMVector3Normalize(XMLoadFloat3(&lightDirection));
 
 	XMVECTOR lightUp = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
@@ -312,8 +314,8 @@ void FShadowSceneRenderer::SetupDirectionalShadows(const FLightSceneProxy* Direc
 		splitFar[i] = nearClip + (shadowDistance - nearClip) * powf(t, exponent);
 	}
 
-	const float shadowBias = Directional->GetShadowBias();
-	const float shadowSlopeBias = Directional->GetShadowSlopeBias();
+	const float shadowBias = Directional->GetUserShadowBias();
+	const float shadowSlopeBias = Directional->GetUserShadowSlopeBias();
 
 	float splits[4] = { 1.0e9f, 1.0e9f, 1.0e9f, 1.0e9f };
 	float normalOffsets[4]{};
@@ -412,13 +414,13 @@ void FShadowSceneRenderer::SetupDirectionalShadows(const FLightSceneProxy* Direc
 		const float sourceAngleDeg = fmaxf(Directional->GetLightSourceAngle(), 0.05f);
 		m_DirectionalConstant.DFShadowParams0.y = Directional->GetDistanceFieldShadowDistance();
 		m_DirectionalConstant.DFShadowParams0.z = tanf(XMConvertToRadians(sourceAngleDeg) * 0.5f);
-		m_DirectionalConstant.DFShadowParams0.w = Directional->GetDistanceFieldTraceDistance();
+		m_DirectionalConstant.DFShadowParams0.w = Directional->GetTraceDistance();
 		m_DirectionalConstant.DFShadowParams1.x = 1.0f;
 
 		// 自己遮蔽オフセットはライトの ShadowBias / SlopeBias から決める
 		// (シャドウマップ経路と同じ SHADOW_BIAS_WORLD_SCALE 換算。ShadowRendering.h 参照)
-		m_DirectionalConstant.DFShadowParams1.y = SHADOW_BIAS_WORLD_SCALE * Directional->GetShadowBias();
-		m_DirectionalConstant.DFShadowParams1.z = SHADOW_BIAS_WORLD_SCALE * Directional->GetShadowSlopeBias();
+		m_DirectionalConstant.DFShadowParams1.y = SHADOW_BIAS_WORLD_SCALE * Directional->GetUserShadowBias();
+		m_DirectionalConstant.DFShadowParams1.z = SHADOW_BIAS_WORLD_SCALE * Directional->GetUserShadowSlopeBias();
 	}
 
 	m_bUsedCSM = true;
@@ -461,19 +463,19 @@ void FShadowSceneRenderer::SetupLocalShadows(const std::vector<const FLightScene
 	for (unsigned int i = 0; i < numLights; ++i)
 	{
 		const FLightSceneProxy* proxy = LocalLights[i];
-		if (proxy == nullptr || !proxy->CastsShadows())
+		if (proxy == nullptr || !proxy->CastsDynamicShadow())
 		{
 			continue;
 		}
 
-		const float radius = proxy->GetAttenuationRadius();
+		const float radius = proxy->GetRadius();
 		if (radius <= 0.0f)
 		{
 			continue;
 		}
 
-		const XMFLOAT3& position = proxy->GetPosition();
-		const XMFLOAT3& direction = proxy->GetDirection();
+		const XMFLOAT3 position = proxy->GetOrigin();
+		const XMFLOAT3 direction = proxy->GetDirection();
 		XMVECTOR lightPos = XMLoadFloat3(&position);
 		XMVECTOR lightDir = XMVector3Normalize(XMLoadFloat3(&direction));
 
@@ -481,9 +483,9 @@ void FShadowSceneRenderer::SetupLocalShadows(const std::vector<const FLightScene
 		const float farPlane = fmaxf(radius, nearPlane * 2.0f);
 
 		FLocalShadowParameters& sp = params[i];
-		sp.DepthBiasNDC = proxy->GetShadowBias() * 0.001f;
+		sp.DepthBiasNDC = proxy->GetUserShadowBias() * 0.001f;
 		sp.InvShadowResolution = 1.0f / (float)LOCAL_SHADOW_RESOLUTION;
-		sp.NormalOffsetWorld = proxy->GetShadowSlopeBias() * SHADOW_BIAS_WORLD_SCALE;
+		sp.NormalOffsetWorld = proxy->GetUserShadowSlopeBias() * SHADOW_BIAS_WORLD_SCALE;
 		sp.ShadowNearPlane = nearPlane;
 		sp.ShadowFarPlane = farPlane;
 
@@ -499,11 +501,11 @@ void FShadowSceneRenderer::SetupLocalShadows(const std::vector<const FLightScene
 			// DF 固有の自己交差回避はシェーダ側の表皮スキップ
 			// (DistanceFieldShadowing.hlsl) が自動で行うため、
 			// ここはスライダーの純粋な調整量になる。
-			sp.DFSelfShadowBias = SHADOW_BIAS_WORLD_SCALE * proxy->GetShadowBias();
+			sp.DFSelfShadowBias = SHADOW_BIAS_WORLD_SCALE * proxy->GetUserShadowBias();
 			continue;
 		}
 
-		if (proxy->GetLightType() == ELightType::Point)
+		if (proxy->GetLightType() == LightType_Point)
 		{
 			// ---- ポイント: キューブ 6 面 ----
 			if (slice + 6 > MAX_LOCAL_SHADOW_SLICES)
@@ -540,18 +542,17 @@ void FShadowSceneRenderer::SetupLocalShadows(const std::vector<const FLightScene
 			}
 
 			float fov;
-			if (proxy->GetLightType() == ELightType::Spot)
+			if (proxy->GetLightType() == LightType_Spot)
 			{
 				// アウターコーン全角 + ガード 4 度
-				const float cosOuter = fmaxf(fminf(proxy->GetSpotAngles().x, 1.0f), -1.0f);
-				fov = 2.0f * acosf(cosOuter) + XMConvertToRadians(4.0f);
+				fov = 2.0f * proxy->GetOuterConeAngle() + XMConvertToRadians(4.0f);
 			}
 			else
 			{
 				// レクト: バーンドア開き角ベース (透視 1 枚の近似。
 				// 150 度を超える範囲の影は落とせない制限あり)
-				const float barnCos = fmaxf(fminf(proxy->GetRectBarnCosAngle(), 1.0f), -1.0f);
-				fov = 2.0f * acosf(barnCos) + XMConvertToRadians(4.0f);
+				const FRectLightSceneProxy* rectProxy = static_cast<const FRectLightSceneProxy*>(proxy);
+				fov = 2.0f * XMConvertToRadians(rectProxy->GetBarnDoorAngle()) + XMConvertToRadians(4.0f);
 			}
 			fov = fmaxf(fminf(fov, XMConvertToRadians(150.0f)), XMConvertToRadians(20.0f));
 

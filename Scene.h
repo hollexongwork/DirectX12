@@ -3,7 +3,7 @@
 #include <vector>
 #include <memory>
 #include "PrimitiveSceneProxy.h"	// unique_ptr の破棄に完全型が必要
-#include "LightSceneProxy.h"
+#include "LightSceneInfo.h"
 #include "SceneVelocityData.h"
 
 using namespace DirectX;
@@ -28,19 +28,6 @@ struct FPrimitiveSceneInfo
 	std::unique_ptr<FPrimitiveSceneProxy> Proxy;
 };
 
-// ============================================================
-//  FLightSceneInfo
-//  FLightSceneInfo に相当。ゲーム側ライトコンポーネントと
-//  レンダー側プロキシ (FLightSceneProxy) の対を保持する。
-//  レンダラ (FSceneRenderer::SetupLightConstants) が読むのは
-//  Proxy のみ。
-// ============================================================
-
-struct FLightSceneInfo
-{
-	ULightComponent* Component = nullptr;
-	std::unique_ptr<FLightSceneProxy> Proxy;
-};
 
 // ============================================================
 //  FExponentialHeightFogSceneInfo
@@ -113,6 +100,11 @@ struct FExponentialHeightFogSceneInfo
 //  Phase 4: ライトリスト (FLightSceneInfo) を追加。
 //  ディレクショナル / ポイント / スポット / レクトの各ライトが
 //  プリミティブと同じプロキシパターンで登録される。
+//  ライトの登録簿:
+//    Lights            : FLightSceneInfoCompact のスパース配列 (添字 = FLightSceneInfo::Id)
+//    DirectionalLights : ディレクショナルライトの一覧
+//    AtmosphereLights  : Exponential Height Fog の太陽 (添字 0) / 月 (添字 1)
+//  シーンに居るのは描画されるライトだけ (ULightComponent::CreateRenderState)。
 //  Phase 5 以降: ShadowMap 用の深度パス巡回もこの Primitives
 //  リストを再利用する。
 //  Exponential Height Fog: FScene::ExponentialFogs 相当の
@@ -124,11 +116,22 @@ class FScene
 private:
 	std::vector<FPrimitiveSceneInfo>  m_Primitives;
 
-	// ライト登録簿
-	// Directional / Point / Spot / Rect すべてここに登録され、
-	// FSceneRenderer::SetupLightConstants が毎フレーム
-	// VIEW 定数 (directional) + ライトバッファ (local) に解決する。
-	std::vector<FLightSceneInfo>      m_Lights;
+	// ---- ライト登録簿 (FScene::Lights。TSparseArray<FLightSceneInfoCompact> 相当) ----
+	// 添字 = FLightSceneInfo::Id。空きスロットは LightSceneInfo == nullptr で、
+	// 空き番号は m_FreeLightIds (後入れ先出し) から再利用する。
+	// FSceneRenderer::ComputeLightVisibility / GatherAndSortLights が毎フレーム巡回する。
+	std::vector<FLightSceneInfoCompact> m_Lights;
+	std::vector<int>                    m_FreeLightIds;
+
+	// ディレクショナルライトの一覧 (FScene::DirectionalLights)
+	std::vector<FLightSceneInfo*> m_DirectionalLights;
+
+	// 最初に追加されたディレクショナルライト (FScene::SimpleDirectionalLight)
+	FLightSceneInfo* m_SimpleDirectionalLight = nullptr;
+
+	// Exponential Height Fog の太陽 / 月 (FScene::AtmosphereLights)。
+	// bAtmosphereSunLight のディレクショナルライトのうち、添字ごとに最も明るいもの
+	FLightSceneInfo* m_AtmosphereLights[NUM_ATMOSPHERE_LIGHTS] = {};
 
 	// ---- ダーティリスト (プッシュ型更新) ----
 	// 全コンポーネントを毎フレームポーリングする代わりに、変更された
@@ -158,7 +161,20 @@ private:
 	// FSceneRenderer::RenderVelocities が読む
 	FSceneVelocityData m_VelocityData;
 
+	// ---- ライトの登録 / 解除の本体 ----
+	// シングルスレッドなので AddLight / RemoveLight から直接呼ぶ
+	void AddLightSceneInfo_RenderThread(FLightSceneInfo* LightSceneInfo);
+	void RemoveLightSceneInfo_RenderThread(FLightSceneInfo* LightSceneInfo);
+	void ProcessAtmosphereLightAddition_RenderThread(FLightSceneInfo* LightSceneInfo);
+	void ProcessAtmosphereLightRemoval_RenderThread(FLightSceneInfo* LightSceneInfo);
+
 public:
+	FScene() = default;
+	~FScene();
+
+	FScene(const FScene&) = delete;
+	FScene& operator=(const FScene&) = delete;
+
 	// 登録時に CreateSceneProxy() でレンダー側ミラーを生成・所有する。
 	// 初回フレームのトランスフォームプッシュも予約する。
 	void AddPrimitive(UPrimitiveComponent* Primitive);
@@ -175,7 +191,7 @@ public:
 
 	// ---- ベロシティ ----
 	// 次のトランスフォームプッシュをテレポート扱いにする (前フレーム変換 = 今の変換 = 速度 0)。
-	// UE の bTeleport / OverridePreviousTransform 相当。SettingsManager::ApplyComponent
+	// bTeleport / OverridePreviousTransform 相当。SettingsManager::ApplyComponent
 	// (INI 適用 / Reset / Details の Reset Actor) が呼ぶ
 	void MarkPrimitiveTeleported(UPrimitiveComponent* Primitive) { m_VelocityData.MarkTeleported(Primitive); }
 	const FSceneVelocityData& GetVelocityData() const { return m_VelocityData; }
@@ -189,15 +205,32 @@ public:
 	void AddLightTransformDirty(ULightComponent* Light) { m_LightTransformDirtyList.push_back(Light); }
 
 	// ---- ライト (FScene::AddLight / RemoveLight) ----
-	// 登録時に CreateLightSceneProxy() でレンダー側ミラーを生成・所有する
+	// ULightComponent::CreateRenderState / DestroyRenderState だけが呼ぶ。
+	// AddLight は CreateSceneProxy() でレンダー側ミラーを生成し、トランスフォームを入れて登録する
 	void AddLight(ULightComponent* Light);
 	void RemoveLight(ULightComponent* Light);
 
-	// ダーティリストにあるライトだけを処理する (プリミティブと同じ
-	// プッシュ型)。UWorld::SendAllEndOfFrameUpdates から毎フレーム呼ばれる。
+	// トランスフォームの更新 (ULightComponent::SendRenderTransform が呼ぶ)
+	void UpdateLightTransform(ULightComponent* Light);
+	// 色 / 明るさ / 間接光スケール / Volumetric Fog 散乱強度の軽量更新
+	// (ULightComponent::UpdateColorAndBrightness が呼ぶ。プロキシは作り直さない)
+	void UpdateLightColorAndBrightness(ULightComponent* Light);
+
+	// 登録解除されるライトをダーティリストから外す (ULightComponent::OnUnregister が呼ぶ)
+	void RemoveLightFromDirtyLists(ULightComponent* Light);
+
+	// ダーティリストにあるライトだけを処理する (プリミティブと同じプッシュ型):
+	//   レンダーステートダーティ -> ULightComponent::RecreateRenderState
+	//   トランスフォームダーティ -> ULightComponent::SendRenderTransform
+	// UWorld::SendAllEndOfFrameUpdates から毎フレーム呼ばれる。
 	void UpdateAllLightSceneInfos();
 
-	const std::vector<FLightSceneInfo>& GetLights() const { return m_Lights; }
+	// スパース配列。空きスロット (LightSceneInfo == nullptr) を飛ばして読むこと
+	const std::vector<FLightSceneInfoCompact>& GetLights() const { return m_Lights; }
+	const std::vector<FLightSceneInfo*>& GetDirectionalLights() const { return m_DirectionalLights; }
+	FLightSceneInfo* GetSimpleDirectionalLight() const { return m_SimpleDirectionalLight; }
+	// Index 0 = 太陽 (Exponential Height Fog が使う)、1 = 月
+	FLightSceneInfo* GetAtmosphereLight(unsigned int Index) const { return (Index < NUM_ATMOSPHERE_LIGHTS) ? m_AtmosphereLights[Index] : nullptr; }
 
 	// ---- Exponential Height Fog (FScene::AddExponentialHeightFog /
 	//      RemoveExponentialHeightFog / HasAnyExponentialHeightFog) ----

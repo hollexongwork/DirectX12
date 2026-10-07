@@ -233,7 +233,7 @@ namespace
 	// ============================================================
 	//  T2: ジッタのサンプル列 (A.3)
 	//   一様 (TAAU) / 窓付きガウス (FilterSize 1) の Index 0..7、CVar 2/3/4/5 の固定パターンを
-	//   Index = 7 (% 長さ) で、CVar 5 -> N = 4 (TAAU 以外)、N = 1 -> (0, 0) [PORT]、
+	//   Index = 7 (% 長さ) で、CVar 5 -> N = 4 (TAAU 以外)、N = 1 -> (0, 0)、
 	//   TAAU では固定パターンより一様分布が優先 (分岐順)
 	// ============================================================
 	void TestT2(FSelfTestReport& R)
@@ -313,7 +313,7 @@ namespace
 			R.Check("TAAU CVar 4 [1].y (uniform)", s.y, 1.0 / 6.0, 1e-4);
 		}
 
-		// ---- N = 1 -> (0, 0) [PORT] (一様 / ガウス / パターンのいずれでも) ----
+		// ---- N = 1 -> (0, 0) (一様 / ガウス / パターンのいずれでも) ----
 		{
 			const XMFLOAT2 a = ComputeTemporalAASample(false, 1, 1, 0, 1.0f);
 			const XMFLOAT2 b = ComputeTemporalAASample(true, 1, 1, 0, 1.0f);
@@ -577,7 +577,7 @@ namespace
 			{  0.0f,        32767u },
 			{  2.0f,        65469u },
 			{ -2.0f,           65u },
-			{  3.0f,        65469u },	// ±2 クランプ ([PORT])
+			{  3.0f,        65469u },	// ±2 クランプ
 			{ -3.0f,           65u },
 		};
 		for (const FVector& v : kVectors)
@@ -663,7 +663,7 @@ namespace
 		R.CheckBool("3. no push: no velocity", hasVelocity(), false);
 		R.Check("3. Prev = T2", prevX(), 1.5, 0.0);
 
-		// 許容誤差 (UE FMatrix::Equals 1e-4) 未満の変化は速度無し
+		// 許容誤差 (FMatrix::Equals 1e-4) 未満の変化は速度無し
 		{
 			XMFLOAT4X4 tiny = T2;
 			tiny._41 += 5.0e-5f;
@@ -709,8 +709,8 @@ namespace
 		struct FRow
 		{
 			const char* Name;
-			int   Method;         // r.AntiAliasingMethod
-			bool  bUpsampling;    // r.TemporalAA.Upsampling
+			int   Method;         // AntiAliasingMethod
+			bool  bUpsampling;    // bTemporalAAUpsampling
 			float SP, HSP;
 			unsigned Rx, Ry, Sx, Sy, Hx, Hy, Px, Py;
 			int   Pass;           // -1 = TAA 無し, それ以外 ETAAPassConfig
@@ -718,7 +718,7 @@ namespace
 			double Bias;
 			double Threshold;     // < 0 = 該当なし (MainUpsampling 以外)
 			bool  bSpatialUpscale;
-			int   N;              // ジッタサンプル数 (r.TemporalAASamples = 8)。0 = 該当なし (TAA 無し)
+			int   N;              // ジッタサンプル数 (TemporalAASamples = 8)。0 = 該当なし (TAA 無し)
 		};
 		static const FRow kRows[] =
 		{

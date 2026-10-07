@@ -2,7 +2,7 @@
 //  LightGridCompact_CS.hlsl
 //
 //  タイルドライトカリング - Pass 2/2 (圧縮)。
-//  LightGridInjection.usf の FLightGridCompactCS に相当する。
+//  FLightGridCompactCS に相当する。
 //
 //  Pass 1 (LightGridInjection_CS) が構築したセルごとの
 //  リンクリストを巡回して数え、グローバルアロケータ (byte 4)
@@ -45,7 +45,7 @@ void main(uint3 GridCoordinate : SV_DispatchThreadID)
         LinkOffset = RWCulledLightLinks[LinkOffset].y;
     }
 
-    // セルあたり上限で打ち切り (r.Forward.MaxCulledLightsPerCell 相当)
+    // セルあたり上限で打ち切り
     uint NumToStore = min(NumCulledLights, MaxCulledLightsPerCell);
 
     // ------------------------------------------------------------

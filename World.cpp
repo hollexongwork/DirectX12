@@ -99,7 +99,7 @@ FSceneView UWorld::CalcSceneView(float AspectRatio)
 		view.bCameraCut = camera->ConsumeCameraCut();			// カメラのカットラッチ (テレポート / Reset / Load)
 	}
 
-	// ---- カメラカット (UE FSceneView::bCameraCut) ----
+	// ---- カメラカット (FSceneView::bCameraCut) ----
 	view.bCameraCut = view.bCameraCut || m_bCameraCutRequested;	// ゲーム要求 (RequestCameraCut)
 	m_bCameraCutRequested = false;
 	if (camera != m_LastViewCamera)

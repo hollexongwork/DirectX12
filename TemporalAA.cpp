@@ -9,7 +9,7 @@
 #include <cstdio>
 
 // ============================================================
-//  TemporalAA : FDefaultTemporalUpscaler (UE Gen4 TAA / TAAU)
+//  TemporalAA : FDefaultTemporalUpscaler (TAA / TAAU)
 // ============================================================
 
 namespace
@@ -78,7 +78,7 @@ namespace
 	constexpr float kMinWeightSum      = 1.0e-6f;
 	constexpr float kMinCRConditioning = 0.25f;   // Σw >= 0.25·Σ|w| (負ローブの相殺で正規化重みが発散するのを防ぐ)
 
-	float CatmullRom(float x)                       // [PORT] |x| >= 2 は 0 (UE は台の外でも 3 次式を評価する潜在不具合)
+	float CatmullRom(float x)                       // |x| >= 2 は 0 (台の外で 3 次式を評価しない)
 	{
 		const float ax = std::fabs(x);
 		if (ax >= 2.0f) return 0.0f;
@@ -140,7 +140,7 @@ namespace
 	constexpr UINT kNumSRVTables = 6;
 	constexpr UINT kNumUAVTables = 3;
 
-	// TAA / MN のスレッドグループ (== TemporalAA.hlsl / TemporalAAMitchellNetravali_CS.hlsl の TAA_TILE_SIZE, UE GTemporalAATileSizeX/Y)
+	// TAA / MN のスレッドグループ (== TemporalAA.hlsl / TemporalAAMitchellNetravali_CS.hlsl の TAA_TILE_SIZE)
 	constexpr UINT kTAATileSize = 8;
 
 	// 順列ラッパの .cso (§4.8.1 の表)。Pass / Quality / Downsample
@@ -159,7 +159,7 @@ namespace
 		{ 1, 3, 0, "Shader/cso/TemporalAA_Upsampling_MediumHigh_CS.cso" },
 		// ---- MainSuperSampling (品質は High 強制) ----
 		{ 2, 2, 0, "Shader/cso/TemporalAA_SuperSampling_CS.cso" },
-		// ---- ハーフ解像度出力 (UE 5.x: bAllowDownsample && Quality == Low。SuperSampling は無し) ----
+		// ---- ハーフ解像度出力 (bAllowDownsample && Quality == Low。SuperSampling は無し) ----
 		{ 0, 0, 1, "Shader/cso/TemporalAA_Main_Low_Downsample_CS.cso" },
 		{ 1, 0, 1, "Shader/cso/TemporalAA_Upsampling_Low_Downsample_CS.cso" },
 	};
@@ -178,7 +178,7 @@ void ComputeTemporalAASampleWeights(XMFLOAT2 J, float FilterSize, bool bCatmullR
 	float W[9], D2[9];
 	for (int i = 0; i < 9; ++i)
 	{
-		// UE: SampleOffsets - Jitter (出力画素中心に属する点はジッタ込みで c + J に写る。A.2)
+		// SampleOffsets - Jitter (出力画素中心に属する点はジッタ込みで c + J に写る。A.2)
 		const float dx = ((float)kOff[i][0] - J.x) / FS, dy = ((float)kOff[i][1] - J.y) / FS;
 		D2[i] = dx * dx + dy * dy;
 		W[i] = bCatmullRom ? CatmullRom(dx) * CatmullRom(dy) : std::exp(-2.29f * D2[i]);   // ガウス: Sigma = 0.47
@@ -190,7 +190,7 @@ void ComputeTemporalAASampleWeights(XMFLOAT2 J, float FilterSize, bool bCatmullR
 
 XMFLOAT3 ComputePixelFormatQuantizationError(DXGI_FORMAT Format)
 {
-	// 仮数部 10 bit (half) / 6, 6, 5 bit (R11G11B10)。UE ComputePixelFormatQuantizationError
+	// 仮数部 10 bit (half) / 6, 6, 5 bit (R11G11B10)。ComputePixelFormatQuantizationError
 	switch (Format)
 	{
 	case DXGI_FORMAT_R11G11B10_FLOAT:
@@ -574,7 +574,7 @@ void FDefaultTemporalUpscaler::BindComputeTables(ID3D12GraphicsCommandList* Comm
 
 
 // ============================================================
-//  AddPasses (UE FDefaultTemporalUpscaler::AddPasses, 4.26 形。§4.8.2)
+//  AddPasses (FDefaultTemporalUpscaler::AddPasses。§4.8.2)
 // ============================================================
 ITemporalUpscaler::FPassOutputs FDefaultTemporalUpscaler::AddPasses(const FViewInfo& View, const FViewFamilyInfo& Family,
 	FSceneViewState& ViewState, const FAntiAliasingParams& Params, const FTemporalAADebugSettings& Debug, const FPassInputs& In)
@@ -584,7 +584,7 @@ ITemporalUpscaler::FPassOutputs FDefaultTemporalUpscaler::AddPasses(const FViewI
 	P.Quality = Family.TAAQuality;                                          // SuperSampling は High 強制済み
 	P.bDownsample = In.bAllowDownsampleSceneColor && P.Quality == ETAAQuality::Low && P.Pass != ETAAPassConfig::MainSuperSampling;
 	P.bUseR11G11B10History = Family.bR11G11B10History;
-	P.bUpsampleFiltered = Params.bTemporalAAUpsampleFiltered || P.Pass != ETAAPassConfig::MainUpsampling;   // UE: TAA_UPSAMPLE_FILTERED = CVar || Pass != MainUpsampling
+	P.bUpsampleFiltered = Params.bTemporalAAUpsampleFiltered || P.Pass != ETAAPassConfig::MainUpsampling;   // TAA_UPSAMPLE_FILTERED = 設定 || Pass != MainUpsampling
 	P.SceneColorInput = In.SceneColorTexture;
 	P.SceneDepthSRVIndex = In.SceneDepthSRVIndex;
 	P.SceneVelocitySRVIndex = In.SceneVelocitySRVIndex;
@@ -617,7 +617,7 @@ ITemporalUpscaler::FPassOutputs FDefaultTemporalUpscaler::AddPasses(const FViewI
 	}
 	if (P.Pass == ETAAPassConfig::MainSuperSampling)
 	{
-		// UE 4.26: 拡大履歴 (H = S x HistoryUpscaleFactor) を Mitchell-Netravali で S へ戻し、それを後段へ渡す。
+		// 拡大履歴 (H = S x HistoryUpscaleFactor) を Mitchell-Netravali で S へ戻し、それを後段へ渡す。
 		// 新しい履歴 (Out.NewHistory) は拡大解像度 H のまま次フレームへ持ち越す
 		FTAATexture* mn = ComputeMitchellNetravaliDownsample(o.SceneColor, Family.SecondaryExtent);
 		if (mn == nullptr)
@@ -645,7 +645,7 @@ ITemporalUpscaler::FPassOutputs FDefaultTemporalUpscaler::AddPasses(const FViewI
 
 
 // ============================================================
-//  AddTemporalAAPass (UE AddTemporalAAPass。§4.8.3)
+//  AddTemporalAAPass (§4.8.3)
 //  入力履歴 (Hp) を読み、ピンポンのもう一方のスロットへ新しい履歴 (H) を書く。
 //  バリアは 1 回のバッチ (同一リソースの重複 / before == after は除去)
 // ============================================================
@@ -660,7 +660,7 @@ FTAAOutputs FDefaultTemporalUpscaler::AddTemporalAAPass(const FViewInfo& View, c
 	const DXGI_FORMAT fmt = P.bUseR11G11B10History ? DXGI_FORMAT_R11G11B10_FLOAT : DXGI_FORMAT_R16G16B16A16_FLOAT;
 	const XMUINT2 R = P.InputExtent, H = P.OutputExtent;
 
-	// ---- 入力履歴 (UE: !InputHistory.IsValid() || bCameraCut ならダミー黒) ----
+	// ---- 入力履歴 (!InputHistory.IsValid() || bCameraCut ならダミー黒) ----
 	FTAATexture* inTex = VS.GetHistoryTexture(In);
 	const bool bInValid = In.IsValid() && inTex && inTex->RT
 		&& inTex->Extent.x == In.ReferenceBufferSize.x && inTex->Extent.y == In.ReferenceBufferSize.y && inTex->Format == In.Format;
@@ -717,7 +717,7 @@ FTAAOutputs FDefaultTemporalUpscaler::AddTemporalAAPass(const FViewInfo& View, c
 	std::memcpy(m_ParamPtr[frame] + kParamSlotTAA * kParamSlotSize, &cb, sizeof(cb));
 
 	// ---- 補助出力 ----
-	// ハーフ解像度 (UE 5.x の DownsampledSceneColor, Quality Low + r.TemporalAA.AllowDownsampling):
+	// ハーフ解像度 (DownsampledSceneColor, Quality Low + bTemporalAAAllowDownsampling):
 	// TAA 出力 H の 2x2 ボックス平均 (有効画素のみで重み付け) を ceil(H/2) の RGBA16F へ書く。
 	// AutoExposure の入力と Bloom のしきい値パスの入力になる (後段の AE / Bloom の入力解像度が下がる)
 	FTAATexture* half = nullptr;

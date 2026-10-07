@@ -54,7 +54,7 @@ private:
 	void BufferWindow();
 	void LightGridWindow();
 	void LumenWindow();
-	void AntiAliasingWindow();           // Settings > Anti-Aliasing (r.AntiAliasingMethod / r.ScreenPercentage / r.TemporalAA.* ...)
+	void AntiAliasingWindow();           // Settings > Anti-Aliasing
 	void CullingWindow();
 
 	// ---- Anti-Aliasing ウィンドウの状態 ----
@@ -94,7 +94,7 @@ private:
 	void DrawLightComponentSection(class ULightComponent* Light);
 
 	// Exponential Height Fog (UExponentialHeightFogComponent の全プロパティ +
-	// Volumetric Fog + r.VolumetricFog.* 相当のレンダラ設定)
+	// Volumetric Fog + レンダラ設定)
 	void DrawExponentialHeightFogSection(class UExponentialHeightFogComponent* Component);
 	void DrawExponentialHeightFogActorSection(class AExponentialHeightFog* Fog);
 

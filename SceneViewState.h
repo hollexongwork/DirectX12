@@ -1,5 +1,6 @@
 #pragma once
 #include <memory>
+#include <vector>
 #include <DirectXMath.h>
 #include "RenderManager.h"
 #include "AntiAliasingSettings.h"
@@ -7,7 +8,7 @@
 
 // ============================================================
 //  SceneViewState
-//  UE の FViewInfo (1 フレーム分のビュー) / FSceneViewState (フレームを
+//  FViewInfo (1 フレーム分のビュー) / FSceneViewState (フレームを
 //  跨いで永続するビュー状態) / FPreviousViewInfo (前フレームのビュー
 //  情報 + TAA 履歴) に相当する型。
 //
@@ -23,7 +24,7 @@
 // ============================================================
 
 // ------------------------------------------------------------
-//  FTAATexture: UAV 付き RENDER_TARGET + 追跡状態 (UE pooled RT の代替)
+//  FTAATexture: UAV 付き RENDER_TARGET + 追跡状態
 // ------------------------------------------------------------
 struct FTAATexture
 {
@@ -39,7 +40,7 @@ struct FTAATexture
 };
 
 // ------------------------------------------------------------
-//  FTemporalAAHistory: UE FTemporalAAHistory (RT[0] のみ)
+//  FTemporalAAHistory (RT[0] のみ)
 // ------------------------------------------------------------
 struct FTemporalAAHistory
 {
@@ -53,18 +54,18 @@ struct FTemporalAAHistory
 };
 
 // ------------------------------------------------------------
-//  FPreviousViewInfo: UE FPreviousViewInfo
+//  FPreviousViewInfo: 前フレームのビュー情報
 // ------------------------------------------------------------
 struct FPreviousViewInfo
 {
 	FViewMatrices      ViewMatrices;                 // 前フレームのジッタ込み + NoAA + ジッタ値
 	FTemporalAAHistory TemporalAAHistory;
-	DirectX::XMUINT2   ViewRectSize{};               // [PORT] Lumen / Fog 履歴 (レンダー解像度) の有効判定用
+	DirectX::XMUINT2   ViewRectSize{};               // Lumen / Fog 履歴 (レンダー解像度) の有効判定用
 	float              SceneColorPreExposure = 1.0f; // プリエクスポージャ無し
 };
 
 // ------------------------------------------------------------
-//  FSceneViewState: UE FSceneViewState (ビュー 1 つ分の永続状態)
+//  FSceneViewState: ビュー 1 つ分の永続状態
 // ------------------------------------------------------------
 class FSceneViewState
 {
@@ -82,8 +83,27 @@ public:
 	uint32_t GetFrameIndexMod8() const { return FrameIndex & 7u; }
 };
 
+class FLightSceneProxy;
+
 // ------------------------------------------------------------
-//  FViewInfo: UE FViewInfo (1 フレーム分)
+//  FVisibleLightViewInfo: ビューごとのライトの可視情報
+//  FSceneRenderer::ComputeLightVisibility が毎フレーム埋める。
+//  FViewInfo::VisibleLightInfos を FLightSceneInfo::Id で引く
+// ------------------------------------------------------------
+struct FVisibleLightViewInfo
+{
+	unsigned int bInViewFrustum : 1;	// ビューフラスタム内かつ描画距離内
+	unsigned int bInDrawRange : 1;		// 描画距離内 (フラスタム外でも真になり得る)
+
+	FVisibleLightViewInfo()
+		: bInViewFrustum(0)
+		, bInDrawRange(0)
+	{
+	}
+};
+
+// ------------------------------------------------------------
+//  FViewInfo: 1 フレーム分のビュー
 // ------------------------------------------------------------
 struct FViewInfo
 {
@@ -104,28 +124,35 @@ struct FViewInfo
 	DirectX::XMFLOAT4X4 ClipToPrevClip = kIdentity4x4; // 転置前 = InvVP_NoAA(cur) * VP_NoAA(prev)。ComputeClipToPrevClip (カメラ相対, double) で合成
 	float     NearClip = 0.1f, FarClip = 500.0f;
 	uint32_t  StateFrameIndex = 0;
+
+	// ---- ライト (LightRendering.h) ----
+	// FScene::Lights と同じ添字 (FLightSceneInfo::Id) のライト可視情報
+	std::vector<FVisibleLightViewInfo> VisibleLightInfos;
+	// フォワードシェーディング (半透明 / Volumetric Fog) と CSM が使うディレクショナルライト
+	// (SelectedForwardDirectionalLightProxy)。null = なし
+	const FLightSceneProxy* SelectedForwardDirectionalLightProxy = nullptr;
 };
 
-// UE の大きなカメラ移動判定 (FSceneRenderer::IsLargeCameraMovement 相当)。
+// 大きなカメラ移動の判定 (FSceneRenderer::IsLargeCameraMovement 相当)。
 // ViewMatrix 上 3x3 の列 0/1/2 (= ワールド空間のカメラ右 / 上 / 前方向) の内積が
 // cos(RotationThresholdDeg) 未満、または原点間距離の 2 乗が TranslationThresholdM^2 を超えたら true
 bool IsLargeCameraMovement(const FViewMatrices& Cur, const FViewMatrices& Prev, float RotationThresholdDeg, float TranslationThresholdM);
 
 // ClipToPrevClip (NoAA x NoAA, 行ベクトル: PrevClip = ThisClip * C2P, 転置前) (§4.4)。
-// UE の Translated 行列と同じくカメラ相対・double で合成する:
+// カメラ相対・double で合成する:
 //   C2P = InvProjNoAA(cur) * InvRot(cur) * Translation(O_cur - O_prev) * Rot(prev) * ProjNoAA(prev)
 // 絶対座標を行列に入れず原点差分のみを使うので、静止カメラでは厳密に単位行列になる
 // (ワールド絶対座標の VP を float で逆行列 x 積にすると |カメラ位置| に比例した誤差が残る)
 DirectX::XMFLOAT4X4 ComputeClipToPrevClip(const FViewMatrices& Cur, const FViewMatrices& Prev);
 
-// TAA ジッタのサンプル数 N (UE 4.26 PreVisibilityFrameSetup / 5.x PrepareViewStateForVisibility) (§4.4)。
+// TAA ジッタのサンプル数 N (§4.4)。
 //   TemporalUpscale : N = int(CVar * max(1, 1 / f^2)) (出力画素あたりのサンプル密度一定。int32 代入 = 切り捨て)
 //   それ以外         : N = CVar (CVar 5 = 圧縮プラスは N = 4)
 // [1, 255] にクランプ。f = EffectivePrimaryResolutionFraction (R.x / O.x)
 int ComputeTemporalAASampleCount(bool bTemporalUpsampling, int SamplesCVar, float ResolutionFraction);
 
-// TAA ジッタのサンプル位置 [レンダー px, +y 下] (UE TemporalJitterPixels) (§4.4)。
-//   N == 1           : (0, 0) [PORT] (UE は Gaussian #0 の定数オフセット。0 にして AA Off と厳密比較可能にする)
+// TAA ジッタのサンプル位置 [レンダー px, +y 下] (TemporalJitterPixels) (§4.4)。
+//   N == 1           : (0, 0) (AA Off と厳密比較可能にする)
 //   TemporalUpscale  : 一様 Halton(Index + 1, 2 / 3) - 0.5 (パターン分岐より先に判定)
 //   CVar 2 / 3 / 4 / 5 : 固定パターン (添字は % 長さで保護。5 = 圧縮プラス)
 //   それ以外         : 窓付きガウス (Box-Muller, sigma = 0.47 * FilterSize, 半径 0.5 で窓掛け)

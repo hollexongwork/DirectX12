@@ -9,7 +9,7 @@ class RenderManager;
 // ============================================================
 //  FScreenshotCapture
 //  バックバッファ (UI 描画前) -> READBACK バッファ -> 24bit BMP。
-//  UE の FScreenshotRequest + ReadSurfaceData 相当の最小実装で、
+//  FScreenshotRequest + ReadSurfaceData 相当の最小実装で、
 //  TAA 検証用テストドライバ (FTemporalAATestDriver, -taatest) と
 //  F9 キーのスクリーンショットが使う。
 //

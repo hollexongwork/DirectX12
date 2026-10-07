@@ -6,8 +6,7 @@
 
 // =============================================================
 //  LightGridCommon
-//  LightGridCommon.ush 相当。タイルドライトカリング
-//  (クラスタードライトグリッド) の受光側ヘルパ。
+//  タイルドライトカリング (クラスタードライトグリッド) の受光側ヘルパ。
 //
 //  グリッドは XY = 画面タイル (LightGridPixelSize = 64px)、
 //  Z = ビュー深度の指数スライス (LightGridSizeZ = 32) の 3D セル。
@@ -15,8 +14,13 @@
 //  LightGridCompact_CS が連続領域へ圧縮した結果を
 //    NumCulledLightsGrid (t19) : セルごとの [ライト数, データ開始]
 //    CulledLightDataGrid (t20) : ライトインデックス列
-//  として読む。インデックスはライトバッファ (t13, ForwardLocalLights) /
+//  として読む。インデックスはライトバッファ (t13, ForwardLightBuffer) /
 //  ローカルシャドウパラメータ (t16, LocalShadowParams) と共通。
+//
+//  ライトの取り出し:
+//    GetLocalLightData(Index)       : ライトバッファの 1 要素 (FLocalLightData)
+//    GetDirectionalLightData()      : 選択されたフォワードディレクショナルライト (b3)
+//    ConvertToDeferredLight(...)    : 評価用の FDeferredLightData へ (LightData.hlsl)
 //
 //  グリッドパラメータは b3 (ForwardLightData) を参照するため、
 //  このファイルはレジスタを宣言する共有ヘッダに依存する
@@ -34,7 +38,7 @@
 // -------------------------------------------------------------
 uint ComputeZSliceFromDepth(float SceneDepth)
 {
-    return (uint) max(0.0f, log2(SceneDepth * LightGridZParams.x + LightGridZParams.y) * LightGridZParams.z);
+    return (uint) max(0.0f, log2(SceneDepth * ForwardLightData.LightGridZParams.x + ForwardLightData.LightGridZParams.y) * ForwardLightData.LightGridZParams.z);
 }
 
 // -------------------------------------------------------------
@@ -43,8 +47,8 @@ uint ComputeZSliceFromDepth(float SceneDepth)
 // -------------------------------------------------------------
 uint3 ComputeLightGridCellCoordinate(uint2 PixelPos, float SceneDepth)
 {
-    uint ZSlice = min(ComputeZSliceFromDepth(SceneDepth), CulledGridSizeZ - 1u);
-    return uint3(PixelPos >> LightGridPixelSizeShift, ZSlice);
+    uint ZSlice = min(ComputeZSliceFromDepth(SceneDepth), ForwardLightData.CulledGridSizeZ - 1u);
+    return uint3(PixelPos >> ForwardLightData.LightGridPixelSizeShift, ZSlice);
 }
 
 // -------------------------------------------------------------
@@ -53,7 +57,7 @@ uint3 ComputeLightGridCellCoordinate(uint2 PixelPos, float SceneDepth)
 // -------------------------------------------------------------
 uint ComputeLightGridCellIndex(uint3 GridCoordinate)
 {
-    return (GridCoordinate.z * CulledGridSizeY + GridCoordinate.y) * CulledGridSizeX + GridCoordinate.x;
+    return (GridCoordinate.z * ForwardLightData.CulledGridSizeY + GridCoordinate.y) * ForwardLightData.CulledGridSizeX + GridCoordinate.x;
 }
 
 // -------------------------------------------------------------
@@ -72,7 +76,7 @@ FCulledLightsGridHeader GetCulledLightsGridHeader(uint GridIndex)
     Header.DataStartIndex = NumCulledLightsGrid[GridIndex * NUM_CULLED_LIGHTS_GRID_STRIDE + 1];
 
     // 安全クランプ (圧縮パスのセルあたり上限と同じ)
-    Header.NumLights = min(Header.NumLights, MaxCulledLightsPerCell);
+    Header.NumLights = min(Header.NumLights, ForwardLightData.MaxCulledLightsPerCell);
     return Header;
 }
 
@@ -80,6 +84,36 @@ FCulledLightsGridHeader GetCulledLightsGridHeader(uint GridIndex)
 uint GetCulledLightDataGrid(uint GridElementIndex)
 {
     return CulledLightDataGrid[GridElementIndex];
+}
+
+// -------------------------------------------------------------
+//  ライトバッファの 1 要素 (GetLocalLightData)
+//    [0, NumLocalLights)                 : ローカルライト
+//    NumLocalLights + i (i < NumDirectionalLights) : ディレクショナルライト
+// -------------------------------------------------------------
+FLocalLightData GetLocalLightData(uint LocalLightIndex)
+{
+    return ForwardLightBuffer[LocalLightIndex];
+}
+
+// -------------------------------------------------------------
+//  選択されたフォワードディレクショナルライト (GetDirectionalLightData)
+//  フォワードシェーディング (半透明) が照らすディレクショナルライトはこの 1 灯。
+//  CSM / Distance Field シャドウを持つのもこのライト。
+// -------------------------------------------------------------
+FDirectionalLightData GetDirectionalLightData()
+{
+    FDirectionalLightData Out;
+    Out.HasDirectionalLight = ForwardLightData.HasDirectionalLight;
+    Out.DirectionalLightColor = ForwardLightData.DirectionalLightColor;
+    Out.DirectionalLightVolumetricScatteringIntensity = ForwardLightData.DirectionalLightVolumetricScatteringIntensity;
+    Out.DirectionalLightDirection = ForwardLightData.DirectionalLightDirection;
+    Out.DirectionalLightSourceRadius = ForwardLightData.DirectionalLightSourceRadius;
+    Out.DirectionalLightSoftSourceRadius = ForwardLightData.DirectionalLightSoftSourceRadius;
+    Out.DirectionalLightSpecularScale = ForwardLightData.DirectionalLightSpecularScale;
+    Out.DirectionalLightDiffuseScale = ForwardLightData.DirectionalLightDiffuseScale;
+    Out.DirectionalLightFlags = ForwardLightData.DirectionalLightFlags;
+    return Out;
 }
 
 // -------------------------------------------------------------
@@ -95,7 +129,7 @@ float3 GetLightGridComplexityColor(uint NumLights)
     }
 
     // 緑 -> 黄 -> 赤 のランプ (MaxCulledLightsPerCell で飽和)
-    float t = saturate((float) NumLights / (float) max(MaxCulledLightsPerCell, 1u));
+    float t = saturate((float) NumLights / (float) max(ForwardLightData.MaxCulledLightsPerCell, 1u));
     float3 Green = float3(0.0f, 1.0f, 0.0f);
     float3 Yellow = float3(1.0f, 1.0f, 0.0f);
     float3 Red = float3(1.0f, 0.0f, 0.0f);

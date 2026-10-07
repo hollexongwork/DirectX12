@@ -9,3 +9,13 @@ ASpotLight::ASpotLight()
 	// 既定 (Pitch -90 度) と同じ真下向き (+Z を -Y へ)
 	SetActorRotation({ XMConvertToRadians(90.0f), 0.0f, 0.0f });
 }
+
+void ASpotLight::SetInnerConeAngle(float NewInnerConeAngle)
+{
+	m_SpotLightComponent->SetInnerConeAngle(NewInnerConeAngle);
+}
+
+void ASpotLight::SetOuterConeAngle(float NewOuterConeAngle)
+{
+	m_SpotLightComponent->SetOuterConeAngle(NewOuterConeAngle);
+}

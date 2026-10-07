@@ -37,7 +37,7 @@ public:
 	void  SetNearClip(float NearClip) { m_NearClip = NearClip; }
 	void  SetFarClip(float FarClip) { m_FarClip = FarClip; }
 
-	// ---- カメラカットのラッチ (UE: テレポート / Reset / Load 時の bCameraCut) ----
+	// ---- カメラカットのラッチ (テレポート / Reset / Load 時の bCameraCut) ----
 	// NotifyCameraCut で立て、ACameraActor::Tick が IsCameraCutPending を読んで
 	// コントローラの慣性を捨て (消費しない)、UWorld::CalcSceneView が
 	// ConsumeCameraCut で消費して FSceneView::bCameraCut に反映する。

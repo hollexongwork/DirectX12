@@ -11,9 +11,9 @@
 
 // ============================================================
 //  TemporalAA
-//  UE Gen4 TAA / TAAU (TemporalAA.usf + TemporalAA.cpp の FTAAStandaloneCS) の移植。
-//  UE の ITemporalUpscaler / FDefaultTemporalUpscaler::AddPasses / AddTemporalAAPass
-//  (4.26 形) に対応する。TAA はコンピュートパス (8x8 スレッドグループ、専用の
+//  TAA / TAAU (FTAAStandaloneCS)。
+//  ITemporalUpscaler / FDefaultTemporalUpscaler::AddPasses / AddTemporalAAPass
+//  に対応する。TAA はコンピュートパス (8x8 スレッドグループ、専用の
 //  コンピュートルートシグネチャ §3.7) で、順列ごとの .cso (TemporalAA_*_CS) を持つ。
 //
 //  フレーム内の位置 (§4.7): DOF (R) の後、AutoExposure / Bloom の前。
@@ -26,56 +26,54 @@
 //  構成 (FViewFamilyInfo が選ぶ):
 //    Main              : Low / Medium / High / MediumHigh (R -> R)
 //    MainUpsampling    : TAAU (R -> O)。Low / Medium / High / MediumHigh
-//    MainSuperSampling : r.TemporalAA.HistoryScreenPercentage > 100 (S -> H、High 固定) + Mitchell-Netravali (H -> S)
-//    Low + r.TemporalAA.AllowDownsampling : ハーフ解像度出力 (Downsample 順列, AutoExposure / Bloom の入力)
-//    Low / Medium + r.TemporalAA.R11G11B10History : R11G11B10 履歴 (アンチゴースト alpha を持たない)
+//    MainSuperSampling : HistoryScreenPercentage > 100 (S -> H、High 固定) + Mitchell-Netravali (H -> S)
+//    Low + AllowDownsampling : ハーフ解像度出力 (Downsample 順列, AutoExposure / Bloom の入力)
+//    Low / Medium + R11G11B10History : R11G11B10 履歴 (アンチゴースト alpha を持たない)
 //
-//  設計書 = Docs/TAAU/TAAU_Design.md。本移植のコード中の §x.y / Appendix A.x/B / decision N / リスク Rn は
+//  設計書 = Docs/TAAU/TAAU_Design.md。コード中の §x.y / Appendix A.x/B / decision N / リスク Rn は
 //  すべてこの文書を指す。
-//  UE からの差異 (設計書 Appendix B。[PORT] = 意図的な移植上の変更):
-//    - バッファモデル          : UE は量子化したエクステント内の ViewRect。本移植はレンダー解像度ぴったりの
-//                                テクスチャで原点 (0,0) (既存のスクリーンシェーダを無変更で使うため)
-//    - 空間アップスケールの範囲 : UE 1-400 % -> 10-200 % (メモリ)。TAAU は UE と同じ 50-200 %
-//    - TAA の深度入力          : UE は SceneDepth (不透明)。本移植は不透明の LinearDepth (ビュー Z) をデバイス Z
+//  実装上の規約 (設計書 Appendix B):
+//    - バッファモデル          : レンダー解像度ぴったりのテクスチャで原点 (0,0)
+//                                (既存のスクリーンシェーダを無変更で使うため)
+//    - 空間アップスケールの範囲 : 10-200 % (メモリ)。TAAU は 50-200 %
+//    - TAA の深度入力          : 不透明の LinearDepth (ビュー Z) をデバイス Z
 //                                (d = Q - Q n / z) へ変換して使う (半透明パス後の深度バッファは半透明の深度を持つため)
-//    - 遠方画素                : UE は無限遠 reverse-Z で自然に回転のみの再投影になる。本移植は far = 500 m の
-//                                標準 Z なので、ビュー Z >= 0.999 f の画素を d = Q (無限遠) として同じ結果を得る
-//    - Responsive AA           : UE はステンシル bit 3。本移植は深度が D32_FLOAT (ステンシル無し) なので
-//                                R8_UNORM マスクパス (RenderResponsiveAAMask) で代替する
-//    - 入力のサニタイズ         : UE は出力の NaN ガードのみ。本移植は入力 / 履歴 / 出力のすべてを浄化する
-//    - w <= 0 ガード            : UE には無い。カメラモーション / ベロシティの経路に入れる (大移動 / 背後の点)
-//    - ベロシティの ±2 クランプ : UE には無い。|V| > 2.0038 がエンコード値 0 (未書き込みの印) と衝突するのを防ぐ
-//    - Main の Catmull-Rom 重み : UE は台の外 (|x| >= 2) でも 3 次式を評価し、FS < 約 0.75 で巨大な負の重みになる。
-//                                本移植は |x| >= 2 を 0 とし、Σw <= 1e-6 か Σw < 0.25 Σ|w| なら最近傍サンプル
-//                                = 1 へフォールバックする (FS >= 0.75 では UE と同一)
-//    - ClipToPrevClip の合成    : UE は Translated (カメラ相対) 行列。本エンジンに Translated 行列は無いので
-//                                ViewOrigin の差を明示的に分離し、カメラ相対のまま double で合成する
-//    - BlendFinal 表示 (可視化 5) : 移植独自の表示。アンチストールの下限を掛ける前の重みを示す
+//    - 遠方画素                : far = 500 m の標準 Z なので、ビュー Z >= 0.999 f の画素を
+//                                d = Q (無限遠) として回転のみの再投影にする
+//    - Responsive AA           : 深度が D32_FLOAT (ステンシル無し) なので
+//                                R8_UNORM マスクパス (RenderResponsiveAAMask) で表す
+//    - 入力のサニタイズ         : 入力 / 履歴 / 出力のすべてを浄化する
+//    - w <= 0 ガード            : カメラモーション / ベロシティの経路に入れる (大移動 / 背後の点)
+//    - ベロシティの ±2 クランプ : |V| > 2.0038 がエンコード値 0 (未書き込みの印) と衝突するのを防ぐ
+//    - Main の Catmull-Rom 重み : |x| >= 2 を 0 とし、Σw <= 1e-6 か Σw < 0.25 Σ|w| なら最近傍サンプル
+//                                = 1 へフォールバックする (台の外の 3 次式が巨大な負の重みになるのを防ぐ)
+//    - ClipToPrevClip の合成    : ViewOrigin の差を明示的に分離し、カメラ相対のまま double で合成する
+//    - BlendFinal 表示 (可視化 5) : アンチストールの下限を掛ける前の重みを示す
 //                                (ブレンド自体は下限を使う。収束した平坦画素は下限が 1 になり信号が無いため)
 //    - 履歴 alpha フラグ        : TAA_FLAG_HISTORY_HAS_ALPHA。R11G11B10 の SRV は a = 1 を返すので、
 //                                その履歴を読むフレームはアンチゴーストの alpha を使わない
-//    - R11G11B10 の条件         : UE は低品質 / 高速 (alpha 不要) [M]。本移植は Quality 0/1、SuperSampling 以外、
+//    - R11G11B10 の条件         : Quality 0/1、SuperSampling 以外、
 //                                かつ UAV 型付きストア対応時のみ (アンチゴースト alpha が無いことと整合)
-//    - N == 1 のジッタ          : UE はガウス列の #0 (定数オフセット)。本移植はオフセット 0 (AA 無しと厳密比較できる)
-//    - b0 StateFrameIndexMod8   : UE は常に回す。本移植は AA 無効時 0 (DeferredPS の IGN フレーム項が
+//    - N == 1 のジッタ          : オフセット 0 (AA 無しと厳密比較できる)
+//    - b0 StateFrameIndexMod8   : AA 無効時 0 (DeferredPS の IGN フレーム項が
 //                                AA 無しの画像を変えないように)
-//    - 大移動時の Lumen / Fog 履歴 : UE の機能ではない。Prev 行列がリセットされる 1 フレームだけ無効にする
-//    - ベロシティ出力方式        : UE r.VelocityOutputPass 0/1/2 のうち 2 (別パス) のみ
+//    - 大移動時の Lumen / Fog 履歴 : Prev 行列がリセットされる 1 フレームだけ無効にする
+//    - ベロシティ出力方式        : 別パスのみ
 //                                (PS_INPUT と G-Buffer の MRT 構成を変えないため)
-//    - ミップバイアスの方式      : UE はマテリアルのサンプラーステート。本移植は SampleBias + b0
-//                                MaterialTextureMipBias (静的サンプラーがルートシグネチャに焼き込まれているため)
-//    - プリエクスポージャ        : UE 5.x は常に有効。本エンジンは絶対 HDR で描くので無し (補正 = 1、
+//    - ミップバイアスの方式      : SampleBias + b0 MaterialTextureMipBias
+//                                (静的サンプラーがルートシグネチャに焼き込まれているため)
+//    - プリエクスポージャ        : 絶対 HDR で描くので無し (補正 = 1、
 //                                フック SceneColorPreExposure は残す)
-//    - LightGrid の確保          : UE はビューごと。本移植は容量 2 O を 1 度だけ確保し、次元を毎フレーム設定する
-//    - TAA はコンピュートのみ     : UE は CS / PS の両経路。#615 (DSV 形式) 回避と単純化のため CS のみ
-//    - TAA_SCREEN_PERCENTAGE_RANGE : UE の LDS 順列は性能のためだけなので畳み込む (Load で結果は同一)
-//    - 既定値                    : r.TemporalAA.Upsampling の既定を 1 にする (UE4 は 0。移植の目的が TAAU のため)
+//    - LightGrid の確保          : 容量 2 O を 1 度だけ確保し、次元を毎フレーム設定する
+//    - TAA はコンピュートのみ     : #615 (DSV 形式) 回避と単純化のため CS のみ
+//    - TAA_SCREEN_PERCENTAGE_RANGE : 順列を畳み込む (Load で結果は同一)
+//    - 既定値                    : Upsampling の既定は 1
 // ============================================================
 
 // ---- TAA CB の Flags (HLSL TemporalAA.hlsl の TAA_FLAG_* と同値) ----
 enum ETAAFlags : uint32_t
 {
-	TAA_FLAG_UPSAMPLE_FILTERED     = 1u << 0,   // r.TemporalAAUpsampleFiltered (MainUpsampling)
+	TAA_FLAG_UPSAMPLE_FILTERED     = 1u << 0,   // bTemporalAAUpsampleFiltered (MainUpsampling)
 	TAA_FLAG_RESPONSIVE_MASK_VALID = 1u << 1,   // マスクを今フレーム描いた
 	TAA_FLAG_EYE_ADAPTATION_BUFFER = 1u << 2,   // t4 EyeAdaptation[0] を使う (無効時 ManualExposure)
 	TAA_FLAG_HISTORY_HAS_ALPHA     = 1u << 3,   // 入力履歴が RGBA16F (R11G11B10 は a=1 を返すためクリア)
@@ -141,7 +139,7 @@ static_assert(sizeof(FMitchellNetravaliParameters) == 48, "FMitchellNetravaliPar
 static_assert(offsetof(FMitchellNetravaliParameters, InputPerOutputPixel) == 32, "FMitchellNetravaliParameters::InputPerOutputPixel offset");
 
 // ------------------------------------------------------------
-//  UE FTAAPassParameters (1 回の TAA パスの入力一式)
+//  FTAAPassParameters (1 回の TAA パスの入力一式)
 // ------------------------------------------------------------
 struct FTAAPassParameters
 {
@@ -177,7 +175,7 @@ struct FTAAOutputs
 };
 
 // ------------------------------------------------------------
-//  UE ITemporalUpscaler (4.26 形)。実装は FDefaultTemporalUpscaler のみ
+//  ITemporalUpscaler。実装は FDefaultTemporalUpscaler のみ
 // ------------------------------------------------------------
 class ITemporalUpscaler
 {
@@ -210,7 +208,7 @@ public:
 };
 
 // ------------------------------------------------------------
-//  UE FDefaultTemporalUpscaler (Gen4 TAAU)
+//  FDefaultTemporalUpscaler (TAAU)
 //  コンピュートルートシグネチャ (§3.7):
 //    [0] ルート CBV b0 (FTemporalAAParameters / MN / 自己テスト)
 //    [1..6] SRV テーブル t0..t5  [7..9] UAV テーブル u0..u2 (各 1 デスクリプタ)
@@ -238,7 +236,7 @@ public:
 	float GetMinUpsampleResolutionFraction() const override { return kMinTAAUpsampleResolutionFraction; }
 	float GetMaxUpsampleResolutionFraction() const override { return kMaxTAAUpsampleResolutionFraction; }
 
-	// UE AddTemporalAAPass(View, Inputs, InputHistory, OutputHistory) (§4.8.3)
+	// AddTemporalAAPass(View, Inputs, InputHistory, OutputHistory) (§4.8.3)
 	FTAAOutputs AddTemporalAAPass(const FViewInfo& View, const FTAAPassParameters& P, const FTemporalAAHistory& InputHistory,
 		FTemporalAAHistory* OutputHistory, FSceneViewState& ViewState);
 	// MainSuperSampling の後段 (§4.8.4): TAA 出力 (履歴 H, RD) を Mitchell-Netravali で OutputExtent (= S) へ
@@ -296,10 +294,10 @@ private:
 	mutable uint32_t m_LoggedMissingPSOMask = 0;    // IsReady のログ済み組合せ (bit = Pass*8 + Quality*2 + Downsample)
 };
 
-// ---- CPU 側の計算 (UE TemporalAA.cpp) ----
+// ---- CPU 側の計算 ----
 // Main 構成の 3x3 / プラス 5 サンプル重み (§4.8.6)。ガウス exp(-2.29 |o - J|^2 / FS^2) または
-// Catmull-Rom (|x| >= 2 は 0 [PORT]) を正規化。総和が極小 / 負、または負ローブの相殺で
-// 悪条件 (Σw < 0.25 Σ|w|) なら J に最も近いサンプル = 1 へフォールバック [PORT]
+// Catmull-Rom (|x| >= 2 は 0) を正規化。総和が極小 / 負、または負ローブの相殺で
+// 悪条件 (Σw < 0.25 Σ|w|) なら J に最も近いサンプル = 1 へフォールバック
 void ComputeTemporalAASampleWeights(DirectX::XMFLOAT2 JitterPixels, float FilterSize, bool bCatmullRom,
 	float OutSampleWeights[9], float OutPlusWeights[5]);
 // 出力フォーマットの 1 ULP (確率的量子化の誤差): RGBA16F (2^-10)x3, R11G11B10 (2^-6, 2^-6, 2^-5)
@@ -312,7 +310,7 @@ float             HdrWeightYCPU(float Y, float Exposure);
 DirectX::XMFLOAT2 WeightedLerpFactorsCPU(float WeightA, float WeightB, float Blend);
 
 // ---- TAAU / 再サンプルカーネルの CPU 鏡像 (自己テスト T8-T11 用。HLSL と同式) ----
-// ComputeSampleWeigth (UE の綴り): Blackman-Harris 近似 (0.905 x^2 - 1.9) x^2 + 1, x^2 = saturate(UF^2 |d|^2)
+// ComputeSampleWeigth: Blackman-Harris 近似 (0.905 x^2 - 1.9) x^2 + 1, x^2 = saturate(UF^2 |d|^2)
 float ComputeSampleWeigthCPU(DirectX::XMFLOAT2 PixelDelta, float UpscaleFactor);
 // TAAU の入力写像 (TemporalAA.hlsl 手順 1-2): 出力画素 p の中心が写るジッタ済み入力座標
 // PPCo = (p + 0.5) / O * R + J、最近接入力画素 K = clamp(floor(PPCo)) と dKO = PPCo - (floor(PPCo) + 0.5)。

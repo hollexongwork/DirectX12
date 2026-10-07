@@ -8,12 +8,12 @@ class FShadowSceneRenderer;
 
 // ============================================================
 //  FVolumetricFog
-//  VolumetricFog.cpp (FDeferredShadingSceneRenderer::ComputeVolumetricFog)
+//  FDeferredShadingSceneRenderer::ComputeVolumetricFog
 //  に相当する Volumetric Fog の froxel ボリューム構築。
 //
 //  視錐台を XY = VOLUMETRIC_FOG_GRID_PIXEL_SIZE (8px) タイル、
 //  Z = VOLUMETRIC_FOG_GRID_SIZE_Z (64) の指数スライス
-//  (r.VolumetricFog.DepthDistributionScale = 32) に分割した froxel
+//  (DepthDistributionScale = 32) に分割した froxel
 //  ごとに、毎フレーム 3 つのコンピュートパスで
 //  「カメラから各 froxel までの累積インスキャッタ + 透過率」を作る:
 //
@@ -23,7 +23,7 @@ class FShadowSceneRenderer;
 //        ディレクショナル (CSM 影) + ローカルライト (ライトグリッド +
 //        シャドウアトラス) + スカイ (IBL irradiance) を HG 位相関数で
 //        散乱 -> LightScattering。前フレームをセル中心の再投影で
-//        採光しテンポラル蓄積 (r.VolumetricFog.HistoryWeight = 0.9)
+//        採光しテンポラル蓄積 (HistoryWeight = 0.9)
 //    Pass 3 (VolumetricFogIntegration_CS):
 //        Z 方向に手前から積分 -> IntegratedLightScattering (t34)
 //
@@ -41,10 +41,10 @@ class FShadowSceneRenderer;
 //  NON_PIXEL へ一時遷移して読み、Dispatch 後に戻す。
 // ============================================================
 
-// ---- グリッド定数 (r.VolumetricFog.* の既定値と同一) ----
-static const unsigned int VOLUMETRIC_FOG_GRID_PIXEL_SIZE = 8;        // r.VolumetricFog.GridPixelSize
-static const unsigned int VOLUMETRIC_FOG_GRID_SIZE_Z = 64;           // r.VolumetricFog.GridSizeZ
-static const float        VOLUMETRIC_FOG_DEPTH_DISTRIBUTION_SCALE = 32.0f; // r.VolumetricFog.DepthDistributionScale
+// ---- グリッド定数 ----
+static const unsigned int VOLUMETRIC_FOG_GRID_PIXEL_SIZE = 8;        // froxel の XY タイルの一辺 [px]
+static const unsigned int VOLUMETRIC_FOG_GRID_SIZE_Z = 64;           // Z スライス数
+static const float        VOLUMETRIC_FOG_DEPTH_DISTRIBUTION_SCALE = 32.0f; // Z スライスの指数分布のスケール
 
 // ------------------------------------------------------------
 //  FVolumetricFogInputs
@@ -63,11 +63,7 @@ struct FVolumetricFogInputs
 	FShadowSceneRenderer* ShadowRenderer = nullptr;		// CSM / ローカルアトラス / b5 定数
 	unsigned int                  SkyIrradianceSRVIndex = 0;	// IBL irradiance キューブ (スカイ項)
 
-	// ディレクショナルライト (VIEW 定数の値 + プロキシの散乱強度)
-	XMFLOAT4                      DirectionalLightDirection{};	// xyz = 受光点 -> ライト
-	XMFLOAT4                      DirectionalLightColor{};		// rgb = 線形色 x lux
-	float                         DirectionalLightVolumetricScatteringIntensity = 1.0f;
-	bool                          bHasDirectionalLight = false;
+	// ディレクショナルライトは ForwardLightData (b3) の「選択されたフォワードディレクショナルライト」を使う
 
 	const FExponentialHeightFogSceneInfo* FogInfo = nullptr;	// 解決済みフォグ (null = 無効)
 };
@@ -75,13 +71,13 @@ struct FVolumetricFogInputs
 class FVolumetricFog
 {
 public:
-	// ---- 制御 (r.VolumetricFog.* 相当。ImGui: Fog コンポーネントの Details から操作) ----
+	// ---- 制御 (ImGui: Fog コンポーネントの Details から操作) ----
 	struct Params
 	{
-		bool  bTemporalReprojection = true;		// r.VolumetricFog.TemporalReprojection
-		bool  bJitter = true;					// r.VolumetricFog.Jitter (セル内サンプル位置の Halton ジッタ)
-		float HistoryWeight = 0.9f;				// r.VolumetricFog.HistoryWeight
-		float InverseSquaredLightDistanceBiasScale = 1.0f; // r.VolumetricFog.InverseSquaredLightDistanceBiasScale
+		bool  bTemporalReprojection = true;		// 前フレームを再投影して蓄積する
+		bool  bJitter = true;					// セル内サンプル位置の Halton ジッタ
+		float HistoryWeight = 0.9f;				// 履歴の重み
+		float InverseSquaredLightDistanceBiasScale = 1.0f; // 逆二乗ライトの距離バイアス (セルサイズ比)
 	};
 
 	// ---- 統計 (ImGui 表示用) ----
@@ -122,7 +118,7 @@ private:
 		XMFLOAT4   FogInscatteringColor;			// rgb, w = bOverrideLightColors
 		XMFLOAT4   DirectionalInscatteringColor;	// rgb, w = StaticLightingScatteringIntensity
 
-		XMFLOAT4   DirectionalLightDirection;		// xyz, w = enabled
+		XMFLOAT4   DirectionalLightDirection;		// xyz, w = enabled (b3 の選択されたフォワードディレクショナルライト)
 		XMFLOAT4   DirectionalLightColor;			// rgb x VolumetricScatteringIntensity
 
 		unsigned int NumLocalLights;
@@ -156,7 +152,7 @@ private:
 
 	// 独立コンピュートルートシグネチャ (3 パス共通):
 	//  [0]  CBV  b0  (FVolumetricFogParams)
-	//  [1]  SRV  t0  ForwardLocalLights        [2]  SRV t1  LocalShadowParams
+	//  [1]  SRV  t0  ForwardLightBuffer        [2]  SRV t1  LocalShadowParams
 	//  [3]  SRV  t2  NumCulledLightsGrid       [4]  SRV t3  CulledLightDataGrid
 	//  [5]  SRV  t4  DirectionalShadowCascades [6]  SRV t5  LocalLightShadows
 	//  [7]  SRV  t6  VBufferA                  [8]  SRV t7  VBufferB

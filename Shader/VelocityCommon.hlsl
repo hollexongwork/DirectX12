@@ -3,7 +3,7 @@
 
 // =============================================================
 //  VelocityCommon.hlsl
-//  UE VelocityCommon.ush (Gen4: xy のみ) 相当。レジスタを宣言しない
+//  速度のエンコード / デコード (xy のみ)。レジスタを宣言しない
 //  (コンピュートシェーダ / 自己テストからも include できる)。
 //
 //  ベロシティ V = s_cur(ジッタ無し) - s_prev(ジッタ無し) [ScreenPos = NDC.xy 単位, +y 上]。
@@ -17,7 +17,7 @@ static const float VELOCITY_ENCODE_BIAS  = 32767.0f / 65535.0f;     // 0.4999923
 
 float2 EncodeVelocityToTexture(float2 V)
 {
-    V = clamp(V, -2.0f, 2.0f);                   // [PORT] |V| > 2.0038 は UNORM 0 (未書き込み) と衝突するため
+    V = clamp(V, -2.0f, 2.0f);                   // |V| > 2.0038 は UNORM 0 (未書き込み) と衝突するため
     return V * VELOCITY_ENCODE_SCALE + VELOCITY_ENCODE_BIAS;
 }
 
@@ -28,7 +28,7 @@ float2 DecodeVelocityFromTexture(float2 E)
 
 bool IsVelocityWritten(float2 E)
 {
-    return E.x > 0.0f;                           // UE: EncodedVelocity.x > 0
+    return E.x > 0.0f;                           // EncodedVelocity.x > 0
 }
 
 // ---- VelocityVS -> VelocityPS / VelocityMaskedPS ----

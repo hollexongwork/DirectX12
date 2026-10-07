@@ -1183,20 +1183,14 @@ D3D12_GPU_VIRTUAL_ADDRESS FLumenSceneData::WritePassParams(unsigned int SlotInde
 FLumenSceneData::FLumenPassParams FLumenSceneData::MakeBasePassParams(
 	const FLumenFrameInputs& Inputs) const
 {
-	const bool bHasDirectional =
-		(Inputs.DirectionalLightColor.x + Inputs.DirectionalLightColor.y +
-			Inputs.DirectionalLightColor.z) > 0.0f;
-
 	FLumenPassParams params{};
 	params.CardStartIndex = 0;
 	params.NumCardsToProcess = MAX_LUMEN_CARDS;
 	params.PassNumLumenObjects = m_NumObjects;
-	params.PassNumLocalLights = Inputs.NumLocalLights;
+	params.PassNumLumenLights = Inputs.NumLumenLights;
 
-	params.PassDirectionalLightDirection = {
-		Inputs.DirectionalLightDirection.x, Inputs.DirectionalLightDirection.y,
-		Inputs.DirectionalLightDirection.z, bHasDirectional ? 1.0f : 0.0f };
-	params.PassDirectionalLightColor = Inputs.DirectionalLightColor;
+	params.PassReserved0 = { 0.0f, 0.0f, 0.0f, 0.0f };
+	params.PassReserved1 = { 0.0f, 0.0f, 0.0f, 0.0f };
 	params.PassAtlasParams = {
 		1.0f / (float)LUMEN_ATLAS_WIDTH, 1.0f / (float)LUMEN_ATLAS_HEIGHT,
 		(float)LUMEN_CARD_RESOLUTION, (float)m_FrameNumber };

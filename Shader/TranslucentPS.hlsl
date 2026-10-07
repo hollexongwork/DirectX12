@@ -1,9 +1,6 @@
 #include "PBR_Utility.hlsl"
-#include "DeferredLightingCommon.hlsl"
-#include "SubstrateEvaluation.hlsl"
+#include "ForwardLightingCommon.hlsl"	// DeferredLightingCommon / SubstrateEvaluation / ShadowFilteringCommon / LightGridCommon
 #include "RefractionCommon.hlsl"
-#include "ShadowFilteringCommon.hlsl"
-#include "LightGridCommon.hlsl"
 #include "HeightFogCommon.hlsl"
 #include "BasePassCommon.hlsl"
 
@@ -15,9 +12,12 @@
 //
 //  デファードライティング (DeferredPS) と同一のライティング入力
 //  (b0 View / b3 ForwardLightData / b5 Shadow, t6-t8 IBL,
-//   t13 ライトバッファ, t14-t18 シャドウ, t19-t20 ライトグリッド)
-//  をサーフェス位置で直接評価し、確定済み SceneColor へ
-//  ハードウェアブレンドで合成する:
+//   t13 ライトバッファ, t14-t18 シャドウ, t19-t20 ライトグリッド,
+//   t37-t38 LTC) をサーフェス位置で直接評価し、確定済み SceneColor へ
+//  ハードウェアブレンドで合成する。
+//  ディレクショナルライトは
+//  「選択された 1 灯」(b3 の DirectionalLight*) だけを照らし、
+//  bAffectTranslucentLighting が偽のライトは照らさない:
 //    BLEND_Translucent : SrcAlpha / InvSrcAlpha
 //    BLEND_Additive    : SrcAlpha / One
 //  シェーダ本体は両モード共通 (ブレンドステートのみ異なる)。
@@ -44,9 +44,8 @@
 //                        パス側の結果がそのまま残る)
 //    BLEND_Additive    : Color * Fog.a             (減衰のみ。加算光は
 //                        インスキャッタを持ち込まない)
-//  Unlit / 屈折経路にも同様に掛かる (UE のマテリアル既定
-//  "Apply Fogging" = true 相当。屈折背景は既にフォグ済みの
-//  SceneColor なので薄く二重に掛かるが UE も同じ挙動)。
+//  Unlit / 屈折経路にも同様に掛かる (屈折背景は既にフォグ済みの
+//  SceneColor なので薄く二重に掛かる)。
 //
 //  深度は不透明結果に対するテストのみ (PSO: DepthRead、書き込みなし)。
 //  α = BaseColor テクスチャ α x 頂点カラー α x Material.Opacity。
@@ -238,14 +237,19 @@ PS_OUTPUT main(PS_INPUT input, bool bIsFrontFace : SV_IsFrontFace)
     float roughness = (ARM.g == 0.0f) ? Material.Roughness : ARM.g;
     float metallic = (ARM.b == 0.0f) ? Material.Metallic : ARM.b;
 
-    float3 lightDir = normalize(DirectionalLightDirection.xyz);
-
     // ---- ディレクショナルシャドウ (CSM + DF) ----
+    // 選択されたフォワードディレクショナルライトの影
     float directionalShadow = GetDirectionalShadow(worldPos, normal, viewDepth);
 
     // ---- ライトグリッドセル (両経路共通) ----
     uint3 GridCoordinate = ComputeLightGridCellCoordinate(uint2(input.Position.xy), viewDepth);
     uint GridIndex = ComputeLightGridCellIndex(GridCoordinate);
+
+    // ---- 直接光 (フォワードシェーディング) ----
+    // ディレクショナルライトは選択された 1 灯、ローカルライトはライトグリッドのセル。
+    // bAffectTranslucentLighting が偽のライトは照らさない (ForwardLightingCommon.hlsl)。
+    // コンタクトシャドウはデファードのみなのでディザは使わない
+    const float3 cameraVector = -viewDir;
 
     float3 surfaceLighting;
     float3 viewTransmittance = float3(1.0f, 1.0f, 1.0f); // 屈折背景に乗る透過色
@@ -264,55 +268,14 @@ PS_OUTPUT main(PS_INPUT input, bool bIsFrontFace : SV_IsFrontFace)
         // ============================================================
         FSubstrateBSDF SlabBSDF = GetMaterialSubstrateSlabBSDF(normal, baseColor.rgb, roughness);
 
-        // ---- ディレクショナルライト ----
-        float3 light = SubstrateEvaluateSlabDirect(
-            SlabBSDF, normal, viewDir,
-            lightDir, lightDir,
-            0.0f, 0.0f, 1.0f, 1.0f, 1.0f)
-            * DirectionalLightColor.rgb * directionalShadow;
-
-        // ---- ローカルライト (Point / Spot / Rect) ----
-        float3 localLight = float3(0.0f, 0.0f, 0.0f);
-
-        [branch]
-        if (bUseLightGrid != 0u)
-        {
-            FCulledLightsGridHeader GridHeader = GetCulledLightsGridHeader(GridIndex);
-
-            for (uint i = 0; i < GridHeader.NumLights; ++i)
-            {
-                uint LightIndex = GetCulledLightDataGrid(GridHeader.DataStartIndex + i);
-                FLightShaderParameters localLightParams = ForwardLocalLights[LightIndex];
-
-                float localShadow = GetLocalLightShadow(
-                    localLightParams, LocalShadowParams[LightIndex], worldPos, normal);
-
-                localLight += IntegrateLocalLightSubstrate(
-                    localLightParams,
-                    worldPos, normal, viewDir,
-                    SlabBSDF) * localShadow;
-            }
-        }
-        else
-        {
-            for (uint i = 0; i < NumLocalLights; ++i)
-            {
-                FLightShaderParameters localLightParams = ForwardLocalLights[i];
-
-                float localShadow = GetLocalLightShadow(
-                    localLightParams, LocalShadowParams[i], worldPos, normal);
-
-                localLight += IntegrateLocalLightSubstrate(
-                    localLightParams,
-                    worldPos, normal, viewDir,
-                    SlabBSDF) * localShadow;
-            }
-        }
+        float3 directLighting = GetForwardDirectLightingSubstrate(
+            GridIndex, worldPos, cameraVector, SlabBSDF, normal, viewDepth,
+            directionalShadow, 0.0f, true);
 
         // ---- IBL + エミッシブ ----
         float3 iblAmbient = SubstrateEnvLighting(SlabBSDF, normal, viewDir, occlusion);
 
-        surfaceLighting = light + localLight + iblAmbient + SlabBSDF.Emissive;
+        surfaceLighting = directLighting + iblAmbient + SlabBSDF.Emissive;
         translucentGIAlbedo = SlabBSDF.DiffuseAlbedo;
 
         // 屈折背景の着色 (Colored Transmittance): SSS 有効時は
@@ -340,52 +303,14 @@ PS_OUTPUT main(PS_INPUT input, bool bIsFrontFace : SV_IsFrontFace)
     else
     {
         // ============================================================
-        //  レガシー Metallic/Specular 経路 (従来と同一)
+        //  レガシー Metallic/Specular 経路
         // ============================================================
-        float3 light = CookTorrance(
-            normal, lightDir, viewDir,
-            baseColor.rgb, roughness, metallic,
-            DirectionalLightColor.rgb) * directionalShadow;
+        FGBufferData GBuffer = MakeGBufferData(normal, baseColor.rgb, metallic, Material.Specular, roughness, occlusion, viewDepth);
 
-        // ---- ローカルライト (Point / Spot / Rect) ----
         // タイルドライトカリング (ライトグリッド) はデファードと共通。
-        float3 localLight = float3(0.0f, 0.0f, 0.0f);
-
-        [branch]
-        if (bUseLightGrid != 0u)
-        {
-            FCulledLightsGridHeader GridHeader = GetCulledLightsGridHeader(GridIndex);
-
-            for (uint i = 0; i < GridHeader.NumLights; ++i)
-            {
-                uint LightIndex = GetCulledLightDataGrid(GridHeader.DataStartIndex + i);
-                FLightShaderParameters localLightParams = ForwardLocalLights[LightIndex];
-
-                float localShadow = GetLocalLightShadow(
-                    localLightParams, LocalShadowParams[LightIndex], worldPos, normal);
-
-                localLight += IntegrateLocalLight(
-                    localLightParams,
-                    worldPos, normal, viewDir,
-                    baseColor.rgb, roughness, metallic) * localShadow;
-            }
-        }
-        else
-        {
-            // フォールバック: 全灯ループ (グリッド無効時の従来経路)
-            for (uint i = 0; i < NumLocalLights; ++i)
-            {
-                FLightShaderParameters localLightParams = ForwardLocalLights[i];
-
-                float localShadow = GetLocalLightShadow(
-                    localLightParams, LocalShadowParams[i], worldPos, normal);
-
-                localLight += IntegrateLocalLight(
-                    localLightParams,
-                    worldPos, normal, viewDir,
-                    baseColor.rgb, roughness, metallic) * localShadow;
-            }
-        }
+        float3 directLighting = GetForwardDirectLighting(
+            GridIndex, worldPos, cameraVector, GBuffer,
+            directionalShadow, 0.0f, true);
 
         // --- IBL Ambient (diffuse irradiance + specular split-sum) ---
         float3 iblAmbient = IBL_Ambient(
@@ -395,7 +320,7 @@ PS_OUTPUT main(PS_INPUT input, bool bIsFrontFace : SV_IsFrontFace)
 
         // Lit 経路の合成はデファードと同一 (エミッシブは Unlit 経路のみ、
         // GeometryPS / DeferredPS の挙動と一致させる)
-        surfaceLighting = light + localLight + iblAmbient;
+        surfaceLighting = directLighting + iblAmbient;
         translucentGIAlbedo = baseColor.rgb * (1.0f - metallic);
     }
 

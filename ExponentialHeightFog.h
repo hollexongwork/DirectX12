@@ -4,8 +4,7 @@
 
 // ============================================================
 //  AExponentialHeightFog
-//  AExponentialHeightFog (Engine/Classes/Engine/ExponentialHeightFog.h)
-//  に相当。UExponentialHeightFogComponent を Root に持ち、
+//  AExponentialHeightFog に相当。UExponentialHeightFogComponent を Root に持ち、
 //  アクター位置の Y がフォグの基準高さになる。
 //  bEnabled はコンポーネントの可視性 (FScene への登録) に委譲する。
 //  ImGui の Details からは Root コンポーネントのプロパティを編集し、
