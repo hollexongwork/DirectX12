@@ -156,11 +156,11 @@ GameManager::GameManager(HWND hWnd, const wchar_t* CmdLine)
 			mesh->MarkRenderStateDirty();	// GetMaterial() 直接書き換えの反映
 		}
 
-		ATree* tree = m_World.SpawnActor<ATree>();
-		tree->SetActorLabel("Tree");
-		tree->SetActorLocation({ -1.0f, 3.75f, 0.0f });
-		tree->SetActorRotation({ 1.57f, 0.0f, 0.0f });
-		tree->SetActorScale3D({ 7.0f, 7.0f, 7.0f });
+		//ATree* tree = m_World.SpawnActor<ATree>();
+		//tree->SetActorLabel("Tree");
+		//tree->SetActorLocation({ -1.0f, 3.75f, 0.0f });
+		//tree->SetActorRotation({ 1.57f, 0.0f, 0.0f });
+		//tree->SetActorScale3D({ 7.0f, 7.0f, 7.0f });
 	}
 
 	//m_World.SpawnActor<APolygon2D>();	// 2D オーバーレイ (使う場合は必ず最後にスポーン)
