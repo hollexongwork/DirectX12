@@ -22,6 +22,7 @@
 #include "Polygon2D.h"
 #include "Camera.h"
 #include "CameraComponent.h"
+#include "Tree.h"
 
 #include <filesystem>
 #include <cmath>
@@ -528,6 +529,12 @@ SettingsManager::ActorSnapshot SettingsManager::CaptureActor(AActor* Actor)
 		snap.PPBlendWeight = volume->BlendWeight;
 	}
 
+	if (auto* tree = dynamic_cast<ATree*>(Actor))
+	{
+		snap.bTree = true;
+		snap.Tree = tree->GetTreeParams();
+	}
+
 	for (const auto& component : Actor->GetComponents())
 	{
 		snap.Components.push_back(CaptureComponent(component.get()));
@@ -563,6 +570,14 @@ void SettingsManager::ApplyActor(AActor* Actor, const ActorSnapshot& Snap)
 		if (Snap.bExponentialHeightFogActor)
 		{
 			fog->SetEnabled(Snap.FogEnabled);
+		}
+	}
+
+	if (auto* tree = dynamic_cast<ATree*>(Actor))
+	{
+		if (Snap.bTree)
+		{
+			tree->SetTreeParams(Snap.Tree);	// 次の Tick で再生成 (ハッシュが同じなら何もしない)
 		}
 	}
 
@@ -1112,6 +1127,90 @@ void SettingsManager::ApplyFogComponent(UExponentialHeightFogComponent* Fog, con
 }
 
 // ------------------------------------------------------------
+//  FProceduralTreeParams <-> INI キー群 ([Actor.N] 内の "Tree.*")
+//  階層は MaxLevels 分すべて書く (Levels を増やしたときに値が残るように)
+// ------------------------------------------------------------
+static void WriteTreeParams(ConfigFile& Ini, const std::string& Section, const FProceduralTreeParams& P)
+{
+	const std::string t = "Tree.";
+	Ini.SetUInt(Section, t + "Seed", P.Seed);
+	Ini.SetInt(Section, t + "Levels", P.Levels);
+	Ini.SetFloat(Section, t + "Tropism", P.Tropism);
+	Ini.SetFloat(Section, t + "BarkUVTilesPerMeter", P.BarkUVTilesPerMeter);
+	Ini.SetBool(Section, t + "GenerateLeaves", P.bGenerateLeaves);
+	Ini.SetInt(Section, t + "LeavesPerBranch", P.LeavesPerBranch);
+	Ini.SetFloat(Section, t + "LeafSize", P.LeafSize);
+	Ini.SetFloat(Section, t + "LeafSizeVariance", P.LeafSizeVariance);
+	Ini.SetFloat(Section, t + "LeafAspect", P.LeafAspect);
+	Ini.SetFloat(Section, t + "LeafAngle", P.LeafAngle);
+	Ini.SetFloat(Section, t + "LeafAngleVariance", P.LeafAngleVariance);
+	Ini.SetFloat(Section, t + "LeafTintVariance", P.LeafTintVariance);
+
+	for (int i = 0; i < FProceduralTreeParams::MaxLevels; ++i)
+	{
+		const std::string l = t + "L" + std::to_string(i) + ".";
+		const FProceduralTreeLevelParams& lp = P.Level[i];
+		Ini.SetInt(Section, l + "Branches", lp.Branches);
+		Ini.SetFloat(Section, l + "Length", lp.Length);
+		Ini.SetFloat(Section, l + "LengthVariance", lp.LengthVariance);
+		Ini.SetFloat(Section, l + "LengthShape", lp.LengthShape);
+		Ini.SetFloat(Section, l + "Radius", lp.Radius);
+		Ini.SetFloat(Section, l + "Taper", lp.Taper);
+		Ini.SetFloat(Section, l + "DownAngle", lp.DownAngle);
+		Ini.SetFloat(Section, l + "DownAngleVariance", lp.DownAngleVariance);
+		Ini.SetFloat(Section, l + "Rotate", lp.Rotate);
+		Ini.SetFloat(Section, l + "RotateVariance", lp.RotateVariance);
+		Ini.SetFloat(Section, l + "Curve", lp.Curve);
+		Ini.SetFloat(Section, l + "CurveVariance", lp.CurveVariance);
+		Ini.SetFloat(Section, l + "BaseOffset", lp.BaseOffset);
+		Ini.SetInt(Section, l + "Segments", lp.Segments);
+		Ini.SetInt(Section, l + "RadialSegments", lp.RadialSegments);
+	}
+}
+
+static void ReadTreeParams(const ConfigFile& Ini, const std::string& Section, FProceduralTreeParams& P)
+{
+	// 在るキーだけ上書き (P は呼び出し側で現在値に初期化済み)
+	const std::string t = "Tree.";
+	Ini.GetUInt(Section, t + "Seed", P.Seed);
+	Ini.GetInt(Section, t + "Levels", P.Levels);
+	Ini.GetFloat(Section, t + "Tropism", P.Tropism);
+	Ini.GetFloat(Section, t + "BarkUVTilesPerMeter", P.BarkUVTilesPerMeter);
+	Ini.GetBool(Section, t + "GenerateLeaves", P.bGenerateLeaves);
+	Ini.GetInt(Section, t + "LeavesPerBranch", P.LeavesPerBranch);
+	Ini.GetFloat(Section, t + "LeafSize", P.LeafSize);
+	Ini.GetFloat(Section, t + "LeafSizeVariance", P.LeafSizeVariance);
+	Ini.GetFloat(Section, t + "LeafAspect", P.LeafAspect);
+	Ini.GetFloat(Section, t + "LeafAngle", P.LeafAngle);
+	Ini.GetFloat(Section, t + "LeafAngleVariance", P.LeafAngleVariance);
+	Ini.GetFloat(Section, t + "LeafTintVariance", P.LeafTintVariance);
+
+	for (int i = 0; i < FProceduralTreeParams::MaxLevels; ++i)
+	{
+		const std::string l = t + "L" + std::to_string(i) + ".";
+		FProceduralTreeLevelParams& lp = P.Level[i];
+		Ini.GetInt(Section, l + "Branches", lp.Branches);
+		Ini.GetFloat(Section, l + "Length", lp.Length);
+		Ini.GetFloat(Section, l + "LengthVariance", lp.LengthVariance);
+		Ini.GetFloat(Section, l + "LengthShape", lp.LengthShape);
+		Ini.GetFloat(Section, l + "Radius", lp.Radius);
+		Ini.GetFloat(Section, l + "Taper", lp.Taper);
+		Ini.GetFloat(Section, l + "DownAngle", lp.DownAngle);
+		Ini.GetFloat(Section, l + "DownAngleVariance", lp.DownAngleVariance);
+		Ini.GetFloat(Section, l + "Rotate", lp.Rotate);
+		Ini.GetFloat(Section, l + "RotateVariance", lp.RotateVariance);
+		Ini.GetFloat(Section, l + "Curve", lp.Curve);
+		Ini.GetFloat(Section, l + "CurveVariance", lp.CurveVariance);
+		Ini.GetFloat(Section, l + "BaseOffset", lp.BaseOffset);
+		Ini.GetInt(Section, l + "Segments", lp.Segments);
+		Ini.GetInt(Section, l + "RadialSegments", lp.RadialSegments);
+	}
+
+	// 手編集された INI の範囲外の値を生成可能な範囲へ
+	P.Sanitize();
+}
+
+// ------------------------------------------------------------
 //  ActorSnapshot <-> INI セクション ([Actor.N])
 // ------------------------------------------------------------
 void SettingsManager::WriteActor(ConfigFile& Ini, const std::string& Section, const ActorSnapshot& Snap)
@@ -1129,6 +1228,11 @@ void SettingsManager::WriteActor(ConfigFile& Ini, const std::string& Section, co
 	if (Snap.bExponentialHeightFogActor)
 	{
 		Ini.SetBool(Section, "Enabled", Snap.FogEnabled);
+	}
+
+	if (Snap.bTree)
+	{
+		WriteTreeParams(Ini, Section, Snap.Tree);
 	}
 
 	Ini.SetInt(Section, "NumComponents", (int)Snap.Components.size());
@@ -1155,6 +1259,11 @@ void SettingsManager::ReadActor(const ConfigFile& Ini, const std::string& Sectio
 	if (InOut.bExponentialHeightFogActor)
 	{
 		Ini.GetBool(Section, "Enabled", InOut.FogEnabled);
+	}
+
+	if (InOut.bTree)
+	{
+		ReadTreeParams(Ini, Section, InOut.Tree);
 	}
 
 	for (size_t i = 0; i < InOut.Components.size(); ++i)

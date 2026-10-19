@@ -51,14 +51,32 @@ namespace
 // ============================================================
 //  Get (グローバルアトラス)
 // ============================================================
+namespace
+{
+	FDistanceFieldAtlas* g_AtlasInstance = nullptr;
+}
+
 FDistanceFieldAtlas& FDistanceFieldAtlas::Get()
 {
-	static FDistanceFieldAtlas* s_Instance = nullptr;
-	if (s_Instance == nullptr)
+	if (g_AtlasInstance == nullptr)
 	{
-		s_Instance = new FDistanceFieldAtlas(RenderManager::GetInstance());
+		g_AtlasInstance = new FDistanceFieldAtlas(RenderManager::GetInstance());
 	}
-	return *s_Instance;
+	return *g_AtlasInstance;
+}
+
+FDistanceFieldAtlas* FDistanceFieldAtlas::GetIfExists()
+{
+	return g_AtlasInstance;
+}
+
+void FDistanceFieldAtlas::ReleaseMesh(FDistanceFieldMeshInfo& Info)
+{
+	if (Info.bValid && Info.SlotIndex >= 0 && Info.SlotIndex < (int)m_NumAllocatedSlots)
+	{
+		m_FreeSlots.push_back((unsigned int)Info.SlotIndex);
+	}
+	Info = FDistanceFieldMeshInfo{};
 }
 
 
@@ -454,7 +472,7 @@ void FDistanceFieldAtlas::AddMesh(const char* FilePath,
 	{
 		return;
 	}
-	if (m_NumAllocatedSlots >= MAX_DF_MESHES)
+	if (m_FreeSlots.empty() && m_NumAllocatedSlots >= MAX_DF_MESHES)
 	{
 		OutputDebugStringA("[DistanceFieldAtlas] slot full, mesh skipped\n");
 		return;
@@ -483,24 +501,41 @@ void FDistanceFieldAtlas::AddMesh(const char* FilePath,
 		halfExtent.z * 2.0f / (float)DF_VOLUME_RES };
 
 	// ---- キャッシュ -> なければ GPU ベイク ----
-	const std::string cachePath = std::string(FilePath) + ".mdf";
+	// FilePath が null / 空 (プロシージャルメッシュの非キャッシュ経路) なら
+	// キャッシュを読み書きせず毎回ベイクする
+	const bool bUseCache = (FilePath != nullptr && FilePath[0] != '\0');
+	const std::string cachePath = bUseCache ? std::string(FilePath) + ".mdf" : std::string();
 
 	std::vector<float> voxels;
-	if (!TryLoadCache(cachePath, voxels))
+	if (!bUseCache || !TryLoadCache(cachePath, voxels))
 	{
 		char msg[512];
 		sprintf_s(msg, "[DistanceFieldAtlas] baking SDF: %s (%u tris)\n",
-			FilePath, (unsigned int)(TriangleVertices.size() / 3));
+			bUseCache ? FilePath : "<uncached>", (unsigned int)(TriangleVertices.size() / 3));
 		OutputDebugStringA(msg);
 
 		BakeOnGPU(TriangleVertices, volumeMin, voxelSize, 1.0f / normalizeExtent, voxels);
-		SaveCache(cachePath, voxels);
+		if (bUseCache)
+		{
+			SaveCache(cachePath, voxels);
+		}
 	}
 
 	// ---- アトラススロットへ格納 ----
-	const unsigned int slot = m_NumAllocatedSlots;
+	// 返却済みスロットがあれば再利用し、無ければ新規に割り当てる
+	// (UploadSlot は即時フラッシュするので、旧内容を参照中の GPU 作業は無い)
+	unsigned int slot;
+	if (!m_FreeSlots.empty())
+	{
+		slot = m_FreeSlots.back();
+		m_FreeSlots.pop_back();
+	}
+	else
+	{
+		slot = m_NumAllocatedSlots;
+		m_NumAllocatedSlots++;
+	}
 	UploadSlot(slot, voxels);
-	m_NumAllocatedSlots++;
 
 	// ---- メッシュ情報 ----
 	const float atlasWidth = (float)(DF_VOLUME_RES * MAX_DF_MESHES);

@@ -122,6 +122,8 @@
     <ClCompile Include="PostProcessVolume.cpp" />
     <ClCompile Include="PrimitiveComponent.cpp" />
     <ClCompile Include="PrimitiveSceneProxy.cpp" />
+    <ClCompile Include="ProceduralMeshGenerator.cpp" />
+    <ClCompile Include="ProceduralTree.cpp" />
     <ClCompile Include="RectLight.cpp" />
     <ClCompile Include="RenderManager.cpp" />
     <ClCompile Include="Scene.cpp" />
@@ -211,6 +213,8 @@
     <ClInclude Include="PostProcessVolume.h" />
     <ClInclude Include="PrimitiveComponent.h" />
     <ClInclude Include="PrimitiveSceneProxy.h" />
+    <ClInclude Include="ProceduralMeshGenerator.h" />
+    <ClInclude Include="ProceduralTree.h" />
     <ClInclude Include="RectLight.h" />
     <ClInclude Include="RenderManager.h" />
     <ClInclude Include="Scene.h" />

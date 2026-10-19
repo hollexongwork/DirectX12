@@ -2,6 +2,7 @@
 #include "RenderManager.h"
 #include "AssetManager.h"
 #include "FBXModel.h"
+#include "ProceduralMeshGenerator.h"
 
 FAssetManager* FAssetManager::m_Instance = nullptr;
 
@@ -34,6 +35,32 @@ std::shared_ptr<FBXModel> FAssetManager::LoadStaticMesh(const std::string& Path,
 
 	m_StaticMeshCache.emplace(Path, mesh);
 	return mesh;
+}
+
+std::shared_ptr<FBXModel> FAssetManager::CreateProceduralMesh(const std::string& Name, const FProceduralMeshData& Data)
+{
+	if (std::shared_ptr<FBXModel> alive = FindProceduralMesh(Name))
+	{
+		return alive;
+	}
+
+	// 解放済みのエントリを掃除してから登録する (表が無限に増えないように)
+	for (auto it = m_ProceduralMeshCache.begin(); it != m_ProceduralMeshCache.end(); )
+	{
+		it = it->second.expired() ? m_ProceduralMeshCache.erase(it) : std::next(it);
+	}
+
+	std::shared_ptr<FBXModel> mesh = std::make_shared<FBXModel>();
+	mesh->BuildFromProceduralMesh(Name.c_str(), Data);
+
+	m_ProceduralMeshCache[Name] = mesh;
+	return mesh;
+}
+
+std::shared_ptr<FBXModel> FAssetManager::FindProceduralMesh(const std::string& Name) const
+{
+	auto it = m_ProceduralMeshCache.find(Name);
+	return (it != m_ProceduralMeshCache.end()) ? it->second.lock() : nullptr;
 }
 
 std::shared_ptr<TEXTURE> FAssetManager::LoadTexture(const std::string& Path, bool sRGB)

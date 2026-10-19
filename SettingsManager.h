@@ -9,6 +9,7 @@
 #include "VolumetricFog.h"
 #include "Camera.h"
 #include "AntiAliasingSettings.h"
+#include "ProceduralTree.h"
 
 using namespace DirectX;
 
@@ -315,6 +316,10 @@ private:
 		// AExponentialHeightFog 固有 (bEnabled)
 		bool  bExponentialHeightFogActor = false;
 		bool  FogEnabled = true;
+
+		// ATree 固有 (生成パラメータ。キーは "Tree.*")
+		bool                  bTree = false;
+		FProceduralTreeParams Tree;
 
 		std::vector<ComponentSnapshot> Components;
 	};

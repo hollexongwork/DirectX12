@@ -11,6 +11,7 @@ class SettingsManager;
 class RenderManager;
 class ACameraActor;
 class AStaticMeshActor;
+class ATree;
 struct FAntiAliasingParams;
 struct FTemporalAADebugSettings;
 
@@ -84,6 +85,9 @@ struct FTemporalAADebugSettings;
 //    qswitch   : 静止。TemporalAAQuality = 1 + bTemporalAAR11G11B10History = 1 (フレーム 1-59) ->
 //                Quality 2 (フレーム 60 以降)。R11G11B10 履歴 (alpha = 1) を High (アンチゴースト有り) が
 //                読む最初のフレームで HISTORY_HAS_ALPHA ガードが効くかの検査。-taaq / -r11 の指定は上書きされる
+//    tree      : カメラ静止。ATree (最初に見つかったもの) の Seed を kTreeRebuildPeriod フレームごとに
+//                1..kTreeSeedCycle で巡回させて RequestRebuild する (実行中の再生成 / 旧メッシュの解放 /
+//                SDF アトラススロットの再利用の検査)。再生成後に SDF が無効なら終了コード 4
 //
 //  出力:
 //    <out>/<scenario>_f<frame>.bmp   キャプチャ (1920x1080, 24bit ボトムアップ)
@@ -107,7 +111,8 @@ struct FTemporalAADebugSettings;
 //    自己テストの出力)。通常の実行 (注記なし) のログはフレーム行のみ
 //
 //  終了: フレーム N の後に FlushScreenshots -> ShouldExit = true。
-//    終了コード 0 = 成功, 1 = 自己テスト失敗, 2 = コマンドライン不正, 3 = BMP 書き出し失敗
+//    終了コード 0 = 成功, 1 = 自己テスト失敗, 2 = コマンドライン不正, 3 = BMP 書き出し失敗,
+//           4 = シナリオ固有の検査失敗 (tree)
 //    (複数該当時は最初に確定した失敗を返す)
 //
 //  呼び出し順 (GameManager):
@@ -132,6 +137,7 @@ public:
 		AAToggle,
 		Translucent,
 		QSwitch,
+		Tree,
 	};
 
 	enum EExitCode : int
@@ -140,6 +146,7 @@ public:
 		ExitSelfTestFailed = 1,
 		ExitBadCommandLine = 2,
 		ExitCaptureWriteFailed = 3,
+		ExitScenarioCheckFailed = 4,
 	};
 
 	// ワールドのスポーン順インデックス (GameManager のコンストラクタ)
@@ -159,6 +166,10 @@ public:
 
 	// cut / largemove / aatoggle / qswitch シナリオのイベントフレーム
 	static constexpr int kEventFrame = 60;
+
+	// tree シナリオ: 再生成の間隔 [フレーム] と巡回させるシード数
+	static constexpr int kTreeRebuildPeriod = 2;
+	static constexpr int kTreeSeedCycle = 5;
 
 	// コマンドラインに -taatest キーがあるか (wWinMain がウィンドウ生成前に参照する。
 	// テストモードはバックバッファが画面サイズ / DPI 設定に左右されないよう
@@ -222,6 +233,12 @@ private:
 
 	AStaticMeshActor* m_MovingActor = nullptr;				// moveobj: Table (スポーン順 8) / translucent: Cat (スポーン順 9)
 	DirectX::XMFLOAT3 m_MovingActorBase = { 0.0f, 0.0f, 0.0f };	// INI 適用後の位置 (円運動の基準)
+
+	// tree シナリオ
+	ATree* m_Tree = nullptr;
+	int    m_TreeRebuilds = 0;			// RequestRebuild した回数
+	int    m_TreeInvalidDF = 0;			// 再生成後に SDF が無効だったフレーム数 (スロット枯渇の検出)
+	unsigned int m_TreeMaxAtlasSlots = 0;	// 観測した FDistanceFieldAtlas の割り当て済みスロット数の最大
 
 	FILE* m_Log = nullptr;
 

@@ -23,6 +23,7 @@
 #include "RectLightComponent.h"
 #include "ExponentialHeightFog.h"
 #include "ExponentialHeightFogComponent.h"
+#include "Tree.h"
 #include "FogRendering.h"
 #include "VolumetricFog.h"
 #include "SettingsManager.h"
@@ -1099,6 +1100,11 @@ void ImGuiManager::DrawDetailsSection()
 	if (auto* fog = dynamic_cast<AExponentialHeightFog*>(actor))
 	{
 		DrawExponentialHeightFogActorSection(fog);
+	}
+
+	if (auto* tree = dynamic_cast<ATree*>(actor))
+	{
+		DrawProceduralTreeSection(tree);
 	}
 
 	// ---- ビューポート操作設定 ----
@@ -2551,4 +2557,131 @@ bool ImGuiManager::DrawMaterialEditor(Material& Mat)
 	}
 
 	return changed;
+}
+
+// ============================================================
+//  Procedural Tree (ATree)
+//  FProceduralTreeParams を編集する。スライダー / 入力は離した時
+//  (IsItemDeactivatedAfterEdit)、チェックボックス / ボタンは押した時に
+//  RequestRebuild() で再生成を予約する。実際の生成は次の Tick
+//  (描画の外。メッシュ構築はコマンドリストをフラッシュするため)。
+//  値はその場でアクターへ書き込まれるので Save Settings / INI には
+//  編集中の値がそのまま入る。
+// ============================================================
+void ImGuiManager::DrawProceduralTreeSection(ATree* Tree)
+{
+	if (!Tree)
+		return;
+	if (!ImGui::CollapsingHeader("Procedural Tree", ImGuiTreeNodeFlags_DefaultOpen))
+		return;
+
+	FProceduralTreeParams& p = Tree->GetTreeParams();
+	const FProceduralTreeStats& stats = Tree->GetTreeStats();
+
+	ImGui::Text("Stems %u  Leaves %u  Verts %u  Tris %u",
+		stats.NumStems, stats.NumLeaves, stats.NumVertices, stats.NumTriangles);
+	if (Tree->IsRebuildPending())
+	{
+		ImGui::SameLine();
+		ImGui::TextDisabled("(rebuilding...)");
+	}
+
+	bool rebuild = false;
+	bool force = false;
+	auto Commit = [&]()
+		{
+			if (ImGui::IsItemDeactivatedAfterEdit())
+				rebuild = true;
+		};
+
+	// ---- 全体 ----
+	{
+		int seed = static_cast<int>(p.Seed);
+		if (ImGui::InputInt("Seed", &seed))
+		{
+			p.Seed = static_cast<unsigned int>((seed < 0) ? 0 : seed);
+		}
+		Commit();
+		ImGui::SameLine();
+		if (ImGui::Button("Random"))
+		{
+			p.Seed = (static_cast<unsigned int>(GetTickCount()) ^ (p.Seed * 2654435761u + 0x9E3779B9u)) & 0x7FFFFFFFu;
+			rebuild = true;
+		}
+	}
+	ImGui::SliderInt("Levels", &p.Levels, 1, FProceduralTreeParams::MaxLevels); Commit();
+	ImGui::SliderFloat("Tropism (up)", &p.Tropism, -1.0f, 1.0f, "%.2f"); Commit();
+	ImGui::SliderFloat("Bark UV Tiles / m", &p.BarkUVTilesPerMeter, 0.1f, 5.0f, "%.2f"); Commit();
+
+	// ---- 葉 ----
+	if (ImGui::TreeNodeEx("Leaves", ImGuiTreeNodeFlags_DefaultOpen))
+	{
+		if (ImGui::Checkbox("Generate Leaves", &p.bGenerateLeaves))
+			rebuild = true;
+		ImGui::SliderInt("Leaves / Branch", &p.LeavesPerBranch, 0, 64); Commit();
+		ImGui::SliderFloat("Leaf Size (m)", &p.LeafSize, 0.02f, 1.0f, "%.3f"); Commit();
+		ImGui::SliderFloat("Leaf Size Variance", &p.LeafSizeVariance, 0.0f, 0.95f, "%.2f"); Commit();
+		ImGui::SliderFloat("Leaf Aspect (W/L)", &p.LeafAspect, 0.1f, 3.0f, "%.2f"); Commit();
+		ImGui::SliderFloat("Leaf Angle (deg)", &p.LeafAngle, 0.0f, 180.0f, "%.0f"); Commit();
+		ImGui::SliderFloat("Leaf Angle Variance", &p.LeafAngleVariance, 0.0f, 90.0f, "%.0f"); Commit();
+		ImGui::SliderFloat("Leaf Tint Variance", &p.LeafTintVariance, 0.0f, 1.0f, "%.2f"); Commit();
+		ImGui::TreePop();
+	}
+
+	// ---- 階層 (Levels 分だけ表示) ----
+	static const char* const levelNames[FProceduralTreeParams::MaxLevels] =
+	{
+		"Level 0 (Trunk)", "Level 1 (Branches)", "Level 2 (Twigs)", "Level 3 (Twigs 2)"
+	};
+	for (int i = 0; i < p.Levels; ++i)
+	{
+		ImGui::PushID(i);
+		if (ImGui::TreeNodeEx(levelNames[i], (i == 0) ? ImGuiTreeNodeFlags_DefaultOpen : 0))
+		{
+			FProceduralTreeLevelParams& l = p.Level[i];
+
+			if (i == 0)
+			{
+				ImGui::SliderFloat("Length (m)", &l.Length, 0.1f, 30.0f, "%.2f"); Commit();
+				ImGui::SliderFloat("Radius (m)", &l.Radius, 0.01f, 2.0f, "%.3f"); Commit();
+			}
+			else
+			{
+				ImGui::SliderInt("Branches", &l.Branches, 0, 64); Commit();
+				ImGui::SliderFloat("Length (x parent)", &l.Length, 0.05f, 1.5f, "%.2f"); Commit();
+				ImGui::SliderFloat("Length Shape (at tip)", &l.LengthShape, 0.05f, 2.0f, "%.2f"); Commit();
+				ImGui::SliderFloat("Radius (x parent)", &l.Radius, 0.05f, 1.0f, "%.2f"); Commit();
+				ImGui::SliderFloat("Down Angle (deg)", &l.DownAngle, 0.0f, 180.0f, "%.0f"); Commit();
+				ImGui::SliderFloat("Down Angle Variance", &l.DownAngleVariance, 0.0f, 90.0f, "%.0f"); Commit();
+				ImGui::SliderFloat("Rotate (deg)", &l.Rotate, -360.0f, 360.0f, "%.1f"); Commit();
+				ImGui::SliderFloat("Rotate Variance", &l.RotateVariance, 0.0f, 180.0f, "%.0f"); Commit();
+			}
+			ImGui::SliderFloat("Length Variance", &l.LengthVariance, 0.0f, 0.95f, "%.2f"); Commit();
+			ImGui::SliderFloat("Taper (tip / base)", &l.Taper, 0.0f, 1.0f, "%.2f"); Commit();
+			ImGui::SliderFloat("Curve (deg, + up)", &l.Curve, -180.0f, 180.0f, "%.0f"); Commit();
+			ImGui::SliderFloat("Curve Variance (deg)", &l.CurveVariance, 0.0f, 180.0f, "%.0f"); Commit();
+			if (i + 1 < p.Levels)
+			{
+				ImGui::SliderFloat("Child Base Offset", &l.BaseOffset, 0.0f, 0.95f, "%.2f"); Commit();
+			}
+			ImGui::SliderInt("Segments", &l.Segments, 1, 32); Commit();
+			ImGui::SliderInt("Radial Segments", &l.RadialSegments, 3, 32); Commit();
+
+			ImGui::TreePop();
+		}
+		ImGui::PopID();
+	}
+
+	if (ImGui::Button("Rebuild"))
+	{
+		rebuild = true;
+		force = true;
+	}
+	ImGui::SameLine();
+	ImGui::TextDisabled("applies on release / saved as Tree.* in INI");
+
+	if (rebuild)
+	{
+		Tree->RequestRebuild(force);
+	}
 }

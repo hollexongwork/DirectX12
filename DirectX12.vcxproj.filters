@@ -163,6 +163,12 @@
     <ClCompile Include="FBXModel.cpp">
       <Filter>ソース ファイル\Mesh</Filter>
     </ClCompile>
+    <ClCompile Include="ProceduralMeshGenerator.cpp">
+      <Filter>ソース ファイル\Mesh</Filter>
+    </ClCompile>
+    <ClCompile Include="ProceduralTree.cpp">
+      <Filter>ソース ファイル\Mesh</Filter>
+    </ClCompile>
     <ClCompile Include="DDSTextureLoader12.cpp">
       <Filter>ソース ファイル\System\Render\Texture</Filter>
     </ClCompile>
@@ -409,6 +415,12 @@
       <Filter>ソース ファイル\GameObject\Lights</Filter>
     </ClInclude>
     <ClInclude Include="FBXModel.h">
+      <Filter>ソース ファイル\Mesh</Filter>
+    </ClInclude>
+    <ClInclude Include="ProceduralMeshGenerator.h">
+      <Filter>ソース ファイル\Mesh</Filter>
+    </ClInclude>
+    <ClInclude Include="ProceduralTree.h">
       <Filter>ソース ファイル\Mesh</Filter>
     </ClInclude>
     <ClInclude Include="DDSTextureLoader12.h">
