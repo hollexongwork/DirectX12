@@ -35,9 +35,6 @@
     <Filter Include="ソース ファイル\Mesh">
       <UniqueIdentifier>{c8fb4212-ce19-4a08-80b5-58ff1d82b60e}</UniqueIdentifier>
     </Filter>
-    <Filter Include="ソース ファイル\Texture">
-      <UniqueIdentifier>{b37d8b45-f2fe-4c70-90c4-68682280eab2}</UniqueIdentifier>
-    </Filter>
     <Filter Include="Shader\IBLBaker">
       <UniqueIdentifier>{fb1986ea-e57d-4b87-a142-1b1d2d81d1aa}</UniqueIdentifier>
     </Filter>
@@ -110,6 +107,12 @@
     <Filter Include="Shader\Fog">
       <UniqueIdentifier>{afa09335-21ba-49fc-9863-1c49dc14de87}</UniqueIdentifier>
     </Filter>
+    <Filter Include="ソース ファイル\System\Render\Texture">
+      <UniqueIdentifier>{b37d8b45-f2fe-4c70-90c4-68682280eab2}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ソース ファイル\System\Manager">
+      <UniqueIdentifier>{5bdd6fbf-f951-469d-8956-23f1d1653144}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="ImGUI\imgui.cpp">
@@ -129,9 +132,6 @@
     </ClCompile>
     <ClCompile Include="ImGUI\imgui_widgets.cpp">
       <Filter>ImGUI</Filter>
-    </ClCompile>
-    <ClCompile Include="GameManager.cpp">
-      <Filter>ソース ファイル\System</Filter>
     </ClCompile>
     <ClCompile Include="Main.cpp">
       <Filter>ソース ファイル\System</Filter>
@@ -164,7 +164,7 @@
       <Filter>ソース ファイル\Mesh</Filter>
     </ClCompile>
     <ClCompile Include="DDSTextureLoader12.cpp">
-      <Filter>ソース ファイル\Texture</Filter>
+      <Filter>ソース ファイル\System\Render\Texture</Filter>
     </ClCompile>
     <ClCompile Include="Sky.cpp">
       <Filter>ソース ファイル\GameObject</Filter>
@@ -253,9 +253,6 @@
     <ClCompile Include="LightGridInjection.cpp">
       <Filter>ソース ファイル\System\Render</Filter>
     </ClCompile>
-    <ClCompile Include="ConvexVolume.cpp">
-      <Filter>ソース ファイル\System</Filter>
-    </ClCompile>
     <ClCompile Include="StaticMeshActor.cpp">
       <Filter>ソース ファイル\GameObject\Base</Filter>
     </ClCompile>
@@ -264,9 +261,6 @@
     </ClCompile>
     <ClCompile Include="LumenScene.cpp">
       <Filter>ソース ファイル\System\Render\Lumen</Filter>
-    </ClCompile>
-    <ClCompile Include="AssetManager.cpp">
-      <Filter>ソース ファイル\System</Filter>
     </ClCompile>
     <ClCompile Include="CameraController.cpp">
       <Filter>ソース ファイル\GameObject\Camera</Filter>
@@ -285,9 +279,6 @@
     </ClCompile>
     <ClCompile Include="ScreenshotCapture.cpp">
       <Filter>ソース ファイル\System\Render</Filter>
-    </ClCompile>
-    <ClCompile Include="TemporalAATestDriver.cpp">
-      <Filter>ソース ファイル\System</Filter>
     </ClCompile>
     <ClCompile Include="ScreenPercentage.cpp">
       <Filter>ソース ファイル\System\Render</Filter>
@@ -340,6 +331,24 @@
     <ClCompile Include="SystemTextures.cpp">
       <Filter>ソース ファイル\System\Render</Filter>
     </ClCompile>
+    <ClCompile Include="GameManager.cpp">
+      <Filter>ソース ファイル\System\Manager</Filter>
+    </ClCompile>
+    <ClCompile Include="AssetManager.cpp">
+      <Filter>ソース ファイル\System\Manager</Filter>
+    </ClCompile>
+    <ClCompile Include="ConvexVolume.cpp">
+      <Filter>ソース ファイル\System\Render</Filter>
+    </ClCompile>
+    <ClCompile Include="TemporalAATestDriver.cpp">
+      <Filter>ソース ファイル\System\Render</Filter>
+    </ClCompile>
+    <ClCompile Include="Tree.cpp">
+      <Filter>ソース ファイル\GameObject\StaticObject</Filter>
+    </ClCompile>
+    <ClCompile Include="Cat.cpp">
+      <Filter>ソース ファイル\GameObject\StaticObject</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ImGUI\imconfig.h">
@@ -384,9 +393,6 @@
     <ClInclude Include="D3DX12.h">
       <Filter>ソース ファイル\System</Filter>
     </ClInclude>
-    <ClInclude Include="GameManager.h">
-      <Filter>ソース ファイル\System</Filter>
-    </ClInclude>
     <ClInclude Include="Main.h">
       <Filter>ソース ファイル\System</Filter>
     </ClInclude>
@@ -406,7 +412,7 @@
       <Filter>ソース ファイル\Mesh</Filter>
     </ClInclude>
     <ClInclude Include="DDSTextureLoader12.h">
-      <Filter>ソース ファイル\Texture</Filter>
+      <Filter>ソース ファイル\System\Render\Texture</Filter>
     </ClInclude>
     <ClInclude Include="Sky.h">
       <Filter>ソース ファイル\GameObject</Filter>
@@ -504,9 +510,6 @@
     <ClInclude Include="BoxSphereBounds.h">
       <Filter>ソース ファイル\System</Filter>
     </ClInclude>
-    <ClInclude Include="ConvexVolume.h">
-      <Filter>ソース ファイル\System</Filter>
-    </ClInclude>
     <ClInclude Include="StaticMeshActor.h">
       <Filter>ソース ファイル\GameObject\Base</Filter>
     </ClInclude>
@@ -515,9 +518,6 @@
     </ClInclude>
     <ClInclude Include="LumenScene.h">
       <Filter>ソース ファイル\System\Render\Lumen</Filter>
-    </ClInclude>
-    <ClInclude Include="AssetManager.h">
-      <Filter>ソース ファイル\System</Filter>
     </ClInclude>
     <ClInclude Include="SceneView.h">
       <Filter>ソース ファイル\System</Filter>
@@ -539,9 +539,6 @@
     </ClInclude>
     <ClInclude Include="ScreenshotCapture.h">
       <Filter>ソース ファイル\System\Render</Filter>
-    </ClInclude>
-    <ClInclude Include="TemporalAATestDriver.h">
-      <Filter>ソース ファイル\System</Filter>
     </ClInclude>
     <ClInclude Include="Halton.h">
       <Filter>ソース ファイル\Math</Filter>
@@ -620,6 +617,24 @@
     </ClInclude>
     <ClInclude Include="SystemTextures.h">
       <Filter>ソース ファイル\System\Render</Filter>
+    </ClInclude>
+    <ClInclude Include="GameManager.h">
+      <Filter>ソース ファイル\System\Manager</Filter>
+    </ClInclude>
+    <ClInclude Include="AssetManager.h">
+      <Filter>ソース ファイル\System\Manager</Filter>
+    </ClInclude>
+    <ClInclude Include="ConvexVolume.h">
+      <Filter>ソース ファイル\System\Render</Filter>
+    </ClInclude>
+    <ClInclude Include="TemporalAATestDriver.h">
+      <Filter>ソース ファイル\System\Render</Filter>
+    </ClInclude>
+    <ClInclude Include="Tree.h">
+      <Filter>ソース ファイル\GameObject\StaticObject</Filter>
+    </ClInclude>
+    <ClInclude Include="Cat.h">
+      <Filter>ソース ファイル\GameObject\StaticObject</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

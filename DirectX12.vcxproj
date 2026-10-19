@@ -84,6 +84,7 @@
     <ClCompile Include="Camera.cpp" />
     <ClCompile Include="CameraComponent.cpp" />
     <ClCompile Include="CameraController.cpp" />
+    <ClCompile Include="Cat.cpp" />
     <ClCompile Include="ColorGradingLUTBaker.cpp" />
     <ClCompile Include="ConfigFile.cpp" />
     <ClCompile Include="ConvexVolume.cpp" />
@@ -139,6 +140,7 @@
     <ClCompile Include="TemporalAA.cpp" />
     <ClCompile Include="TemporalAASelfTest.cpp" />
     <ClCompile Include="TemporalAATestDriver.cpp" />
+    <ClCompile Include="Tree.cpp" />
     <ClCompile Include="VelocityRendering.cpp" />
     <ClCompile Include="Time.cpp" />
     <ClCompile Include="VolumetricFog.cpp" />
@@ -165,6 +167,7 @@
     <ClInclude Include="Camera.h" />
     <ClInclude Include="CameraComponent.h" />
     <ClInclude Include="CameraController.h" />
+    <ClInclude Include="Cat.h" />
     <ClInclude Include="ColorGradingLUTBaker.h" />
     <ClInclude Include="ConfigFile.h" />
     <ClInclude Include="ConvexVolume.h" />
@@ -229,6 +232,7 @@
     <ClInclude Include="TemporalAASelfTest.h" />
     <ClInclude Include="TemporalAATestDriver.h" />
     <ClInclude Include="SceneVelocityData.h" />
+    <ClInclude Include="Tree.h" />
     <ClInclude Include="VelocityRendering.h" />
     <ClInclude Include="ViewMatrices.h" />
     <ClInclude Include="Time.h" />
