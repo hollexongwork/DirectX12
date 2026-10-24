@@ -200,9 +200,22 @@ PS_OUTPUT main(PS_INPUT input)
         SlabBSDF.DiffuseAlbedo = baseColor.rgb;
         SlabBSDF.Roughness = max(roughness, 0.001f);
 
+        // ---- 葉 (TWO_SIDED_WRAP) の補正 (SubstrateEvaluation.hlsl 冒頭参照) ----
+        //   透過の影   : CSM の遮蔽物までの距離で裏面透過を残す
+        //   スカイ遮蔽 : 樹冠内部でスクリーン空間のスカイ可視率が潰れるので下限を入れる
+        float directionalTransmissionShadow = directionalShadow;
+        [branch]
+        if (SlabBSDF.SSSType == SUBSTRATE_SSS_TYPE_TWO_SIDED_WRAP)
+        {
+            directionalTransmissionShadow = GetDirectionalFoliageTransmissionShadow(
+                worldPos.xyz, normal, viewDepth, directionalShadow,
+                FOLIAGE_TRANSMISSION_SHADOW_MAX, FOLIAGE_TRANSMISSION_SHADOW_DEPTH);
+            skyOcclusion = lerp(FOLIAGE_SKY_OCCLUSION_FLOOR, 1.0f, skyOcclusion);
+        }
+
         float3 directLighting = GetForwardDirectLightingSubstrate(
             GridIndex, worldPos.xyz, cameraVector, SlabBSDF, normal, viewDepth,
-            directionalShadow, contactShadowDither, false);
+            directionalShadow, directionalTransmissionShadow, contactShadowDither, false);
 
         // ---- IBL + エミッシブ ----
         // IBL はスカイ可視率で減衰 (Lumen GI との二重計上防止 + DFAO)。

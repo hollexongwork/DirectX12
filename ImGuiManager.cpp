@@ -2562,11 +2562,19 @@ bool ImGuiManager::DrawMaterialEditor(Material& Mat)
 // ============================================================
 //  Procedural Tree (ATree)
 //  FProceduralTreeParams を編集する。スライダー / 入力は離した時
-//  (IsItemDeactivatedAfterEdit)、チェックボックス / ボタンは押した時に
-//  RequestRebuild() で再生成を予約する。実際の生成は次の Tick
+//  (IsItemDeactivatedAfterEdit)、チェックボックス / コンボ / ボタンは
+//  押した時に RequestRebuild() で再生成を予約する。実際の生成は次の Tick
 //  (描画の外。メッシュ構築はコマンドリストをフラッシュするため)。
 //  値はその場でアクターへ書き込まれるので Save Settings / INI には
 //  編集中の値がそのまま入る。
+//
+//  グループ: 全体 (Seed / Preset) -> Crown -> Trunk & Bark -> Leaves ->
+//  Clusters -> Leaf Shading -> Level 0..N。スライダーの範囲は
+//  FProceduralTreeParams::Sanitize の丸め範囲に合わせてあるが、
+//  CTRL+クリックの直接入力は AlwaysClamp を付けた項目 (Levels / Segments /
+//  Radial Segments) 以外では範囲外も通る。それらは次の Tick の Sanitize で
+//  丸まるだけで、この関数内で配列の添字になる値は Levels だけ
+//  (表示数は shownLevels で別途 MaxLevels に丸める)。
 // ============================================================
 void ImGuiManager::DrawProceduralTreeSection(ATree* Tree)
 {
@@ -2578,8 +2586,9 @@ void ImGuiManager::DrawProceduralTreeSection(ATree* Tree)
 	FProceduralTreeParams& p = Tree->GetTreeParams();
 	const FProceduralTreeStats& stats = Tree->GetTreeStats();
 
-	ImGui::Text("Stems %u  Leaves %u  Verts %u  Tris %u",
-		stats.NumStems, stats.NumLeaves, stats.NumVertices, stats.NumTriangles);
+	ImGui::Text("Stems %u (twig %u)  Leaves %u  Clusters %u  Tris %u (DF %u)  Gen %.1f ms  Rebuild %.1f ms",
+		stats.NumStems, stats.NumTwigStems, stats.NumLeaves, stats.NumClusters, stats.NumTriangles,
+		stats.NumDistanceFieldTriangles, stats.GenerateMs, stats.RebuildMs);
 	if (Tree->IsRebuildPending())
 	{
 		ImGui::SameLine();
@@ -2588,10 +2597,19 @@ void ImGuiManager::DrawProceduralTreeSection(ATree* Tree)
 
 	bool rebuild = false;
 	bool force = false;
+	// Leaf Tint の ColorEdit を触ったアクター (比較にだけ使う。再生成は手が離れた後にまとめて 1 回)
+	static ATree* s_LeafTintDirtyTree = nullptr;
+	// スライダー / 入力用: 離した時に再生成
 	auto Commit = [&]()
 		{
 			if (ImGui::IsItemDeactivatedAfterEdit())
 				rebuild = true;
+		};
+	// 直前の項目にホバーしたときの説明
+	auto Tip = [](const char* Text)
+		{
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("%s", Text);
 		};
 
 	// ---- 全体 ----
@@ -2609,23 +2627,193 @@ void ImGuiManager::DrawProceduralTreeSection(ATree* Tree)
 			rebuild = true;
 		}
 	}
-	ImGui::SliderInt("Levels", &p.Levels, 1, FProceduralTreeParams::MaxLevels); Commit();
-	ImGui::SliderFloat("Tropism (up)", &p.Tropism, -1.0f, 1.0f, "%.2f"); Commit();
-	ImGui::SliderFloat("Bark UV Tiles / m", &p.BarkUVTilesPerMeter, 0.1f, 5.0f, "%.2f"); Commit();
+	{
+		// Preset: 選ぶと Seed 以外の全パラメータを MakePreset の値に置き換えて再生成する。
+		// パラメータ構造体に「現在のプリセット」は無いので、Seed を揃えたハッシュ比較で
+		// 一致するプリセット名をプレビューに出す (どれとも一致しなければ Custom)
+		static const char* const kPresetNames[static_cast<int>(ETreePreset::MAX)] = { "Oak 5 m", "Sapling (v1)" };
+		const unsigned long long currentHash = p.ComputeHash();
+		const char* preview = "Custom";
+		for (int i = 0; i < static_cast<int>(ETreePreset::MAX); ++i)
+		{
+			FProceduralTreeParams preset = FProceduralTreeParams::MakePreset(static_cast<ETreePreset>(i));
+			preset.Seed = p.Seed;
+			if (preset.ComputeHash() == currentHash)
+			{
+				preview = kPresetNames[i];
+				break;
+			}
+		}
+		if (ImGui::BeginCombo("Preset", preview))
+		{
+			for (int i = 0; i < static_cast<int>(ETreePreset::MAX); ++i)
+			{
+				if (ImGui::Selectable(kPresetNames[i], preview == kPresetNames[i]))
+				{
+					const unsigned int keepSeed = p.Seed;
+					p = FProceduralTreeParams::MakePreset(static_cast<ETreePreset>(i));
+					p.Seed = keepSeed;
+					rebuild = true;
+				}
+			}
+			ImGui::EndCombo();
+		}
+		Tip("Replaces every Tree.* parameter except Seed with the preset and rebuilds.\nOak 5 m = v2 defaults (4 levels), Sapling = the v1 defaults with all v2 features neutral.\nShows Custom once any value differs from the presets.");
+	}
+	if (ImGui::Button("Rebuild"))
+	{
+		rebuild = true;
+		force = true;
+	}
+	ImGui::SameLine();
+	if (ImGui::Button("Reset Tree Materials"))
+	{
+		Tree->ApplyDefaultMaterials();	// 4 スロットをコンストラクタの既定値 (葉の Substrate 等) に戻す
+	}
+	ImGui::SameLine();
+	ImGui::TextDisabled("applies on release / saved as Tree.* in INI");
+
+	// ---- 樹冠 ----
+	if (ImGui::TreeNodeEx("Crown", ImGuiTreeNodeFlags_DefaultOpen))
+	{
+		// CTRL+クリック入力は AlwaysClamp 無しだと範囲外を許すので必須 (この後 Level[Levels] を参照する)
+		ImGui::SliderInt("Levels", &p.Levels, 1, FProceduralTreeParams::MaxLevels, "%d", ImGuiSliderFlags_AlwaysClamp); Commit();
+
+		static const char* const kCrownShapeNames[static_cast<int>(ECrownShape::MAX)] =
+		{
+			"Conical", "Spherical", "Hemispherical", "Cylindrical",
+			"Tapered Cylindrical", "Flame", "Inverse Conical", "Tend Flame",
+		};
+		int shape = static_cast<int>(p.CrownShape);
+		if (shape < 0 || shape >= static_cast<int>(ECrownShape::MAX))
+			shape = static_cast<int>(ECrownShape::Hemispherical);
+		if (ImGui::Combo("Crown Shape", &shape, kCrownShapeNames, IM_ARRAYSIZE(kCrownShapeNames)))
+		{
+			p.CrownShape = static_cast<ECrownShape>(shape);
+			rebuild = true;
+		}
+		Tip("Weber & Penn ShapeRatio: length distribution of the Level 1 branches along the trunk.");
+
+		ImGui::SliderFloat("Prune Ratio", &p.PruneRatio, 0.0f, 1.0f, "%.2f"); Commit();
+		Tip("How much branches that leave the crown envelope are shortened (0 = never, 1 = clipped to the envelope). Branches are never removed.");
+		ImGui::SliderFloat("Prune Width", &p.PruneWidth, 0.1f, 1.5f, "%.2f"); Commit();
+		Tip("Maximum envelope radius as a fraction of the crown height.");
+		ImGui::SliderFloat("Prune Width Peak", &p.PruneWidthPeak, 0.05f, 0.95f, "%.2f"); Commit();
+		Tip("Height (fraction of the crown) where the envelope is widest.");
+		ImGui::SliderFloat("Prune Power Low", &p.PrunePowerLow, 0.1f, 3.0f, "%.2f"); Commit();
+		Tip("Envelope shape above the peak (power).");
+		ImGui::SliderFloat("Prune Power High", &p.PrunePowerHigh, 0.1f, 3.0f, "%.2f"); Commit();
+		Tip("Envelope shape below the peak (power).");
+		ImGui::TreePop();
+	}
+
+	// ---- 幹 / 樹皮 ----
+	if (ImGui::TreeNodeEx("Trunk & Bark", 0))
+	{
+		ImGui::SliderFloat("Trunk Flare", &p.TrunkFlare, 0.0f, 2.0f, "%.2f"); Commit();
+		Tip("Base radius multiplier - 1 at the ground (fades out over Trunk Flare Height).");
+		ImGui::SliderFloat("Trunk Flare Height", &p.TrunkFlareHeight, 0.02f, 0.6f, "%.2f"); Commit();
+		Tip("Fraction of the trunk length over which the flare disappears (keep it below the Level 0 Child Base Offset).");
+		ImGui::SliderFloat("Ground Offset (m)", &p.GroundOffset, 0.0f, 0.5f, "%.3f"); Commit();
+		Tip("Sinks the trunk base below the origin so the flare sits in the ground.");
+		// Sanitize は 0 < n < 1 を 1 に丸めるので、次の Tick で跳ばないよう UI 側でも同じ区間を 0 / 1 に寄せる
+		if (ImGui::SliderFloat("Pipe Exponent", &p.PipeExponent, 0.0f, 3.0f, "%.2f") && p.PipeExponent > 0.0f && p.PipeExponent < 1.0f)
+			p.PipeExponent = (p.PipeExponent < 0.5f) ? 0.0f : 1.0f;
+		Commit();
+		Tip("Pipe model: parent^n = tip^n + sum(children^n). 2 = da Vinci rule, 0 = off (linear taper); values between 0 and 1 snap to 0 or 1.\nThe base radius is kept; Taper becomes a lower bound on the tip radius.");
+		ImGui::SliderFloat("Junction Sink", &p.JunctionSink, 0.0f, 0.9f, "%.2f"); Commit();
+		Tip("How deep a child's root ring is sunk into its parent (fraction of the child radius).");
+		ImGui::SliderFloat("Junction Collar", &p.JunctionCollar, 0.0f, 1.0f, "%.2f"); Commit();
+		Tip("Bulge of the child's root ring (radius multiplier - 1).");
+		ImGui::SliderFloat("Twig Radius Threshold (m)", &p.TwigRadiusThreshold, 0.0f, 0.1f, "%.4f"); Commit();
+		Tip("Stems thinner than this at the base go to the twig section (material slot 3, excluded from the distance field).\n0 restores v1 behaviour (everything in the SDF).");
+		ImGui::SliderFloat("Bark UV Tiles / m", &p.BarkUVTilesPerMeter, 0.1f, 10.0f, "%.2f"); Commit();
+		Tip("Bark texture tiles per metre (rounded to an integer around the base circumference; V uses the same density).");
+		ImGui::SliderFloat("Bark AO Inner", &p.BarkAOInner, 0.0f, 1.0f, "%.2f"); Commit();
+		Tip("Darkening of bark inside the crown (vertex colour multiplier, 1 = none).");
+		ImGui::SliderFloat("Bark Moss", &p.BarkMoss, 0.0f, 1.0f, "%.2f"); Commit();
+		Tip("Green tint on upward facing bark (vertex colour).");
+		ImGui::SliderFloat("Tropism Scale", &p.TropismScale, -5.0f, 5.0f, "%.2f"); Commit();
+		Tip("Multiplies every level's Tropism (degrees of bend for a horizontal branch).");
+		ImGui::SliderInt("Base Splits", &p.BaseSplits, 0, 3); Commit();
+		Tip("Number of extra leaders the trunk splits into at the first segment above Child Base Offset (0 = single trunk).");
+		ImGui::TreePop();
+	}
 
 	// ---- 葉 ----
-	if (ImGui::TreeNodeEx("Leaves", ImGuiTreeNodeFlags_DefaultOpen))
+	if (ImGui::TreeNodeEx("Leaves", 0))
 	{
 		if (ImGui::Checkbox("Generate Leaves", &p.bGenerateLeaves))
 			rebuild = true;
 		ImGui::SliderInt("Leaves / Branch", &p.LeavesPerBranch, 0, 64); Commit();
-		ImGui::SliderFloat("Leaf Size (m)", &p.LeafSize, 0.02f, 1.0f, "%.3f"); Commit();
+		Tip("Leaves on each deepest-level stem (includes the terminal leaves).");
+		ImGui::SliderInt("Leaves On Parent Level", &p.LeavesOnParentLevel, 0, 32); Commit();
+		Tip("Leaves on the second-to-last level (outer 40 % of each stem).");
+		ImGui::SliderFloat("Leaf Size (m)", &p.LeafSize, 0.01f, 1.0f, "%.3f"); Commit();
 		ImGui::SliderFloat("Leaf Size Variance", &p.LeafSizeVariance, 0.0f, 0.95f, "%.2f"); Commit();
 		ImGui::SliderFloat("Leaf Aspect (W/L)", &p.LeafAspect, 0.1f, 3.0f, "%.2f"); Commit();
 		ImGui::SliderFloat("Leaf Angle (deg)", &p.LeafAngle, 0.0f, 180.0f, "%.0f"); Commit();
 		ImGui::SliderFloat("Leaf Angle Variance", &p.LeafAngleVariance, 0.0f, 90.0f, "%.0f"); Commit();
-		ImGui::SliderFloat("Leaf Tint Variance", &p.LeafTintVariance, 0.0f, 1.0f, "%.2f"); Commit();
+		ImGui::SliderFloat("Leaf Tip Bias", &p.LeafTipBias, 0.0f, 4.0f, "%.2f"); Commit();
+		Tip("Pushes leaves toward the stem tip (0 = uniform along the stem).");
+		ImGui::SliderInt("Leaf Terminal Count", &p.LeafTerminalCount, 0, 4); Commit();
+		Tip("Leaves placed along the tangent at the very tip of each stem (part of Leaves / Branch, at most 4).");
+		ImGui::SliderFloat("Bare Twig Fraction", &p.LeafBareTwigFraction, 0.0f, 0.5f, "%.2f"); Commit();
+		Tip("Fraction of twigs that get no leaves (random draws are still consumed).");
+		ImGui::SliderFloat("Petiole Length (m)", &p.LeafPetioleLength, 0.0f, 0.1f, "%.3f"); Commit();
+		Tip("Gap between the stem surface and the leaf blade (clamped to the stem radius).");
+		ImGui::SliderFloat("Leaf Droop (deg)", &p.LeafDroop, 0.0f, 55.0f, "%.0f"); Commit();
+		Tip("Tilts the tip-side normals downward (normals only, the card stays flat).");
+		ImGui::SliderFloat("Leaf Cup (deg)", &p.LeafCup, 0.0f, 40.0f, "%.0f"); Commit();
+		Tip("Tilts the side-edge normals inward (dish-like shading).");
 		ImGui::TreePop();
+	}
+
+	// ---- 葉の房カード ----
+	if (ImGui::TreeNodeEx("Clusters", 0))
+	{
+		ImGui::SliderInt("Clusters / Twig", &p.ClustersPerTwig, 0, 8); Commit();
+		Tip("Cluster cards (material slot 2, 2x2 atlas) on the outer part of each deepest-level stem. 0 = none.");
+		ImGui::SliderInt("Terminal Clusters", &p.TerminalClusters, 0, 3); Commit();
+		Tip("Cluster cards along the tangent at the stem tip (each rotated 90 deg around it).");
+		ImGui::SliderFloat("Cluster Size (m)", &p.ClusterSize, 0.05f, 2.0f, "%.3f"); Commit();
+		ImGui::SliderFloat("Cluster Aspect (W/L)", &p.ClusterAspect, 0.3f, 3.0f, "%.2f"); Commit();
+		ImGui::TreePop();
+	}
+
+	// ---- 葉のシェーディング (頂点カラー / 頂点法線) ----
+	if (ImGui::TreeNodeEx("Leaf Shading", 0))
+	{
+		ImGui::SliderFloat("Normal Blend", &p.LeafNormalBlend, 0.0f, 0.85f, "%.2f"); Commit();
+		Tip("Bends leaf normals toward the direction from the crown centre (0 = card normal). Capped at 0.85 to keep the winding valid.");
+		ImGui::SliderFloat("Normal Up Bias", &p.LeafNormalUpBias, 0.0f, 1.0f, "%.2f"); Commit();
+		ImGui::SliderFloat("AO Inner", &p.LeafAOInner, 0.1f, 1.0f, "%.2f"); Commit();
+		Tip("Darkness of leaves deep inside the crown (1 = none).");
+		ImGui::SliderFloat("AO Bottom", &p.LeafAOBottom, 0.1f, 1.0f, "%.2f"); Commit();
+		Tip("Darkness of leaves at the bottom of the crown (1 = none).");
+		ImGui::SliderFloat("AO Falloff", &p.LeafAOFalloff, 0.0f, 3.0f, "%.2f"); Commit();
+		Tip("Optical thickness of the leaf density grid (per m^2 of leaf area in a cell column).");
+		ImGui::SliderFloat("Hue Variance", &p.LeafHueVariance, 0.0f, 1.0f, "%.2f"); Commit();
+		Tip("Sunlit = yellow-green / shaded = blue-green hue spread.");
+		ImGui::SliderFloat("Branch Variance", &p.LeafBranchVariance, 0.0f, 1.0f, "%.2f"); Commit();
+		Tip("Per Level 1 branch hue offset (leaves on one limb look alike).");
+		ImGui::SliderFloat("Dead Fraction", &p.LeafDeadFraction, 0.0f, 0.3f, "%.2f"); Commit();
+		ImGui::SliderFloat("Tint Variance", &p.LeafTintVariance, 0.0f, 1.0f, "%.2f"); Commit();
+		ImGui::SliderFloat("Erosion", &p.LeafErosion, 0.0f, 0.3f, "%.2f"); Commit();
+		Tip("Per-leaf edge erosion through vertex alpha (alpha = 1 - Erosion x hash). Calibrated for OpacityMaskClipValue 0.3333.");
+
+		// ColorEdit3 はピッカーのポップアップ内で編集されると親項目の Deactivated が立たないので、
+		// 「どのアクターを編集したか」を覚えておき、全ての項目から手が離れたときに再生成する
+		// (判定はノードの外。閉じられても予約が消えないように)。HDR で Sanitize と同じ 0..2 を許す
+		if (ImGui::ColorEdit3("Leaf Tint", &p.LeafTint.x, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR))
+			s_LeafTintDirtyTree = Tree;
+		Tip("Multiplies every leaf colour, 0..2 per channel (season / species adjustment without re-baking textures).");
+		ImGui::TreePop();
+	}
+	if (s_LeafTintDirtyTree == Tree && !ImGui::IsAnyItemActive())
+	{
+		s_LeafTintDirtyTree = nullptr;
+		rebuild = true;
 	}
 
 	// ---- 階層 (Levels 分だけ表示) ----
@@ -2633,13 +2821,16 @@ void ImGuiManager::DrawProceduralTreeSection(ATree* Tree)
 	{
 		"Level 0 (Trunk)", "Level 1 (Branches)", "Level 2 (Twigs)", "Level 3 (Twigs 2)"
 	};
-	for (int i = 0; i < p.Levels; ++i)
+	// INI から読んだ直後など Sanitize 前の Levels でも配列の外に出ないよう、表示数はここでも丸める
+	const int shownLevels = (p.Levels < 1) ? 1 : (p.Levels > FProceduralTreeParams::MaxLevels) ? FProceduralTreeParams::MaxLevels : p.Levels;
+	for (int i = 0; i < shownLevels; ++i)
 	{
 		ImGui::PushID(i);
-		if (ImGui::TreeNodeEx(levelNames[i], (i == 0) ? ImGuiTreeNodeFlags_DefaultOpen : 0))
+		if (ImGui::TreeNodeEx(levelNames[i], 0))
 		{
 			FProceduralTreeLevelParams& l = p.Level[i];
 
+			// 形 (長さ / 半径 / 本数)
 			if (i == 0)
 			{
 				ImGui::SliderFloat("Length (m)", &l.Length, 0.1f, 30.0f, "%.2f"); Commit();
@@ -2648,37 +2839,71 @@ void ImGuiManager::DrawProceduralTreeSection(ATree* Tree)
 			else
 			{
 				ImGui::SliderInt("Branches", &l.Branches, 0, 64); Commit();
+				Tip("Children per parent stem (shared between the pieces of a split parent in proportion to their segments).");
 				ImGui::SliderFloat("Length (x parent)", &l.Length, 0.05f, 1.5f, "%.2f"); Commit();
 				ImGui::SliderFloat("Length Shape (at tip)", &l.LengthShape, 0.05f, 2.0f, "%.2f"); Commit();
+				Tip((i == 1) ? "Multiplier on the Crown Shape ratio for branches near the trunk tip."
+					: "Length multiplier for children near the parent tip.");
 				ImGui::SliderFloat("Radius (x parent)", &l.Radius, 0.05f, 1.0f, "%.2f"); Commit();
-				ImGui::SliderFloat("Down Angle (deg)", &l.DownAngle, 0.0f, 180.0f, "%.0f"); Commit();
-				ImGui::SliderFloat("Down Angle Variance", &l.DownAngleVariance, 0.0f, 90.0f, "%.0f"); Commit();
-				ImGui::SliderFloat("Rotate (deg)", &l.Rotate, -360.0f, 360.0f, "%.1f"); Commit();
-				ImGui::SliderFloat("Rotate Variance", &l.RotateVariance, 0.0f, 180.0f, "%.0f"); Commit();
+				Tip("Upper bound of the child radius as a fraction of the parent's base radius (see Ratio Power).");
+				ImGui::SliderFloat("Ratio Power", &l.RatioPower, 0.5f, 1.5f, "%.2f"); Commit();
+				Tip("Child radius = parent radius x (child length / parent length)^RatioPower, clamped by Radius x parent.");
 			}
 			ImGui::SliderFloat("Length Variance", &l.LengthVariance, 0.0f, 0.95f, "%.2f"); Commit();
 			ImGui::SliderFloat("Taper (tip / base)", &l.Taper, 0.0f, 1.0f, "%.2f"); Commit();
+			Tip("Tip radius / base radius (never below the minimum tip radius; a lower bound when the pipe model is on).");
+			ImGui::SliderFloat("Tip Round", &l.TipRound, 0.0f, 1.0f, "%.2f"); Commit();
+			Tip("Hemispherical tip cap (0 = flat fan, 1 = full hemisphere of the tip radius).");
+
+			// 親への付き方 (Level 0 には親が無いので隠す)
+			if (i > 0)
+			{
+				ImGui::SliderFloat("Down Angle (deg)", &l.DownAngle, 0.0f, 180.0f, "%.0f"); Commit();
+				ImGui::SliderFloat("Down Angle Variance", &l.DownAngleVariance, 0.0f, 90.0f, "%.0f"); Commit();
+				ImGui::SliderFloat("Down Angle Shape (deg)", &l.DownAngleShape, -60.0f, 60.0f, "%.0f"); Commit();
+				Tip("Position-dependent Down Angle: +Shape near the parent base (flatter) to -0.6 x Shape near the tip (steeper).");
+				if (ImGui::Checkbox("Alternate", &l.bAlternate))
+					rebuild = true;
+				Tip("Children alternate left / right in a plane (flat sprays) instead of spiralling; Rotate is then the angle off that plane.");
+				ImGui::SliderFloat(l.bAlternate ? "Rotate (deg off plane)##Rotate" : "Rotate (deg)##Rotate", &l.Rotate, -360.0f, 360.0f, "%.1f"); Commit();
+				ImGui::SliderFloat("Rotate Variance", &l.RotateVariance, 0.0f, 180.0f, "%.0f"); Commit();
+				ImGui::SliderFloat("Tip Bias", &l.TipBias, 0.0f, 3.0f, "%.2f"); Commit();
+				Tip("Pushes children toward the parent tip (0 = evenly spaced; t = u^(1 / (1 + TipBias))).");
+			}
+
+			// 曲がり
 			ImGui::SliderFloat("Curve (deg, + up)", &l.Curve, -180.0f, 180.0f, "%.0f"); Commit();
+			Tip("Bend over the whole stem; with Curve Back != 0 only the first half.");
+			ImGui::SliderFloat("Curve Back (deg)", &l.CurveBack, -180.0f, 180.0f, "%.0f"); Commit();
+			Tip("Bend of the second half (0 = Curve is spread over the whole stem; otherwise an S shape).");
 			ImGui::SliderFloat("Curve Variance (deg)", &l.CurveVariance, 0.0f, 180.0f, "%.0f"); Commit();
-			if (i + 1 < p.Levels)
+			Tip("Random low-passed wobble over the whole stem.");
+			ImGui::SliderFloat("Tropism (deg)", &l.Tropism, -90.0f, 90.0f, "%.1f"); Commit();
+			Tip("Total bend of a horizontal stem toward +Y (+) or down (-), times Tropism Scale; weaker for vertical stems.");
+
+			// 分岐
+			ImGui::SliderFloat("Seg Splits", &l.SegSplits, 0.0f, 1.0f, "%.2f"); Commit();
+			Tip("Expected forks per segment (0..1, error diffused so it stays deterministic). Not applied to the deepest level when the stem budget is exceeded.");
+			ImGui::SliderFloat("Split Angle (deg)", &l.SplitAngle, 8.0f, 90.0f, "%.0f"); Commit();
+			Tip("Angle the clones open from the original tangent (larger for near-vertical stems).");
+			ImGui::SliderFloat("Split Angle Variance", &l.SplitAngleVariance, 0.0f, 45.0f, "%.0f"); Commit();
+
+			// 子 / 分割 / UV (Level 0 の BaseOffset は BaseSplits の位置にも使うので子階層が無くても表示)
+			if (i == 0 || i + 1 < shownLevels)
 			{
 				ImGui::SliderFloat("Child Base Offset", &l.BaseOffset, 0.0f, 0.95f, "%.2f"); Commit();
+				Tip((i == 0) ? "Fraction of the trunk with no children; Base Splits fork at the first segment above it."
+					: "Fraction of the stem (from the base) that carries no children.");
 			}
-			ImGui::SliderInt("Segments", &l.Segments, 1, 32); Commit();
-			ImGui::SliderInt("Radial Segments", &l.RadialSegments, 3, 32); Commit();
+			ImGui::SliderInt("Segments", &l.Segments, 1, 32, "%d", ImGuiSliderFlags_AlwaysClamp); Commit();
+			ImGui::SliderInt("Radial Segments", &l.RadialSegments, 3, 32, "%d", ImGuiSliderFlags_AlwaysClamp); Commit();
+			ImGui::SliderFloat("Bark UV Scale", &l.BarkUVScale, 0.1f, 10.0f, "%.2f"); Commit();
+			Tip("Multiplier on the bark tile density for this level (finer pattern on thin stems).");
 
 			ImGui::TreePop();
 		}
 		ImGui::PopID();
 	}
-
-	if (ImGui::Button("Rebuild"))
-	{
-		rebuild = true;
-		force = true;
-	}
-	ImGui::SameLine();
-	ImGui::TextDisabled("applies on release / saved as Tree.* in INI");
 
 	if (rebuild)
 	{

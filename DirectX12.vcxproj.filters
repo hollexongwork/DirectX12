@@ -169,6 +169,9 @@
     <ClCompile Include="ProceduralTree.cpp">
       <Filter>ソース ファイル\Mesh</Filter>
     </ClCompile>
+    <ClCompile Include="ProceduralTreeTextures.cpp">
+      <Filter>ソース ファイル\Mesh</Filter>
+    </ClCompile>
     <ClCompile Include="DDSTextureLoader12.cpp">
       <Filter>ソース ファイル\System\Render\Texture</Filter>
     </ClCompile>

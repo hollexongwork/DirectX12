@@ -117,10 +117,13 @@ float3 GetForwardDirectLighting(
 //  Substrate Slab 経路の直接光 (引数はレガシー経路と同じ意味)
 //    N          : シェーディング法線
 //    SceneDepth : 受光点のビュー空間 Z [m]
+//    DirectionalTransmissionShadow : 選択ディレクショナルライトの裏面透過の
+//                 シャドウ係数 (葉 = TWO_SIDED_WRAP のみ参照。区別しない
+//                 呼び出し側は DirectionalShadow と同じ値を渡す)
 // -------------------------------------------------------------
 float3 GetForwardDirectLightingSubstrate(
     uint GridIndex, float3 WorldPosition, float3 CameraVector, FSubstrateBSDF BSDF, float3 N, float SceneDepth,
-    float DirectionalShadow, float Dither, bool bForwardShading)
+    float DirectionalShadow, float DirectionalTransmissionShadow, float Dither, bool bForwardShading)
 {
     float3 DirectLighting = float3(0.0f, 0.0f, 0.0f);
 
@@ -138,7 +141,7 @@ float3 GetForwardDirectLightingSubstrate(
             [branch]
             if (LightData.bAffectsTranslucentLighting)
             {
-                DirectLighting += SubstrateDeferredLighting(BSDF, WorldPosition, CameraVector, N, SceneDepth, LightData, DirectionalShadow, Dither);
+                DirectLighting += SubstrateDeferredLighting(BSDF, WorldPosition, CameraVector, N, SceneDepth, LightData, DirectionalShadow, DirectionalTransmissionShadow, Dither);
             }
         }
     }
@@ -150,8 +153,9 @@ float3 GetForwardDirectLightingSubstrate(
             FDeferredLightData LightData = ConvertToDeferredLight(GetLocalLightData(LightIndex));
 
             float LightAttenuation = (LightIndex == ForwardLightData.DirectionalLightBufferIndex) ? DirectionalShadow : 1.0f;
+            float TransmissionAttenuation = (LightIndex == ForwardLightData.DirectionalLightBufferIndex) ? DirectionalTransmissionShadow : 1.0f;
 
-            DirectLighting += SubstrateDeferredLighting(BSDF, WorldPosition, CameraVector, N, SceneDepth, LightData, LightAttenuation, Dither);
+            DirectLighting += SubstrateDeferredLighting(BSDF, WorldPosition, CameraVector, N, SceneDepth, LightData, LightAttenuation, TransmissionAttenuation, Dither);
         }
     }
 
@@ -187,7 +191,7 @@ float3 GetForwardDirectLightingSubstrate(
 
         float LightAttenuation = GetLocalLightShadow(LightData, LocalShadowParams[LightIndex], WorldPosition, N);
 
-        DirectLighting += SubstrateDeferredLighting(BSDF, WorldPosition, CameraVector, N, SceneDepth, LightData, LightAttenuation, Dither);
+        DirectLighting += SubstrateDeferredLighting(BSDF, WorldPosition, CameraVector, N, SceneDepth, LightData, LightAttenuation, LightAttenuation, Dither);
     }
 
     return DirectLighting;

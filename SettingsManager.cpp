@@ -533,6 +533,7 @@ SettingsManager::ActorSnapshot SettingsManager::CaptureActor(AActor* Actor)
 	{
 		snap.bTree = true;
 		snap.Tree = tree->GetTreeParams();
+		snap.TreeMaterialPreset = ATree::MaterialPresetVersion;
 	}
 
 	for (const auto& component : Actor->GetComponents())
@@ -592,6 +593,17 @@ void SettingsManager::ApplyActor(AActor* Actor, const ActorSnapshot& Snap)
 			continue;
 
 		ApplyComponent(component, Snap.Components[i]);
+	}
+
+	// ATree: 保存されたマテリアルがコンストラクタの既定値 (葉の Substrate 等) より古い
+	// 版のものなら、既定値で上書きする (旧 INI の C0.M1.* が新しい見た目を隠さないように)。
+	// 同じ版で保存されたユーザーの編集はそのまま残る
+	if (auto* tree = dynamic_cast<ATree*>(Actor))
+	{
+		if (Snap.bTree && Snap.TreeMaterialPreset < ATree::MaterialPresetVersion)
+		{
+			tree->ApplyDefaultMaterials();
+		}
 	}
 }
 
@@ -1128,23 +1140,66 @@ void SettingsManager::ApplyFogComponent(UExponentialHeightFogComponent* Fog, con
 
 // ------------------------------------------------------------
 //  FProceduralTreeParams <-> INI キー群 ([Actor.N] 内の "Tree.*")
-//  階層は MaxLevels 分すべて書く (Levels を増やしたときに値が残るように)
+//  階層は MaxLevels 分すべて書く (Levels を増やしたときに値が残るように)。
+//  キー名はフィールド名と一致させる (bool は SetBool、enum は int)
 // ------------------------------------------------------------
 static void WriteTreeParams(ConfigFile& Ini, const std::string& Section, const FProceduralTreeParams& P)
 {
 	const std::string t = "Tree.";
 	Ini.SetUInt(Section, t + "Seed", P.Seed);
 	Ini.SetInt(Section, t + "Levels", P.Levels);
-	Ini.SetFloat(Section, t + "Tropism", P.Tropism);
+	Ini.SetFloat(Section, t + "TropismScale", P.TropismScale);
 	Ini.SetFloat(Section, t + "BarkUVTilesPerMeter", P.BarkUVTilesPerMeter);
+	Ini.SetInt(Section, t + "BaseSplits", P.BaseSplits);
+
+	Ini.SetInt(Section, t + "CrownShape", static_cast<int>(P.CrownShape));
+	Ini.SetFloat(Section, t + "PruneRatio", P.PruneRatio);
+	Ini.SetFloat(Section, t + "PruneWidth", P.PruneWidth);
+	Ini.SetFloat(Section, t + "PruneWidthPeak", P.PruneWidthPeak);
+	Ini.SetFloat(Section, t + "PrunePowerLow", P.PrunePowerLow);
+	Ini.SetFloat(Section, t + "PrunePowerHigh", P.PrunePowerHigh);
+
+	Ini.SetFloat(Section, t + "TrunkFlare", P.TrunkFlare);
+	Ini.SetFloat(Section, t + "TrunkFlareHeight", P.TrunkFlareHeight);
+	Ini.SetFloat(Section, t + "GroundOffset", P.GroundOffset);
+	Ini.SetFloat(Section, t + "PipeExponent", P.PipeExponent);
+	Ini.SetFloat(Section, t + "JunctionSink", P.JunctionSink);
+	Ini.SetFloat(Section, t + "JunctionCollar", P.JunctionCollar);
+	Ini.SetFloat(Section, t + "TwigRadiusThreshold", P.TwigRadiusThreshold);
+	Ini.SetFloat(Section, t + "BarkAOInner", P.BarkAOInner);
+	Ini.SetFloat(Section, t + "BarkMoss", P.BarkMoss);
+
 	Ini.SetBool(Section, t + "GenerateLeaves", P.bGenerateLeaves);
 	Ini.SetInt(Section, t + "LeavesPerBranch", P.LeavesPerBranch);
+	Ini.SetInt(Section, t + "LeavesOnParentLevel", P.LeavesOnParentLevel);
 	Ini.SetFloat(Section, t + "LeafSize", P.LeafSize);
 	Ini.SetFloat(Section, t + "LeafSizeVariance", P.LeafSizeVariance);
 	Ini.SetFloat(Section, t + "LeafAspect", P.LeafAspect);
 	Ini.SetFloat(Section, t + "LeafAngle", P.LeafAngle);
 	Ini.SetFloat(Section, t + "LeafAngleVariance", P.LeafAngleVariance);
+	Ini.SetFloat(Section, t + "LeafTipBias", P.LeafTipBias);
+	Ini.SetInt(Section, t + "LeafTerminalCount", P.LeafTerminalCount);
+	Ini.SetFloat(Section, t + "LeafBareTwigFraction", P.LeafBareTwigFraction);
+	Ini.SetFloat(Section, t + "LeafPetioleLength", P.LeafPetioleLength);
+	Ini.SetFloat(Section, t + "LeafDroop", P.LeafDroop);
+	Ini.SetFloat(Section, t + "LeafCup", P.LeafCup);
+
+	Ini.SetInt(Section, t + "ClustersPerTwig", P.ClustersPerTwig);
+	Ini.SetInt(Section, t + "TerminalClusters", P.TerminalClusters);
+	Ini.SetFloat(Section, t + "ClusterSize", P.ClusterSize);
+	Ini.SetFloat(Section, t + "ClusterAspect", P.ClusterAspect);
+
+	Ini.SetFloat(Section, t + "LeafNormalBlend", P.LeafNormalBlend);
+	Ini.SetFloat(Section, t + "LeafNormalUpBias", P.LeafNormalUpBias);
+	Ini.SetFloat(Section, t + "LeafAOInner", P.LeafAOInner);
+	Ini.SetFloat(Section, t + "LeafAOBottom", P.LeafAOBottom);
+	Ini.SetFloat(Section, t + "LeafAOFalloff", P.LeafAOFalloff);
+	Ini.SetFloat(Section, t + "LeafHueVariance", P.LeafHueVariance);
+	Ini.SetFloat(Section, t + "LeafBranchVariance", P.LeafBranchVariance);
+	Ini.SetFloat(Section, t + "LeafDeadFraction", P.LeafDeadFraction);
 	Ini.SetFloat(Section, t + "LeafTintVariance", P.LeafTintVariance);
+	Ini.SetFloat(Section, t + "LeafErosion", P.LeafErosion);
+	Ini.SetFloat3(Section, t + "LeafTint", P.LeafTint);
 
 	for (int i = 0; i < FProceduralTreeParams::MaxLevels; ++i)
 	{
@@ -1165,6 +1220,18 @@ static void WriteTreeParams(ConfigFile& Ini, const std::string& Section, const F
 		Ini.SetFloat(Section, l + "BaseOffset", lp.BaseOffset);
 		Ini.SetInt(Section, l + "Segments", lp.Segments);
 		Ini.SetInt(Section, l + "RadialSegments", lp.RadialSegments);
+
+		Ini.SetFloat(Section, l + "Tropism", lp.Tropism);
+		Ini.SetFloat(Section, l + "CurveBack", lp.CurveBack);
+		Ini.SetFloat(Section, l + "DownAngleShape", lp.DownAngleShape);
+		Ini.SetFloat(Section, l + "TipBias", lp.TipBias);
+		Ini.SetBool(Section, l + "Alternate", lp.bAlternate);
+		Ini.SetFloat(Section, l + "RatioPower", lp.RatioPower);
+		Ini.SetFloat(Section, l + "TipRound", lp.TipRound);
+		Ini.SetFloat(Section, l + "SegSplits", lp.SegSplits);
+		Ini.SetFloat(Section, l + "SplitAngle", lp.SplitAngle);
+		Ini.SetFloat(Section, l + "SplitAngleVariance", lp.SplitAngleVariance);
+		Ini.SetFloat(Section, l + "BarkUVScale", lp.BarkUVScale);
 	}
 }
 
@@ -1174,17 +1241,66 @@ static void ReadTreeParams(const ConfigFile& Ini, const std::string& Section, FP
 	const std::string t = "Tree.";
 	Ini.GetUInt(Section, t + "Seed", P.Seed);
 	Ini.GetInt(Section, t + "Levels", P.Levels);
-	Ini.GetFloat(Section, t + "Tropism", P.Tropism);
 	Ini.GetFloat(Section, t + "BarkUVTilesPerMeter", P.BarkUVTilesPerMeter);
+	Ini.GetInt(Section, t + "BaseSplits", P.BaseSplits);
+
+	int crownShape = static_cast<int>(P.CrownShape);
+	if (Ini.GetInt(Section, t + "CrownShape", crownShape))
+	{
+		P.CrownShape = static_cast<ECrownShape>(crownShape);
+	}
+	Ini.GetFloat(Section, t + "PruneRatio", P.PruneRatio);
+	Ini.GetFloat(Section, t + "PruneWidth", P.PruneWidth);
+	Ini.GetFloat(Section, t + "PruneWidthPeak", P.PruneWidthPeak);
+	Ini.GetFloat(Section, t + "PrunePowerLow", P.PrunePowerLow);
+	Ini.GetFloat(Section, t + "PrunePowerHigh", P.PrunePowerHigh);
+
+	Ini.GetFloat(Section, t + "TrunkFlare", P.TrunkFlare);
+	Ini.GetFloat(Section, t + "TrunkFlareHeight", P.TrunkFlareHeight);
+	Ini.GetFloat(Section, t + "GroundOffset", P.GroundOffset);
+	Ini.GetFloat(Section, t + "PipeExponent", P.PipeExponent);
+	Ini.GetFloat(Section, t + "JunctionSink", P.JunctionSink);
+	Ini.GetFloat(Section, t + "JunctionCollar", P.JunctionCollar);
+	Ini.GetFloat(Section, t + "TwigRadiusThreshold", P.TwigRadiusThreshold);
+	Ini.GetFloat(Section, t + "BarkAOInner", P.BarkAOInner);
+	Ini.GetFloat(Section, t + "BarkMoss", P.BarkMoss);
+
 	Ini.GetBool(Section, t + "GenerateLeaves", P.bGenerateLeaves);
 	Ini.GetInt(Section, t + "LeavesPerBranch", P.LeavesPerBranch);
+	Ini.GetInt(Section, t + "LeavesOnParentLevel", P.LeavesOnParentLevel);
 	Ini.GetFloat(Section, t + "LeafSize", P.LeafSize);
 	Ini.GetFloat(Section, t + "LeafSizeVariance", P.LeafSizeVariance);
 	Ini.GetFloat(Section, t + "LeafAspect", P.LeafAspect);
 	Ini.GetFloat(Section, t + "LeafAngle", P.LeafAngle);
 	Ini.GetFloat(Section, t + "LeafAngleVariance", P.LeafAngleVariance);
-	Ini.GetFloat(Section, t + "LeafTintVariance", P.LeafTintVariance);
+	Ini.GetFloat(Section, t + "LeafTipBias", P.LeafTipBias);
+	Ini.GetInt(Section, t + "LeafTerminalCount", P.LeafTerminalCount);
+	Ini.GetFloat(Section, t + "LeafBareTwigFraction", P.LeafBareTwigFraction);
+	Ini.GetFloat(Section, t + "LeafPetioleLength", P.LeafPetioleLength);
+	Ini.GetFloat(Section, t + "LeafDroop", P.LeafDroop);
+	Ini.GetFloat(Section, t + "LeafCup", P.LeafCup);
 
+	Ini.GetInt(Section, t + "ClustersPerTwig", P.ClustersPerTwig);
+	Ini.GetInt(Section, t + "TerminalClusters", P.TerminalClusters);
+	Ini.GetFloat(Section, t + "ClusterSize", P.ClusterSize);
+	Ini.GetFloat(Section, t + "ClusterAspect", P.ClusterAspect);
+
+	Ini.GetFloat(Section, t + "LeafNormalBlend", P.LeafNormalBlend);
+	Ini.GetFloat(Section, t + "LeafNormalUpBias", P.LeafNormalUpBias);
+	Ini.GetFloat(Section, t + "LeafAOInner", P.LeafAOInner);
+	Ini.GetFloat(Section, t + "LeafAOBottom", P.LeafAOBottom);
+	Ini.GetFloat(Section, t + "LeafAOFalloff", P.LeafAOFalloff);
+	Ini.GetFloat(Section, t + "LeafHueVariance", P.LeafHueVariance);
+	Ini.GetFloat(Section, t + "LeafBranchVariance", P.LeafBranchVariance);
+	Ini.GetFloat(Section, t + "LeafDeadFraction", P.LeafDeadFraction);
+	Ini.GetFloat(Section, t + "LeafTintVariance", P.LeafTintVariance);
+	Ini.GetFloat(Section, t + "LeafErosion", P.LeafErosion);
+	Ini.GetFloat3(Section, t + "LeafTint", P.LeafTint);
+
+	// 階層ごとのキー。Tropism は v1 の単位なしの値 (Tree.Tropism) を [deg] へ読み替える:
+	// Tree.TropismScale が無く Tree.Tropism が在る旧 INI では、各階層に Tree.L<i>.Tropism が
+	// 無い限り Level[i].Tropism = 旧値 x 57.3 (全長で接線に足していた量 ≒ 角度) にする
+	bool bHasLevelTropism[FProceduralTreeParams::MaxLevels] = {};
 	for (int i = 0; i < FProceduralTreeParams::MaxLevels; ++i)
 	{
 		const std::string l = t + "L" + std::to_string(i) + ".";
@@ -1204,6 +1320,32 @@ static void ReadTreeParams(const ConfigFile& Ini, const std::string& Section, FP
 		Ini.GetFloat(Section, l + "BaseOffset", lp.BaseOffset);
 		Ini.GetInt(Section, l + "Segments", lp.Segments);
 		Ini.GetInt(Section, l + "RadialSegments", lp.RadialSegments);
+
+		bHasLevelTropism[i] = Ini.GetFloat(Section, l + "Tropism", lp.Tropism);
+		Ini.GetFloat(Section, l + "CurveBack", lp.CurveBack);
+		Ini.GetFloat(Section, l + "DownAngleShape", lp.DownAngleShape);
+		Ini.GetFloat(Section, l + "TipBias", lp.TipBias);
+		Ini.GetBool(Section, l + "Alternate", lp.bAlternate);
+		Ini.GetFloat(Section, l + "RatioPower", lp.RatioPower);
+		Ini.GetFloat(Section, l + "TipRound", lp.TipRound);
+		Ini.GetFloat(Section, l + "SegSplits", lp.SegSplits);
+		Ini.GetFloat(Section, l + "SplitAngle", lp.SplitAngle);
+		Ini.GetFloat(Section, l + "SplitAngleVariance", lp.SplitAngleVariance);
+		Ini.GetFloat(Section, l + "BarkUVScale", lp.BarkUVScale);
+	}
+
+	float legacyTropism = 0.0f;
+	if (!Ini.GetFloat(Section, t + "TropismScale", P.TropismScale)
+		&& Ini.GetFloat(Section, t + "Tropism", legacyTropism))
+	{
+		P.TropismScale = 1.0f;
+		for (int i = 0; i < FProceduralTreeParams::MaxLevels; ++i)
+		{
+			if (!bHasLevelTropism[i])
+			{
+				P.Level[i].Tropism = legacyTropism * 57.2957795f;
+			}
+		}
 	}
 
 	// 手編集された INI の範囲外の値を生成可能な範囲へ
@@ -1233,6 +1375,7 @@ void SettingsManager::WriteActor(ConfigFile& Ini, const std::string& Section, co
 	if (Snap.bTree)
 	{
 		WriteTreeParams(Ini, Section, Snap.Tree);
+		Ini.SetUInt(Section, "Tree.MaterialPreset", Snap.TreeMaterialPreset);
 	}
 
 	Ini.SetInt(Section, "NumComponents", (int)Snap.Components.size());
@@ -1264,6 +1407,8 @@ void SettingsManager::ReadActor(const ConfigFile& Ini, const std::string& Sectio
 	if (InOut.bTree)
 	{
 		ReadTreeParams(Ini, Section, InOut.Tree);
+		InOut.TreeMaterialPreset = 0;	// キーが無い = 旧 INI (マテリアル既定値で上書きされる)
+		Ini.GetUInt(Section, "Tree.MaterialPreset", InOut.TreeMaterialPreset);
 	}
 
 	for (size_t i = 0; i < InOut.Components.size(); ++i)

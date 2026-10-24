@@ -1014,6 +1014,12 @@ void FTemporalAATestDriver::PostFrame(FSceneRenderer& Renderer, RenderManager& R
 		{
 			m_TreeMaxAtlasSlots = slots;
 		}
+		// 再生成の所要時間 (RebuildTree が m_Stats に書く。キャッシュヒットは 0)。最大を Finish で検査する
+		const float rebuildMs = m_Tree->GetTreeStats().RebuildMs;
+		if (rebuildMs > m_TreeMaxRebuildMs)
+		{
+			m_TreeMaxRebuildMs = rebuildMs;
+		}
 	}
 
 	if (m_Frame >= m_NumFrames)
@@ -1049,15 +1055,33 @@ void FTemporalAATestDriver::Finish(FSceneRenderer& Renderer)
 	if (m_Scenario == EScenario::Tree)
 	{
 		const FProceduralTreeStats& stats = (m_Tree != nullptr) ? m_Tree->GetTreeStats() : FProceduralTreeStats{};
+		char rebuildMsText[64];
+		sprintf_s(rebuildMsText, "%.1f", m_TreeMaxRebuildMs);
 		Message("tree scenario: rebuilds=" + std::to_string(m_TreeRebuilds) +
 			" invalid_df_frames=" + std::to_string(m_TreeInvalidDF) +
 			" max_atlas_slots=" + std::to_string(m_TreeMaxAtlasSlots) + "/" + std::to_string(MAX_DF_MESHES) +
-			" last: stems=" + std::to_string(stats.NumStems) + " leaves=" + std::to_string(stats.NumLeaves) +
-			" tris=" + std::to_string(stats.NumTriangles));
+			" max_rebuild_ms=" + rebuildMsText + " (ceiling " + std::to_string(static_cast<int>(kTreeRebuildMsCeiling)) +
+#if defined(NDEBUG)
+			", checked)" +
+#else
+			", not checked in Debug)" +
+#endif
+			" last: stems=" + std::to_string(stats.NumStems) + " twigs=" + std::to_string(stats.NumTwigStems) +
+			" leaves=" + std::to_string(stats.NumLeaves) + " clusters=" + std::to_string(stats.NumClusters) +
+			" tris=" + std::to_string(stats.NumTriangles) + " df_tris=" + std::to_string(stats.NumDistanceFieldTriangles));
 		if (m_TreeRebuilds == 0 || m_TreeInvalidDF > 0)
 		{
 			SetFailure(ExitScenarioCheckFailed);
 		}
+#if defined(NDEBUG)
+		// Release のみ: 1 回の再生成 (生成 + GPU バッファ + SDF ベイク + BLAS) が上限を越えたら失敗
+		if (m_TreeMaxRebuildMs > kTreeRebuildMsCeiling)
+		{
+			Message("tree scenario: rebuild too slow (max " + std::string(rebuildMsText) + " ms > " +
+				std::to_string(static_cast<int>(kTreeRebuildMsCeiling)) + " ms)");
+			SetFailure(ExitRebuildTooSlow);
+		}
+#endif
 	}
 
 	m_bFinished = true;

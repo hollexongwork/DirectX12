@@ -124,6 +124,7 @@
     <ClCompile Include="PrimitiveSceneProxy.cpp" />
     <ClCompile Include="ProceduralMeshGenerator.cpp" />
     <ClCompile Include="ProceduralTree.cpp" />
+    <ClCompile Include="ProceduralTreeTextures.cpp" />
     <ClCompile Include="RectLight.cpp" />
     <ClCompile Include="RenderManager.cpp" />
     <ClCompile Include="Scene.cpp" />

@@ -320,6 +320,7 @@ private:
 		// ATree 固有 (生成パラメータ。キーは "Tree.*")
 		bool                  bTree = false;
 		FProceduralTreeParams Tree;
+		unsigned int          TreeMaterialPreset = 0;	// 保存時の ATree::MaterialPresetVersion (キー Tree.MaterialPreset。無い = 0 = 旧 INI)
 
 		std::vector<ComponentSnapshot> Components;
 	};

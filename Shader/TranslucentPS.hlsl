@@ -270,7 +270,7 @@ PS_OUTPUT main(PS_INPUT input, bool bIsFrontFace : SV_IsFrontFace)
 
         float3 directLighting = GetForwardDirectLightingSubstrate(
             GridIndex, worldPos, cameraVector, SlabBSDF, normal, viewDepth,
-            directionalShadow, 0.0f, true);
+            directionalShadow, directionalShadow, 0.0f, true);
 
         // ---- IBL + エミッシブ ----
         float3 iblAmbient = SubstrateEnvLighting(SlabBSDF, normal, viewDir, occlusion);

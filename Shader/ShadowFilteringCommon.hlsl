@@ -89,6 +89,63 @@ float GetDirectionalShadow(float3 WorldPos, float3 N, float ViewDepth)
 }
 
 // -------------------------------------------------------------
+//  ディレクショナルライトの「薄い葉」用 透過シャドウ係数 (1 = 影なし)
+//  CSM の遮蔽物深度から受光点までの距離 d [m] (光線方向) を求め、
+//  影の中でも MaxTransmission * exp(-d / DepthScale) の透過を残す。
+//    SurfaceShadow : GetDirectionalShadow の結果 (戻り値の下限)
+//  CSM 範囲外 (DF / フェード帯) は SurfaceShadow をそのまま返す。
+//  遮蔽物は一様な葉の媒質とみなす (UE の Subsurface Shadow と同じ近似)。
+// -------------------------------------------------------------
+float GetDirectionalFoliageTransmissionShadow(float3 WorldPos, float3 N, float ViewDepth,
+    float SurfaceShadow, float MaxTransmission, float DepthScale)
+{
+    float result = SurfaceShadow;
+
+    const uint numCascades = (uint) DirectionalShadowParams.x;
+    const float shadowDistance = DirectionalShadowParams.y;
+    const uint cascade = SelectShadowCascade(ViewDepth, CascadeSplits);
+
+    [branch]
+    if (SurfaceShadow < 1.0f && ViewDepth < shadowDistance && cascade < numCascades)
+    {
+        float3 offsetPos = WorldPos + N * CascadeNormalOffset[cascade];
+        float4x4 worldToShadow = WorldToShadowCascade[cascade];
+        float4 shadowClip = mul(float4(offsetPos, 1.0f), worldToShadow);
+        float2 uv = shadowClip.xy * float2(0.5f, -0.5f) + 0.5f;
+        float receiverDepth = saturate(shadowClip.z - CascadeDepthBias[cascade]);
+
+        // NDC 深度 -> ワールド距離 (オルソなので z 列の長さが一定スケール)
+        float depthPerMeter = max(length(float3(worldToShadow[0][2], worldToShadow[1][2], worldToShadow[2][2])), 1e-6f);
+
+        // 3x3 テクセルの遮蔽物までの距離を平均 (遮蔽しているテクセルのみ)
+        int2 center = int2(uv / DirectionalShadowParams.w);
+        float distSum = 0.0f;
+        float numOccluded = 0.0f;
+        [unroll]
+        for (int y = -1; y <= 1; ++y)
+        {
+            [unroll]
+            for (int x = -1; x <= 1; ++x)
+            {
+                float occluderDepth = DirectionalShadowCascades.Load(int4(center + int2(x, y), cascade, 0));
+                float delta = receiverDepth - occluderDepth;
+                distSum += max(delta, 0.0f) / depthPerMeter;
+                numOccluded += (delta > 0.0f) ? 1.0f : 0.0f;
+            }
+        }
+
+        float meanDistance = distSum / max(numOccluded, 1.0f);
+        float throughCrown = MaxTransmission * exp(-meanDistance / DepthScale);
+
+        // CSM の距離フェード帯では元の係数へ戻す
+        float csmFade = saturate((shadowDistance - ViewDepth) / max(shadowDistance - DirectionalShadowParams.z, 1e-4f));
+        result = lerp(SurfaceShadow, lerp(throughCrown, 1.0f, SurfaceShadow), csmFade);
+    }
+
+    return result;
+}
+
+// -------------------------------------------------------------
 //  ローカルライト (Point / Spot / Rect) のシャドウ係数 (1 = 影なし)
 //  LightData と Shadow は同じインデックスの t13 / t16 要素を渡すこと。
 // -------------------------------------------------------------

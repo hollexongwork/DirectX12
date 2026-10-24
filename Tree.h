@@ -10,9 +10,11 @@
 //  通して UStaticMeshComponent に載せる。同じパラメータの木は GPU
 //  バッファ / SDF / BLAS を共有する。
 //
-//  マテリアルスロット:
+//  マテリアルスロット (FProceduralTreeBuilder のセクション添字と同じ):
 //    0 = 樹皮 (Opaque)。Saved/ProceduralTexture の生成テクスチャ
-//    1 = 葉   (Masked / Two Sided)。葉カードの形は BaseColor の α
+//    1 = 単葉 (Masked / Two Sided / Substrate TwoSidedWrap)。葉の形は BaseColor の α
+//    2 = 葉の房 (1 と同じ設定 + 房アトラス)
+//    3 = 小枝 (Opaque、小枝用の樹皮テクスチャ)
 //
 //  再生成はフレームの外 (Tick) で行う: Details / INI からの変更は
 //  RequestRebuild() で予約され、次の Tick で RebuildTree() が走る
@@ -32,6 +34,18 @@ private:
 public:
 	static constexpr unsigned int BarkMaterialSlot = FProceduralTreeBuilder::BarkMaterialIndex;
 	static constexpr unsigned int LeafMaterialSlot = FProceduralTreeBuilder::LeafMaterialIndex;
+	static constexpr unsigned int ClusterMaterialSlot = FProceduralTreeBuilder::ClusterMaterialIndex;
+	static constexpr unsigned int TwigMaterialSlot = FProceduralTreeBuilder::TwigMaterialIndex;
+	static constexpr unsigned int NumMaterialSlots = FProceduralTreeBuilder::NumSections;
+
+	// コンストラクタのマテリアル既定値 (葉の Substrate TwoSidedWrap 等) を変えたら上げる。
+	// INI の [Actor.N] Tree.MaterialPreset がこれより古ければ SettingsManager::ApplyActor が
+	// 保存済みの C0.M*.* を適用した後に ApplyDefaultMaterials() で上書きする (キーが無い旧 INI は 0)。
+	//   2 = 葉 / 房を Substrate TwoSidedWrap に (F0 0.03 / F90 1 / TransmittanceColor (0.32, 0.58, 0.13) / Roughness 0.45)
+	//   3 = 葉の艶を抑える F0 0.02 / F90 0.35 / Roughness 0.65、逆光の色 TransmittanceColor (0.45, 0.70, 0.18)
+	// パラメータ (Tree.*) には版が無いので、古い INI の Tree.* は保存した値のまま使われる
+	// (新しい既定値は Details の Preset コンボ "Oak 5 m" か Reset Actor で採る)
+	static constexpr unsigned int MaterialPresetVersion = 3;
 
 	ATree();
 
@@ -54,8 +68,14 @@ public:
 	// 直近の生成結果の統計 (Details 表示用)
 	const FProceduralTreeStats& GetTreeStats() const { return m_Stats; }
 
-	// マテリアル。直接書き換えた場合は
-	// GetStaticMeshComponent()->MarkRenderStateDirty() を呼ぶこと
+	// ---- マテリアル ----
+	// 4 スロットをコンストラクタの既定値に戻す (MarkRenderStateDirty 込み)。
+	// テクスチャの割り当ては変えない
+	void ApplyDefaultMaterials();
+
+	// 直接書き換えた場合は GetStaticMeshComponent()->MarkRenderStateDirty() を呼ぶこと
 	Material& GetBarkMaterial() { return GetStaticMeshComponent()->GetMaterial(BarkMaterialSlot); }
 	Material& GetLeafMaterial() { return GetStaticMeshComponent()->GetMaterial(LeafMaterialSlot); }
+	Material& GetClusterMaterial() { return GetStaticMeshComponent()->GetMaterial(ClusterMaterialSlot); }
+	Material& GetTwigMaterial() { return GetStaticMeshComponent()->GetMaterial(TwigMaterialSlot); }
 };
