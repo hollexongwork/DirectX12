@@ -14,6 +14,9 @@
 #include "RectLight.h"
 #include "ExponentialHeightFog.h"
 
+#include "Cat.h"
+#include "Tree.h"
+
 GameManager* GameManager::m_Instance = nullptr;
 
 GameManager::GameManager(HWND hWnd, const wchar_t* CmdLine)
@@ -109,24 +112,12 @@ GameManager::GameManager(HWND hWnd, const wchar_t* CmdLine)
 			mesh->MarkRenderStateDirty();	// GetMaterial() 直接書き換えの反映
 		}
 
-		// 猫の石像 (旧 ACat)
-		AStaticMeshActor* cat = m_World.SpawnActor<AStaticMeshActor>();
+		// 猫の石像 (ACat)
+		ACat* cat = m_World.SpawnActor<ACat>();
 		cat->SetActorLabel("Cat");
-		{
-			UStaticMeshComponent* mesh = cat->GetStaticMeshComponent();
-			mesh->SetStaticMesh("Asset/Model/concrete_cat_statue_4k.fbx");
-
-			cat->SetActorLocation({ -1.0f, 3.75f, 0.0f });
-			cat->SetActorRotation({ 1.57f, 0.0f, 0.0f });
-			cat->SetActorScale3D({ 7.0f, 7.0f, 7.0f });
-
-			mesh->SetBaseColorTexture(0, "Asset/Texture/concrete_cat_statue_diff_4k.dds");
-			mesh->SetNormalTexture(0, "Asset/Texture/concrete_cat_statue_nor_dx_4k.dds");
-			mesh->SetARMTexture(0, "Asset/Texture/concrete_cat_statue_arm_4k.dds");
-
-			SetDefaultLitMaterial(mesh->GetMaterial(0));
-			mesh->MarkRenderStateDirty();	// GetMaterial() 直接書き換えの反映
-		}
+		cat->SetActorLocation({ -1.0f, 3.75f, 0.0f });
+		cat->SetActorRotation({ 1.57f, 0.0f, 0.0f });
+		cat->SetActorScale3D({ 7.0f, 7.0f, 7.0f });
 
 		// ライオンの頭像 (旧 ALion)
 		AStaticMeshActor* lion = m_World.SpawnActor<AStaticMeshActor>();
@@ -178,6 +169,18 @@ GameManager::GameManager(HWND hWnd, const wchar_t* CmdLine)
 		AExponentialHeightFog* fog = m_World.SpawnActor<AExponentialHeightFog>();
 		fog->SetActorLocation({ 0.0f, 0.0f, 0.0f });
 		fog->GetComponent()->SetVolumetricFog(true);
+	}
+
+	// ---- プロシージャルツリー (ATree) ----
+	// FProceduralTreeParams (既定値 = 落葉樹風 3 階層) からメッシュを生成する。
+	// パラメータは Details の "Procedural Tree" で編集でき、INI ([Actor.N] の
+	// Tree.*) に保存される。初回の生成は最初の Tick (描画の外) で行われる。
+	// テーブル (ベンチ込み ±8m x ±3.5m) の外、地面クアッド (±10m) の内側に置く。
+	// ※ 既存の [Actor.N] のインデックスを変えないよう、フォグの後にスポーンする。
+	{
+		ATree* tree = m_World.SpawnActor<ATree>();
+		tree->SetActorLabel("Tree");
+		tree->SetActorLocation({ 7.0f, 0.0f, 6.0f });
 	}
 }
 

@@ -12,6 +12,8 @@
 #include "DistanceFieldAtlas.h"
 #include "BoxSphereBounds.h"
 
+struct FProceduralMeshData;
+
 
 struct FBX_SUBSET
 {
@@ -38,6 +40,19 @@ private:
 		const aiMaterial* mat, aiTextureType type,
 		const std::string& directory);
 
+	// CPU 側の頂点 / インデックス列から 1 サブセット分の GPU バッファを
+	// 作る共通経路 (FBX / プロシージャル両方が通る)。ローカル境界と
+	// SDF ベイク用三角形 (bAffectDistanceField のときだけ) もここで蓄積する
+	FBX_SUBSET CreateSubset(const VERTEX_3D* Vertices, unsigned int VertexCount,
+		const unsigned int* Indices, unsigned int IndexCount,
+		unsigned int MaterialIndex, bool bAffectDistanceField);
+
+	// ロード状態 / 境界 / DF の初期化と、サブセット構築後の共通後処理
+	// (SDF ベイク + BLAS 構築 + Loaded フラグ)。
+	// DistanceFieldCachePath は <path>.mdf のキャッシュ元 (null / 空で非キャッシュ)
+	void ResetLoadState();
+	void FinalizeLoad(const char* DistanceFieldCachePath);
+
 	std::vector<FBX_SUBSET> m_Subsets;
 	bool					m_Loaded = false;
 
@@ -58,12 +73,21 @@ private:
 
 public:
 	FBXModel() = default;
-	~FBXModel() = default;
+	// SDF のアトラススロットを返却する (プロシージャルメッシュの再生成で
+	// スロットを使い回せるように)。GPU バッファは RenderManager の遅延削除へ
+	~FBXModel();
 
 	FBXModel(const FBXModel&) = delete;
 	FBXModel& operator=(const FBXModel&) = delete;
 
 	bool Load(const char* filePath, bool flipUV = true);
+
+	// プロシージャル生成したメッシュ (ProceduralMeshGenerator.h) から
+	// 構築する。各セクションが 1 サブセット (MaterialIndex はセクションの値)。
+	// Name はデバッグ表示と SDF キャッシュ名
+	// (Saved/ProceduralMesh/<Name>_<ジオメトリハッシュ>.mdf) に使う。
+	// FBX と同じく SDF ベイク / BLAS 構築 / ローカル境界の算出を行う。
+	bool BuildFromProceduralMesh(const char* Name, const FProceduralMeshData& Data);
 
 	void Draw();
 	void DrawSubset(unsigned int index);

@@ -7,6 +7,9 @@
 #include "World.h"
 #include "Camera.h"
 #include "StaticMeshActor.h"
+#include "Tree.h"
+#include "FBXModel.h"
+#include "DistanceFieldAtlas.h"
 #include "PostProcessVolume.h"
 #include "SettingsManager.h"
 #include "AutoExposure.h"
@@ -411,6 +414,7 @@ void FTemporalAATestDriver::ParseCommandLine(const wchar_t* CmdLine)
 			else if (m_ScenarioName == "aatoggle")  m_Scenario = EScenario::AAToggle;
 			else if (m_ScenarioName == "translucent") m_Scenario = EScenario::Translucent;
 			else if (m_ScenarioName == "qswitch")   m_Scenario = EScenario::QSwitch;
+			else if (m_ScenarioName == "tree")      m_Scenario = EScenario::Tree;
 			else
 			{
 				CommandLineError("unknown scenario '" + m_ScenarioName + "'");
@@ -635,6 +639,20 @@ void FTemporalAATestDriver::OnBegin(UWorld& World, FSceneRenderer& Renderer, Set
 			return;
 		}
 		m_MovingActorBase = m_MovingActor->GetActorLocation();
+	}
+
+	// ---- tree: 最初に見つかった ATree (GameManager はフォグの後に 1 体スポーンする) ----
+	if (m_Scenario == EScenario::Tree)
+	{
+		std::vector<ATree*> trees;
+		World.GetActorsOfClass<ATree>(trees);
+		m_Tree = trees.empty() ? nullptr : trees[0];
+		if (m_Tree == nullptr)
+		{
+			Message("tree scenario: no ATree in the world");
+			RequestExit(ExitBadCommandLine);
+			return;
+		}
 	}
 
 	// ---- translucent: 猫 (スポーン順 9) のスロット 0 を半透明 (Opacity 0.5) + -responsive にし、
@@ -873,6 +891,21 @@ void FTemporalAATestDriver::PreWorldTick(FSceneRenderer& Renderer)
 		break;
 	}
 
+	case EScenario::Tree:
+	{
+		// カメラ静止。kTreeRebuildPeriod フレームごとに Seed を 1..kTreeSeedCycle で巡回させて再生成を予約する
+		// (この後の World.Tick で ATree::Tick が RebuildTree する)。同じシードは kTreeSeedCycle 回ごとに戻るので
+		// SDF のディスクキャッシュ (Saved/ProceduralMesh) の読み込みも通る
+		if (m_Frame % kTreeRebuildPeriod == 0)
+		{
+			const int step = m_Frame / kTreeRebuildPeriod;
+			m_Tree->GetTreeParams().Seed = static_cast<unsigned int>(1 + (step % kTreeSeedCycle));
+			m_Tree->RequestRebuild();
+			++m_TreeRebuilds;
+		}
+		break;
+	}
+
 	case EScenario::Static:
 	default:
 		break;
@@ -968,6 +1001,27 @@ void FTemporalAATestDriver::PostFrame(FSceneRenderer& Renderer, RenderManager& R
 		fflush(m_Log);
 	}
 
+	// ---- tree: 再生成後のメッシュが SDF スロットを得ているか (スロットの返却 / 再利用の検査) ----
+	if (m_Scenario == EScenario::Tree && m_Tree != nullptr)
+	{
+		const std::shared_ptr<FBXModel>& mesh = m_Tree->GetStaticMeshComponent()->GetStaticMesh();
+		if (!mesh || !mesh->IsLoaded() || !mesh->GetDistanceField().bValid)
+		{
+			++m_TreeInvalidDF;
+		}
+		const unsigned int slots = FDistanceFieldAtlas::Get().GetNumAllocatedSlots();
+		if (slots > m_TreeMaxAtlasSlots)
+		{
+			m_TreeMaxAtlasSlots = slots;
+		}
+		// 再生成の所要時間 (RebuildTree が m_Stats に書く。キャッシュヒットは 0)。最大を Finish で検査する
+		const float rebuildMs = m_Tree->GetTreeStats().RebuildMs;
+		if (rebuildMs > m_TreeMaxRebuildMs)
+		{
+			m_TreeMaxRebuildMs = rebuildMs;
+		}
+	}
+
 	if (m_Frame >= m_NumFrames)
 	{
 		Finish(Renderer);
@@ -997,6 +1051,37 @@ void FTemporalAATestDriver::Finish(FSceneRenderer& Renderer)
 		// -taaselftest を指定したのに一度も走らなかった
 		Message("self test was requested but did not run");
 		SetFailure(ExitSelfTestFailed);
+	}
+	if (m_Scenario == EScenario::Tree)
+	{
+		const FProceduralTreeStats& stats = (m_Tree != nullptr) ? m_Tree->GetTreeStats() : FProceduralTreeStats{};
+		char rebuildMsText[64];
+		sprintf_s(rebuildMsText, "%.1f", m_TreeMaxRebuildMs);
+		Message("tree scenario: rebuilds=" + std::to_string(m_TreeRebuilds) +
+			" invalid_df_frames=" + std::to_string(m_TreeInvalidDF) +
+			" max_atlas_slots=" + std::to_string(m_TreeMaxAtlasSlots) + "/" + std::to_string(MAX_DF_MESHES) +
+			" max_rebuild_ms=" + rebuildMsText + " (ceiling " + std::to_string(static_cast<int>(kTreeRebuildMsCeiling)) +
+#if defined(NDEBUG)
+			", checked)" +
+#else
+			", not checked in Debug)" +
+#endif
+			" last: stems=" + std::to_string(stats.NumStems) + " twigs=" + std::to_string(stats.NumTwigStems) +
+			" leaves=" + std::to_string(stats.NumLeaves) + " clusters=" + std::to_string(stats.NumClusters) +
+			" tris=" + std::to_string(stats.NumTriangles) + " df_tris=" + std::to_string(stats.NumDistanceFieldTriangles));
+		if (m_TreeRebuilds == 0 || m_TreeInvalidDF > 0)
+		{
+			SetFailure(ExitScenarioCheckFailed);
+		}
+#if defined(NDEBUG)
+		// Release のみ: 1 回の再生成 (生成 + GPU バッファ + SDF ベイク + BLAS) が上限を越えたら失敗
+		if (m_TreeMaxRebuildMs > kTreeRebuildMsCeiling)
+		{
+			Message("tree scenario: rebuild too slow (max " + std::string(rebuildMsText) + " ms > " +
+				std::to_string(static_cast<int>(kTreeRebuildMsCeiling)) + " ms)");
+			SetFailure(ExitRebuildTooSlow);
+		}
+#endif
 	}
 
 	m_bFinished = true;

@@ -5,6 +5,7 @@
 
 class FBXModel;
 struct TEXTURE;
+struct FProceduralMeshData;
 
 // ============================================================
 //  FAssetManager
@@ -38,6 +39,11 @@ private:
 	std::unordered_map<std::string, std::shared_ptr<FBXModel>> m_StaticMeshCache;
 	std::unordered_map<std::string, std::shared_ptr<TEXTURE>>  m_TextureCache;
 
+	// プロシージャルメッシュは弱参照で共有する。使っているコンポーネント /
+	// プロキシが居なくなった時点で解放され、GPU バッファと SDF スロットが
+	// 返却される (パラメータ編集のたびに別名のメッシュが増えるため)
+	std::unordered_map<std::string, std::weak_ptr<FBXModel>>   m_ProceduralMeshCache;
+
 public:
 	FAssetManager();
 	~FAssetManager();
@@ -48,6 +54,16 @@ public:
 	// 初回は FBXModel::Load でロードし、以降は共有インスタンスを返す。
 	// ロード失敗もキャッシュする (IsLoaded() = false で判定できる)。
 	std::shared_ptr<FBXModel> LoadStaticMesh(const std::string& Path, bool FlipUV = true);
+
+	// プロシージャルメッシュの構築 / キャッシュ取得。
+	// Name をキーに弱参照で共有する (FBX のパスとは別の表)。同じ Name の
+	// メッシュが生きていれば Data を見ずにそれを返すので、形状を変えるときは
+	// 別の Name (パラメータのハッシュなど) を使うこと。
+	// 誰も使わなくなったメッシュは解放される (構築失敗も同じ扱い)。
+	std::shared_ptr<FBXModel> CreateProceduralMesh(const std::string& Name, const FProceduralMeshData& Data);
+
+	// 生きているプロシージャルメッシュを取得する (未登録 / 解放済みなら nullptr)
+	std::shared_ptr<FBXModel> FindProceduralMesh(const std::string& Name) const;
 
 	// テクスチャのロード / キャッシュ取得 (UTexture2D 相当)。
 	// 初回は RenderManager::LoadTexture でロードし、以降は共有

@@ -4,6 +4,8 @@
 #include "Material.h"
 #include "PrimitiveComponent.h"
 
+struct FProceduralMeshData;
+
 // ============================================================
 //  UStaticMeshComponent
 //  UStaticMeshComponent に相当。FBX メッシュと
@@ -42,6 +44,15 @@ public:
 	// ---- メッシュ ----
 	// FAssetManager のキャッシュから共有メッシュを取得して差し替える
 	bool SetStaticMesh(const char* FilePath, bool FlipUV = true);
+
+	// プロシージャル生成メッシュ (ProceduralMeshGenerator.h) を設定する。
+	// FAssetManager::CreateProceduralMesh で Name をキーに共有され、
+	// 以後は FBX メッシュと同じ経路で描画 / シャドウ / Lumen に参加する。
+	bool SetProceduralMesh(const char* Name, const FProceduralMeshData& Data);
+
+	// 既に構築済みの共有メッシュを直接差し替える (FAssetManager から取得したもの)
+	void SetStaticMesh(std::shared_ptr<FBXModel> Mesh);
+
 	const std::shared_ptr<FBXModel>& GetStaticMesh() const { return m_Mesh; }
 
 	// ---- マテリアルスロット ----

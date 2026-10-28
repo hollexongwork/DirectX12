@@ -28,6 +28,24 @@
 // =============================================================
 
 // -------------------------------------------------------------
+//  葉 (SSSType == TWO_SIDED_WRAP) 専用のライティング補正
+//  アルファテストの薄いカードが密に重なる樹冠では、
+//    - CSM の影 (外殻の葉が落とす影) が裏面透過まで 0 にする
+//    - スクリーン空間のスカイ可視率 (Lumen) が樹冠内部で ~0 になる
+//  ため、逆光側の樹冠が黒く潰れる。実際の葉は 1 枚ごとに光を
+//  透過するので、葉に限り以下で補正する (他のマテリアルは不変)。
+//
+//  透過の影 : 影の中でも、受光点から最初の遮蔽物 (CSM 深度) までの
+//             距離 d [m] に応じて透過光を残す
+//               TransShadow = lerp(MAX * exp(-d / DEPTH), 1, SurfaceShadow)
+//             (UE の Subsurface Shadow と同じく遮蔽物を「厚み」として扱う)
+//  スカイ遮蔽 : skyOcclusion = lerp(FLOOR, 1, skyOcclusion)
+// -------------------------------------------------------------
+#define FOLIAGE_TRANSMISSION_SHADOW_MAX   0.6f  // 遮蔽物直後の透過の残り (1 枚を透過した光)
+#define FOLIAGE_TRANSMISSION_SHADOW_DEPTH 0.9f  // [m] 樹冠を通過する光の減衰長
+#define FOLIAGE_SKY_OCCLUSION_FLOOR       0.45f // 葉のスカイ可視率の下限
+
+// -------------------------------------------------------------
 //  Henyey-Greenstein 位相関数 (∫_{S^2} P dΩ = 1 の正規化)
 // -------------------------------------------------------------
 float HenyeyGreensteinPhase(float G, float CosTheta)
@@ -212,13 +230,16 @@ FDirectLighting SubstrateEvaluateSlabDirect(
     {
         // ---- 両面ラップ (レガシー Two Sided Foliage 相当) ----
         // 表: ラップ拡散 / 裏: スラブ透過 x HG 位相 (前方散乱で逆光が抜ける)
+        // 裏面透過は Lighting.Transmission へ分け、呼び出し側が
+        // 透過専用の影 (Shadow.TransmissionShadow) を掛ける
         const float W = 0.5f;
         float WrapNoL = saturate((NoL_d + W) / Square(1.0f + W));
         float TransNoL = saturate((-NoL_d + W) / Square(1.0f + W));
 
         float3 SlabTransmittance = exp(-OpticalDepth);
-        Diffuse = BSDF.DiffuseAlbedo * INV_PI * WrapNoL
-                + SlabTransmittance * TransNoL * Phase4Pi * INV_PI;
+        Diffuse = BSDF.DiffuseAlbedo * INV_PI * WrapNoL;
+        Lighting.Transmission = SlabTransmittance * TransNoL * Phase4Pi * INV_PI
+                              * kD * (AreaLight.FalloffColor * Falloff);
     }
     else if (BSDF.SSSType == SUBSTRATE_SSS_TYPE_SIMPLEVOLUME)
     {
@@ -270,11 +291,14 @@ FDirectLighting SubstrateEvaluateSlabDirect(
 //  BxDF だけが Slab になる。
 //    SceneDepth       : 受光点のビュー空間 Z [m] (コンタクトシャドウ用)
 //    LightAttenuation : 呼び出し側が求めたシャドウ係数
+//    TransmissionAttenuation : 裏面透過のシャドウ係数 (>= LightAttenuation)。
+//                       葉 (TWO_SIDED_WRAP) のみ参照する。区別しない呼び出し側は
+//                       LightAttenuation と同じ値を渡す
 // -------------------------------------------------------------
 float3 SubstrateDeferredLighting(
     FSubstrateBSDF BSDF,
     float3 WorldPosition, float3 CameraVector, float3 N, float SceneDepth,
-    FDeferredLightData LightData, float LightAttenuation, float Dither)
+    FDeferredLightData LightData, float LightAttenuation, float TransmissionAttenuation, float Dither)
 {
     float3 OutLighting = float3(0.0f, 0.0f, 0.0f);
 
@@ -299,8 +323,14 @@ float3 SubstrateDeferredLighting(
         Shadow.TransmissionThickness = 1.0f;
         GetShadowTerms(SceneDepth, LightData, WorldPosition, L, LightAttenuation, Dither, Shadow);
 
+        // 葉: 影の中でも裏面透過を残す (他の葉を透過してきた光)
+        if (BSDF.SSSType == SUBSTRATE_SSS_TYPE_TWO_SIDED_WRAP)
+        {
+            Shadow.TransmissionShadow = max(Shadow.TransmissionShadow, TransmissionAttenuation);
+        }
+
         [branch]
-        if (Shadow.SurfaceShadow > 0.0f)
+        if (Shadow.SurfaceShadow > 0.0f || Shadow.TransmissionShadow > 0.0f)
         {
             // 解析ライトのハイライトが点に潰れないようラフネスに下限を入れる
             BSDF.Roughness = max(BSDF.Roughness, MIN_ROUGHNESS);
@@ -332,8 +362,10 @@ float3 SubstrateDeferredLighting(
 
                 Lighting.Specular *= LightData.SpecularScale;
                 Lighting.Diffuse *= LightData.DiffuseScale;
+                Lighting.Transmission *= LightData.DiffuseScale;
 
-                OutLighting = (Lighting.Diffuse + Lighting.Specular) * (MaskedLightColor * Shadow.SurfaceShadow);
+                OutLighting = (Lighting.Diffuse + Lighting.Specular) * (MaskedLightColor * Shadow.SurfaceShadow)
+                    + Lighting.Transmission * (MaskedLightColor * Shadow.TransmissionShadow);
             }
         }
     }

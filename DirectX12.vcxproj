@@ -84,6 +84,7 @@
     <ClCompile Include="Camera.cpp" />
     <ClCompile Include="CameraComponent.cpp" />
     <ClCompile Include="CameraController.cpp" />
+    <ClCompile Include="Cat.cpp" />
     <ClCompile Include="ColorGradingLUTBaker.cpp" />
     <ClCompile Include="ConfigFile.cpp" />
     <ClCompile Include="ConvexVolume.cpp" />
@@ -121,6 +122,9 @@
     <ClCompile Include="PostProcessVolume.cpp" />
     <ClCompile Include="PrimitiveComponent.cpp" />
     <ClCompile Include="PrimitiveSceneProxy.cpp" />
+    <ClCompile Include="ProceduralMeshGenerator.cpp" />
+    <ClCompile Include="ProceduralTree.cpp" />
+    <ClCompile Include="ProceduralTreeTextures.cpp" />
     <ClCompile Include="RectLight.cpp" />
     <ClCompile Include="RenderManager.cpp" />
     <ClCompile Include="Scene.cpp" />
@@ -139,6 +143,7 @@
     <ClCompile Include="TemporalAA.cpp" />
     <ClCompile Include="TemporalAASelfTest.cpp" />
     <ClCompile Include="TemporalAATestDriver.cpp" />
+    <ClCompile Include="Tree.cpp" />
     <ClCompile Include="VelocityRendering.cpp" />
     <ClCompile Include="Time.cpp" />
     <ClCompile Include="VolumetricFog.cpp" />
@@ -165,6 +170,7 @@
     <ClInclude Include="Camera.h" />
     <ClInclude Include="CameraComponent.h" />
     <ClInclude Include="CameraController.h" />
+    <ClInclude Include="Cat.h" />
     <ClInclude Include="ColorGradingLUTBaker.h" />
     <ClInclude Include="ConfigFile.h" />
     <ClInclude Include="ConvexVolume.h" />
@@ -208,6 +214,8 @@
     <ClInclude Include="PostProcessVolume.h" />
     <ClInclude Include="PrimitiveComponent.h" />
     <ClInclude Include="PrimitiveSceneProxy.h" />
+    <ClInclude Include="ProceduralMeshGenerator.h" />
+    <ClInclude Include="ProceduralTree.h" />
     <ClInclude Include="RectLight.h" />
     <ClInclude Include="RenderManager.h" />
     <ClInclude Include="Scene.h" />
@@ -229,6 +237,7 @@
     <ClInclude Include="TemporalAASelfTest.h" />
     <ClInclude Include="TemporalAATestDriver.h" />
     <ClInclude Include="SceneVelocityData.h" />
+    <ClInclude Include="Tree.h" />
     <ClInclude Include="VelocityRendering.h" />
     <ClInclude Include="ViewMatrices.h" />
     <ClInclude Include="Time.h" />

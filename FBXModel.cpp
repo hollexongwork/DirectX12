@@ -1,6 +1,7 @@
 #include "Main.h"
 #include "RenderManager.h"
 #include "FBXModel.h"
+#include "ProceduralMeshGenerator.h"
 
 #include "D3DX12.h"
 
@@ -132,17 +133,84 @@ void FBXModel::BuildRayTracingGeometry()
 //  公開 API
 // ================================================================
 
-bool FBXModel::Load(const char* filePath, bool flipUV)
+FBXModel::~FBXModel()
+{
+	// アトラススロットを空きリストへ戻す (アトラスが無ければ何もしない)
+	if (m_DistanceField.bValid)
+	{
+		if (FDistanceFieldAtlas* atlas = FDistanceFieldAtlas::GetIfExists())
+		{
+			atlas->ReleaseMesh(m_DistanceField);
+		}
+	}
+}
+
+void FBXModel::ResetLoadState()
 {
 	m_Subsets.clear();
 	m_DFTriangles.clear();
+	if (m_DistanceField.bValid)
+	{
+		if (FDistanceFieldAtlas* atlas = FDistanceFieldAtlas::GetIfExists())
+		{
+			atlas->ReleaseMesh(m_DistanceField);
+		}
+	}
 	m_DistanceField = FDistanceFieldMeshInfo{};
+	m_BLAS.Reset();
 	m_Loaded = false;
 
-	// ローカル境界のリセット (ProcessMesh の頂点ループで蓄積する)
+	// ローカル境界のリセット (CreateSubset の頂点ループで蓄積する)
 	m_LocalBoundsMin = { 1.0e30f,  1.0e30f,  1.0e30f };
 	m_LocalBoundsMax = { -1.0e30f, -1.0e30f, -1.0e30f };
 	m_bHasLocalBounds = false;
+}
+
+
+// ================================================================
+//  FinalizeLoad
+//  サブセット構築後の共通後処理。FBX ロードとプロシージャル構築の
+//  両方がここを通る。
+// ================================================================
+void FBXModel::FinalizeLoad(const char* DistanceFieldCachePath)
+{
+	// ---- Mesh Distance Field 生成 (MDF ベイク) ----
+	// 蓄積した三角形からローカル境界を求め、アトラスへ登録する。
+	// ベイク結果は <DistanceFieldCachePath>.mdf にキャッシュされる
+	// (null / 空文字なら毎回ベイク)。
+	if (!m_DFTriangles.empty())
+	{
+		XMFLOAT3 boundsMin{ 1.0e30f, 1.0e30f, 1.0e30f };
+		XMFLOAT3 boundsMax{ -1.0e30f, -1.0e30f, -1.0e30f };
+		for (const XMFLOAT3& v : m_DFTriangles)
+		{
+			boundsMin.x = fminf(boundsMin.x, v.x);
+			boundsMin.y = fminf(boundsMin.y, v.y);
+			boundsMin.z = fminf(boundsMin.z, v.z);
+			boundsMax.x = fmaxf(boundsMax.x, v.x);
+			boundsMax.y = fmaxf(boundsMax.y, v.y);
+			boundsMax.z = fmaxf(boundsMax.z, v.z);
+		}
+
+		FDistanceFieldAtlas::Get().AddMesh(DistanceFieldCachePath, m_DFTriangles,
+			boundsMin, boundsMax, m_DistanceField);
+	}
+	m_DFTriangles.clear();
+	m_DFTriangles.shrink_to_fit();
+
+	// ---- DXR BLAS 構築 (対応環境のみ) ----
+	// Lumen の HWRT トレース (LumenHardwareRayTracing.h) が TLAS の
+	// インスタンスとして参照する。頂点 / インデックスバッファは
+	// アップロードヒープ (GENERIC_READ) のままビルド入力にできる。
+	BuildRayTracingGeometry();
+
+	m_Loaded = true;
+}
+
+
+bool FBXModel::Load(const char* filePath, bool flipUV)
+{
+	ResetLoadState();
 
 	Assimp::Importer importer;
 
@@ -173,36 +241,97 @@ bool FBXModel::Load(const char* filePath, bool flipUV)
 
 	ProcessNode(scene->mRootNode, scene, directory);
 
-	// ---- Mesh Distance Field 生成 (MDF ベイク) ----
-	// 蓄積した三角形からローカル境界を求め、アトラスへ登録する。
-	// ベイク結果は <filePath>.mdf にキャッシュされる。
-	if (!m_DFTriangles.empty())
+	// SDF ベイク (<filePath>.mdf にキャッシュ) + BLAS 構築
+	FinalizeLoad(filePath);
+	return true;
+}
+
+
+// ================================================================
+//  BuildFromProceduralMesh
+//  ProceduralMeshGenerator が生成した CPU メッシュから構築する。
+//  FBX ロードと同じ CreateSubset / FinalizeLoad を通るため、
+//  Distance Field Shadow / Lumen (SDF + BLAS) / フラスタムカリングが
+//  そのまま効く。
+// ================================================================
+bool FBXModel::BuildFromProceduralMesh(const char* Name, const FProceduralMeshData& Data)
+{
+	ResetLoadState();
+
+	if (Data.IsEmpty())
 	{
-		XMFLOAT3 boundsMin{ 1.0e30f, 1.0e30f, 1.0e30f };
-		XMFLOAT3 boundsMax{ -1.0e30f, -1.0e30f, -1.0e30f };
-		for (const XMFLOAT3& v : m_DFTriangles)
+		char msg[256];
+		sprintf_s(msg, "[FBXModel] BuildFromProceduralMesh: empty mesh data (%s)\n", Name ? Name : "");
+		OutputDebugStringA(msg);
+		return false;
+	}
+
+	for (const FProceduralMeshSection& section : Data.Sections)
+	{
+		if (section.IsEmpty())
 		{
-			boundsMin.x = fminf(boundsMin.x, v.x);
-			boundsMin.y = fminf(boundsMin.y, v.y);
-			boundsMin.z = fminf(boundsMin.z, v.z);
-			boundsMax.x = fmaxf(boundsMax.x, v.x);
-			boundsMax.y = fmaxf(boundsMax.y, v.y);
-			boundsMax.z = fmaxf(boundsMax.z, v.z);
+			continue;
 		}
 
-		FDistanceFieldAtlas::Get().AddMesh(filePath, m_DFTriangles,
-			boundsMin, boundsMax, m_DistanceField);
+		// インデックス範囲の検証 (生成コードのバグで GPU 側が不定読みしないよう弾く)
+		const unsigned int vertexCount = static_cast<unsigned int>(section.Vertices.size());
+		bool bValid = true;
+		for (unsigned int index : section.Indices)
+		{
+			if (index >= vertexCount) { bValid = false; break; }
+		}
+		if (!bValid)
+		{
+			char msg[256];
+			sprintf_s(msg, "[FBXModel] BuildFromProceduralMesh: index out of range, section skipped (%s)\n", Name ? Name : "");
+			OutputDebugStringA(msg);
+			assert(false && "procedural mesh index out of range");
+			continue;
+		}
+
+		// 端数インデックスは切り捨てて三角形単位にする
+		const unsigned int indexCount = static_cast<unsigned int>(section.Indices.size() / 3 * 3);
+
+		m_Subsets.emplace_back(CreateSubset(section.Vertices.data(), vertexCount,
+			section.Indices.data(), indexCount, section.MaterialIndex, section.bAffectDistanceField));
 	}
-	m_DFTriangles.clear();
-	m_DFTriangles.shrink_to_fit();
 
-	// ---- DXR BLAS 構築 (対応環境のみ) ----
-	// Lumen の HWRT トレース (LumenHardwareRayTracing.h) が TLAS の
-	// インスタンスとして参照する。頂点 / インデックスバッファは
-	// アップロードヒープ (GENERIC_READ) のままビルド入力にできる。
-	BuildRayTracingGeometry();
+	if (m_Subsets.empty())
+	{
+		return false;
+	}
 
-	m_Loaded = true;
+	// ---- SDF キャッシュパス ----
+	// 名前 + ジオメトリハッシュで同定する (パラメータ変更で再ベイクされる)。
+	// Saved/ProceduralMesh/ は無ければ作る (作れなければ非キャッシュで続行)。
+	std::string cachePath;
+	{
+		std::string safeName = Name ? Name : "ProceduralMesh";
+		for (char& c : safeName)
+		{
+			const bool bAlnum = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+			if (!bAlnum && c != '_' && c != '-') c = '_';
+		}
+
+		char hashText[32];
+		sprintf_s(hashText, "%016llx", Data.ComputeGeometryHash());
+
+		std::error_code ec;
+		const fs::path cacheDir = fs::path("Saved") / "ProceduralMesh";
+		fs::create_directories(cacheDir, ec);
+		if (!ec)
+		{
+			cachePath = (cacheDir / (safeName + "_" + hashText)).string();
+		}
+	}
+
+	FinalizeLoad(cachePath.empty() ? nullptr : cachePath.c_str());
+
+	char msg[256];
+	sprintf_s(msg, "[FBXModel] procedural mesh built: %s (%u subsets, %u tris)\n",
+		Name ? Name : "", static_cast<unsigned int>(m_Subsets.size()), Data.GetNumTriangles());
+	OutputDebugStringA(msg);
+
 	return true;
 }
 
@@ -268,113 +397,149 @@ void FBXModel::ProcessNode(const aiNode* node, const aiScene* scene,
 
 // ================================================================
 //  プライベート：メッシュ → FBX_SUBSET 変換
+//  aiMesh を VERTEX_3D / uint32 インデックス列へ展開し、
+//  CreateSubset で GPU バッファ化する。
 // ================================================================
 
 FBX_SUBSET FBXModel::ProcessMesh(const aiMesh* mesh, const aiScene* scene,
 	const std::string& directory)
 {
-	RenderManager* rm = RenderManager::GetInstance();
+	(void)scene;
+	(void)directory;
 
 	const unsigned int vertexCount = mesh->mNumVertices;
 	const unsigned int indexCount = mesh->mNumFaces * 3;
 
 	// ----------------------------------------------------------------
-	// 頂点バッファ（VERTEX_3D は既存プロジェクトの構造体）
+	// 頂点（VERTEX_3D は既存プロジェクトの構造体）
 	// ----------------------------------------------------------------
-	auto vb = rm->CreateVertexBuffer(sizeof(VERTEX_3D), vertexCount);
+	std::vector<VERTEX_3D> vertices(vertexCount);
 
+	for (unsigned int i = 0; i < vertexCount; ++i)
+	{
+		VERTEX_3D& dst = vertices[i];
+
+		// 位置
+		dst.Position = { mesh->mVertices[i].x,
+						 mesh->mVertices[i].y,
+						 mesh->mVertices[i].z };
+
+		// 法線
+		dst.Normal = mesh->HasNormals()
+			? XMFLOAT3{ mesh->mNormals[i].x,
+						mesh->mNormals[i].y,
+						mesh->mNormals[i].z }
+		: XMFLOAT3{ 0.0f, 1.0f, 0.0f };
+
+		// 接線（aiProcess_CalcTangentSpace で生成済み）
+		dst.Tangent = mesh->HasTangentsAndBitangents()
+			? XMFLOAT3{ mesh->mTangents[i].x,
+						mesh->mTangents[i].y,
+						mesh->mTangents[i].z }
+		: XMFLOAT3{ 1.0f, 0.0f, 0.0f };
+
+		// UV（チャンネル 0）
+		dst.TexCoord = mesh->HasTextureCoords(0)
+			? XMFLOAT2{ mesh->mTextureCoords[0][i].x,
+						mesh->mTextureCoords[0][i].y }
+		: XMFLOAT2{ 0.0f, 0.0f };
+
+		// 頂点カラー（チャンネル 0、なければ白）
+		dst.Color = mesh->HasVertexColors(0)
+			? XMFLOAT4{ mesh->mColors[0][i].r,
+						mesh->mColors[0][i].g,
+						mesh->mColors[0][i].b,
+						mesh->mColors[0][i].a }
+		: XMFLOAT4{ 1.0f, 1.0f, 1.0f, 1.0f };
+	}
+
+	// ----------------------------------------------------------------
+	// インデックス（uint32）
+	// ----------------------------------------------------------------
+	std::vector<unsigned int> indices;
+	indices.reserve(indexCount);
+
+	for (unsigned int f = 0; f < mesh->mNumFaces; ++f)
+	{
+		const aiFace& face = mesh->mFaces[f];
+		assert(face.mNumIndices == 3);
+		indices.push_back(face.mIndices[0]);
+		indices.push_back(face.mIndices[1]);
+		indices.push_back(face.mIndices[2]);
+	}
+
+	return CreateSubset(vertices.data(), vertexCount,
+		indices.data(), static_cast<unsigned int>(indices.size()), mesh->mMaterialIndex, true);
+}
+
+
+// ================================================================
+//  プライベート：頂点 / インデックス列 → FBX_SUBSET (GPU バッファ化)
+//  ローカル境界 (フラスタムカリング用 AABB) と Distance Field ベイク用
+//  三角形もここで蓄積する。
+// ================================================================
+
+FBX_SUBSET FBXModel::CreateSubset(const VERTEX_3D* Vertices, unsigned int VertexCount,
+	const unsigned int* Indices, unsigned int IndexCount, unsigned int MaterialIndex,
+	bool bAffectDistanceField)
+{
+	RenderManager* rm = RenderManager::GetInstance();
+
+	// ---- 頂点バッファ ----
+	auto vb = rm->CreateVertexBuffer(sizeof(VERTEX_3D), VertexCount);
 	{
 		VERTEX_3D* dst = nullptr;
 		HRESULT hr = vb->Resource->Map(0, nullptr, reinterpret_cast<void**>(&dst));
 		assert(SUCCEEDED(hr));
 
-		for (unsigned int i = 0; i < vertexCount; ++i)
-		{
-			// 位置
-			dst[i].Position = { mesh->mVertices[i].x,
-								mesh->mVertices[i].y,
-								mesh->mVertices[i].z };
-
-			// ローカル境界の蓄積 (フラスタムカリング用 AABB)
-			m_LocalBoundsMin.x = fminf(m_LocalBoundsMin.x, dst[i].Position.x);
-			m_LocalBoundsMin.y = fminf(m_LocalBoundsMin.y, dst[i].Position.y);
-			m_LocalBoundsMin.z = fminf(m_LocalBoundsMin.z, dst[i].Position.z);
-			m_LocalBoundsMax.x = fmaxf(m_LocalBoundsMax.x, dst[i].Position.x);
-			m_LocalBoundsMax.y = fmaxf(m_LocalBoundsMax.y, dst[i].Position.y);
-			m_LocalBoundsMax.z = fmaxf(m_LocalBoundsMax.z, dst[i].Position.z);
-			m_bHasLocalBounds = true;
-
-			// 法線
-			dst[i].Normal = mesh->HasNormals()
-				? XMFLOAT3{ mesh->mNormals[i].x,
-							mesh->mNormals[i].y,
-							mesh->mNormals[i].z }
-			: XMFLOAT3{ 0.0f, 1.0f, 0.0f };
-
-			// 接線（aiProcess_CalcTangentSpace で生成済み）
-			dst[i].Tangent = mesh->HasTangentsAndBitangents()
-				? XMFLOAT3{ mesh->mTangents[i].x,
-							mesh->mTangents[i].y,
-							mesh->mTangents[i].z }
-			: XMFLOAT3{ 1.0f, 0.0f, 0.0f };
-
-			// UV（チャンネル 0）
-			dst[i].TexCoord = mesh->HasTextureCoords(0)
-				? XMFLOAT2{ mesh->mTextureCoords[0][i].x,
-							mesh->mTextureCoords[0][i].y }
-			: XMFLOAT2{ 0.0f, 0.0f };
-
-			// 頂点カラー（チャンネル 0、なければ白）
-			dst[i].Color = mesh->HasVertexColors(0)
-				? XMFLOAT4{ mesh->mColors[0][i].r,
-							mesh->mColors[0][i].g,
-							mesh->mColors[0][i].b,
-							mesh->mColors[0][i].a }
-			: XMFLOAT4{ 1.0f, 1.0f, 1.0f, 1.0f };
-		}
+		memcpy(dst, Vertices, sizeof(VERTEX_3D) * VertexCount);
 
 		vb->Resource->Unmap(0, nullptr);
 	}
 
-	// ----------------------------------------------------------------
-	// インデックスバッファ（uint32）
-	// ----------------------------------------------------------------
-	auto ib = rm->CreateIndexBuffer(indexCount);
+	for (unsigned int i = 0; i < VertexCount; ++i)
+	{
+		const XMFLOAT3& p = Vertices[i].Position;
+		m_LocalBoundsMin.x = fminf(m_LocalBoundsMin.x, p.x);
+		m_LocalBoundsMin.y = fminf(m_LocalBoundsMin.y, p.y);
+		m_LocalBoundsMin.z = fminf(m_LocalBoundsMin.z, p.z);
+		m_LocalBoundsMax.x = fmaxf(m_LocalBoundsMax.x, p.x);
+		m_LocalBoundsMax.y = fmaxf(m_LocalBoundsMax.y, p.y);
+		m_LocalBoundsMax.z = fmaxf(m_LocalBoundsMax.z, p.z);
+		m_bHasLocalBounds = true;
+	}
 
+	// ---- インデックスバッファ ----
+	auto ib = rm->CreateIndexBuffer(IndexCount);
 	{
 		unsigned int* dst = nullptr;
 		HRESULT hr = ib->Resource->Map(0, nullptr, reinterpret_cast<void**>(&dst));
 		assert(SUCCEEDED(hr));
 
-		unsigned int idx = 0;
-		for (unsigned int f = 0; f < mesh->mNumFaces; ++f)
-		{
-			const aiFace& face = mesh->mFaces[f];
-			assert(face.mNumIndices == 3);
-			dst[idx++] = face.mIndices[0];
-			dst[idx++] = face.mIndices[1];
-			dst[idx++] = face.mIndices[2];
-
-			// Distance Field ベイク用に三角形頂点を蓄積 (ローカル空間)
-			const aiVector3D& dfA = mesh->mVertices[face.mIndices[0]];
-			const aiVector3D& dfB = mesh->mVertices[face.mIndices[1]];
-			const aiVector3D& dfC = mesh->mVertices[face.mIndices[2]];
-			m_DFTriangles.push_back({ dfA.x, dfA.y, dfA.z });
-			m_DFTriangles.push_back({ dfB.x, dfB.y, dfB.z });
-			m_DFTriangles.push_back({ dfC.x, dfC.y, dfC.z });
-		}
+		memcpy(dst, Indices, sizeof(unsigned int) * IndexCount);
 
 		ib->Resource->Unmap(0, nullptr);
 	}
 
-	// ----------------------------------------------------------------
-	// サブセット組み立て
-	// ----------------------------------------------------------------
+	// Distance Field ベイク用に三角形頂点を蓄積 (ローカル空間)。
+	// 開いた面のセクション (葉カード等) は除外する
+	if (bAffectDistanceField)
+	{
+		m_DFTriangles.reserve(m_DFTriangles.size() + IndexCount);
+		for (unsigned int i = 0; i + 2 < IndexCount; i += 3)
+		{
+			m_DFTriangles.push_back(Vertices[Indices[i]].Position);
+			m_DFTriangles.push_back(Vertices[Indices[i + 1]].Position);
+			m_DFTriangles.push_back(Vertices[Indices[i + 2]].Position);
+		}
+	}
+
+	// ---- サブセット組み立て ----
 	FBX_SUBSET subset;
 	subset.VertexBuffer = std::move(vb);
 	subset.IndexBuffer = std::move(ib);
-	subset.IndexCount = indexCount;
-	subset.MaterialIndex = mesh->mMaterialIndex;
+	subset.IndexCount = IndexCount;
+	subset.MaterialIndex = MaterialIndex;
 
 	return subset;
 }

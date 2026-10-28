@@ -71,7 +71,11 @@ private:
 	// ---- アトラス本体 (Texture3D R16_FLOAT, t17) ----
 	ComPtr<ID3D12Resource> m_AtlasTexture;
 	unsigned int           m_AtlasSRVIndex = 0;
-	unsigned int           m_NumAllocatedSlots = 0;
+	unsigned int           m_NumAllocatedSlots = 0;	// これまでに割り当てたスロット数 (高水位)
+
+	// ReleaseMesh で返却されたスロット。AddMesh が新規割り当てより優先して再利用する
+	// (プロシージャルメッシュの再生成で 16 スロットを使い切らないように)
+	std::vector<unsigned int> m_FreeSlots;
 
 	// ---- アトラスアップロード用スクラッチ (RowPitch 256 対応) ----
 	ComPtr<ID3D12Resource> m_UploadScratch;
@@ -96,6 +100,14 @@ public:
 	// グローバルアトラス (GDistanceFieldVolumeTextureAtlas)。
 	// 初回呼び出しで生成する。RenderManager 初期化後にのみ呼ぶこと。
 	static FDistanceFieldAtlas& Get();
+
+	// 生成済みならそのインスタンス、未生成なら nullptr (生成はしない)。
+	// FBXModel のデストラクタなど、アトラスが無くてもよい経路から使う
+	static FDistanceFieldAtlas* GetIfExists();
+
+	// メッシュのスロットを返却する (FBXModel の破棄 / 再ロードから呼ばれる)。
+	// Info は無効化される。スロットのテクセルはそのまま残り、次の AddMesh が上書きする
+	void ReleaseMesh(FDistanceFieldMeshInfo& Info);
 
 	// メッシュを登録して SDF をベイク (キャッシュがあればロード) し、
 	// アトラススロットへ格納する。FBXModel::Load から呼ばれる。

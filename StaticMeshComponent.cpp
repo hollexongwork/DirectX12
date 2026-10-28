@@ -2,6 +2,7 @@
 #include "RenderManager.h"
 #include "AssetManager.h"
 #include "StaticMeshComponent.h"
+#include "ProceduralMeshGenerator.h"
 #include "PrimitiveSceneProxy.h"
 
 // ============================================================
@@ -373,6 +374,20 @@ bool UStaticMeshComponent::SetStaticMesh(const char* FilePath, bool FlipUV)
 	m_Mesh = FAssetManager::GetInstance()->LoadStaticMesh(FilePath, FlipUV);
 	MarkRenderStateDirty();
 	return m_Mesh != nullptr && m_Mesh->IsLoaded();
+}
+
+bool UStaticMeshComponent::SetProceduralMesh(const char* Name, const FProceduralMeshData& Data)
+{
+	// 名前をキーに FAssetManager が構築 / 共有する (同名なら既存を返す)
+	m_Mesh = FAssetManager::GetInstance()->CreateProceduralMesh(Name, Data);
+	MarkRenderStateDirty();
+	return m_Mesh != nullptr && m_Mesh->IsLoaded();
+}
+
+void UStaticMeshComponent::SetStaticMesh(std::shared_ptr<FBXModel> Mesh)
+{
+	m_Mesh = std::move(Mesh);
+	MarkRenderStateDirty();
 }
 
 void UStaticMeshComponent::SetNumMaterialSlots(unsigned int Num)

@@ -98,6 +98,9 @@ private:
 	void DrawExponentialHeightFogSection(class UExponentialHeightFogComponent* Component);
 	void DrawExponentialHeightFogActorSection(class AExponentialHeightFog* Fog);
 
+	// Procedural Tree (ATree の FProceduralTreeParams。編集確定で再生成を予約)
+	void DrawProceduralTreeSection(class ATree* Tree);
+
 	// マテリアル 1 スロット分のエディタ。変更があれば true を返す
 	// (呼び出し側で MarkRenderStateDirty すること)。
 	bool DrawMaterialEditor(class Material& Mat);
