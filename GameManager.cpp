@@ -160,11 +160,6 @@ GameManager::GameManager(HWND hWnd, const wchar_t* CmdLine)
 	//m_World.SpawnActor<APolygon2D>();	// 2D オーバーレイ (使う場合は必ず最後にスポーン)
 
 	// ---- Exponential Height Fog (AExponentialHeightFog) ----
-	// コンポーネント既定値 : FogDensity 0.02 / FogHeightFalloff 0.2 / 距離系はメートル換算。
-	// アクター位置の Y がフォグの基準高さ。Volumetric Fog はコンポーネント
-	// 既定 (false) のままレベル側で有効化する。
-	// ※ 既存の [Actor.N] (EngineSettings.ini) のインデックスを変えないよう
-	//   既存アクターの後にスポーンする。
 	{
 		AExponentialHeightFog* fog = m_World.SpawnActor<AExponentialHeightFog>();
 		fog->SetActorLocation({ 0.0f, 0.0f, 0.0f });
@@ -172,11 +167,6 @@ GameManager::GameManager(HWND hWnd, const wchar_t* CmdLine)
 	}
 
 	// ---- プロシージャルツリー (ATree) ----
-	// FProceduralTreeParams (既定値 = 落葉樹風 3 階層) からメッシュを生成する。
-	// パラメータは Details の "Procedural Tree" で編集でき、INI ([Actor.N] の
-	// Tree.*) に保存される。初回の生成は最初の Tick (描画の外) で行われる。
-	// テーブル (ベンチ込み ±8m x ±3.5m) の外、地面クアッド (±10m) の内側に置く。
-	// ※ 既存の [Actor.N] のインデックスを変えないよう、フォグの後にスポーンする。
 	{
 		ATree* tree = m_World.SpawnActor<ATree>();
 		tree->SetActorLabel("Tree");
