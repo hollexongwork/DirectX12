@@ -12,6 +12,7 @@ class RenderManager;
 class ACameraActor;
 class AStaticMeshActor;
 class ATree;
+class ASkeletalMeshActor;
 struct FAntiAliasingParams;
 struct FTemporalAADebugSettings;
 
@@ -90,6 +91,13 @@ struct FTemporalAADebugSettings;
 //                SDF アトラススロットの再利用の検査)。再生成後に SDF が無効なら終了コード 4。
 //                Release では観測した FProceduralTreeStats::RebuildMs (生成 + GPU バッファ + SDF ベイク + BLAS)
 //                の最大が kTreeRebuildMsCeiling を越えたら終了コード 5 (Debug は記録のみ)
+//    skeletal  : カメラを ASkeletalMeshActor (最初に見つかったもの) の正面 (アクター位置 + kSkeletalCameraOffset、
+//                ヨー / ピッチ 0) に置いて静止。毎フレーム末端ボーンのワールド位置が前フレームから動いたか
+//                (アニメーションの前進 = GPU スキニングの入力が変わること) と NumVelocityDraws >= 1 を数え、
+//                動いたフレームが (フレーム数 - 1) / 2 未満なら終了コード 4。
+//                さらに OnBegin でプロシージャルリグを <out>/ProceduralChain.gltf に書き出して再インポートし
+//                (FSkeletalMeshImporter のラウンドトリップ)、ボーン名 / アニメーション数 / 0.7 s のポーズが
+//                一致しなければ終了コード 4。再インポートしたメッシュは元のアクターの +X 2.5 m にスポーンする
 //
 //  出力:
 //    <out>/<scenario>_f<frame>.bmp   キャプチャ (1920x1080, 24bit ボトムアップ)
@@ -140,6 +148,7 @@ public:
 		Translucent,
 		QSwitch,
 		Tree,
+		Skeletal,
 	};
 
 	enum EExitCode : int
@@ -176,6 +185,10 @@ public:
 	// tree シナリオ: 1 回の再生成 (ATree::RebuildTree 全体) に許す時間 [ms]。Release でのみ検査する
 	// (Debug は SDF ベイクの同期待ちなどで数倍遅いので記録だけ)
 	static constexpr float kTreeRebuildMsCeiling = 250.0f;
+
+	// skeletal シナリオ: アクター位置からのカメラオフセット [m] (正面 5 m、目の高さ 1.6 m)
+	static constexpr float kSkeletalCameraOffsetY = 1.6f;
+	static constexpr float kSkeletalCameraOffsetZ = -5.0f;
 
 	// コマンドラインに -taatest キーがあるか (wWinMain がウィンドウ生成前に参照する。
 	// テストモードはバックバッファが画面サイズ / DPI 設定に左右されないよう
@@ -239,6 +252,17 @@ private:
 
 	AStaticMeshActor* m_MovingActor = nullptr;				// moveobj: Table (スポーン順 8) / translucent: Cat (スポーン順 9)
 	DirectX::XMFLOAT3 m_MovingActorBase = { 0.0f, 0.0f, 0.0f };	// INI 適用後の位置 (円運動の基準)
+
+	// skeletal シナリオ
+	ASkeletalMeshActor* m_SkeletalActor = nullptr;
+	bool  m_bSkeletalRoundTripOK = false;	// glTF 書き出し -> 再インポート -> ポーズ一致の検査結果
+	// 書き出し -> 再インポートを行い、ボーン名 / アニメーション数 / 時刻 0.7 s のポーズ (末端ボーン位置) を
+	// 比較する。再インポートしたメッシュのアクターを元のアクターの隣にスポーンする (キャプチャで目視)
+	bool RunSkeletalRoundTrip(UWorld& World);
+	DirectX::XMFLOAT3   m_SkeletalLastTip = { 0.0f, 0.0f, 0.0f };	// 前フレームの末端ボーン位置 (ワールド)
+	bool  m_bSkeletalHasLastTip = false;
+	int   m_SkeletalMovedFrames = 0;		// 末端ボーンが前フレームから動いたフレーム数
+	int   m_SkeletalVelocityFrames = 0;		// NumVelocityDraws >= 1 だったフレーム数
 
 	// tree シナリオ
 	ATree* m_Tree = nullptr;

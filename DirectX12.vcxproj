@@ -159,6 +159,19 @@
     <ClCompile Include="LightRendering.cpp" />
     <ClCompile Include="LTC.cpp" />
     <ClCompile Include="SystemTextures.cpp" />
+    <ClCompile Include="AnimationRuntime.cpp" />
+    <ClCompile Include="AnimSequence.cpp" />
+    <ClCompile Include="AnimNodes.cpp" />
+    <ClCompile Include="AnimInstance.cpp" />
+    <ClCompile Include="Skeleton.cpp" />
+    <ClCompile Include="SkeletalMesh.cpp" />
+    <ClCompile Include="SkeletalRenderGPUSkin.cpp" />
+    <ClCompile Include="SkinnedMeshComponent.cpp" />
+    <ClCompile Include="SkeletalMeshComponent.cpp" />
+    <ClCompile Include="SkeletalMeshActor.cpp" />
+    <ClCompile Include="SkeletalMeshImporter.cpp" />
+    <ClCompile Include="ProceduralSkeletalMesh.cpp" />
+    <ClCompile Include="Manny.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Actor.h" />
@@ -258,6 +271,22 @@
     <ClInclude Include="LightRendering.h" />
     <ClInclude Include="LTC.h" />
     <ClInclude Include="SystemTextures.h" />
+    <ClInclude Include="Transform.h" />
+    <ClInclude Include="ReferenceSkeleton.h" />
+    <ClInclude Include="Skeleton.h" />
+    <ClInclude Include="AnimationRuntime.h" />
+    <ClInclude Include="AnimSequence.h" />
+    <ClInclude Include="AnimNodeBase.h" />
+    <ClInclude Include="AnimNodes.h" />
+    <ClInclude Include="AnimInstance.h" />
+    <ClInclude Include="SkeletalMesh.h" />
+    <ClInclude Include="SkeletalRenderGPUSkin.h" />
+    <ClInclude Include="SkinnedMeshComponent.h" />
+    <ClInclude Include="SkeletalMeshComponent.h" />
+    <ClInclude Include="SkeletalMeshActor.h" />
+    <ClInclude Include="SkeletalMeshImporter.h" />
+    <ClInclude Include="ProceduralSkeletalMesh.h" />
+    <ClInclude Include="Manny.h" />
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="Shader\HeightFogCommon.hlsl">
@@ -791,6 +820,34 @@
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|x64'">5.0</ShaderModel>
       <ObjectFileOutput Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Shader/cso/%(Filename).cso</ObjectFileOutput>
       <ObjectFileOutput Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Shader/cso/%(Filename).cso</ObjectFileOutput>
+    </FxCompile>
+    <FxCompile Include="Shader\GeometryVS_GPUSkin.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Vertex</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Vertex</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|x64'">5.0</ShaderModel>
+      <ObjectFileOutput Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Shader/cso/%(Filename).cso</ObjectFileOutput>
+      <ObjectFileOutput Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Shader/cso/%(Filename).cso</ObjectFileOutput>
+    </FxCompile>
+    <FxCompile Include="Shader\ShadowDepthVS_GPUSkin.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Vertex</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Vertex</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|x64'">5.0</ShaderModel>
+      <ObjectFileOutput Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Shader/cso/%(Filename).cso</ObjectFileOutput>
+      <ObjectFileOutput Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Shader/cso/%(Filename).cso</ObjectFileOutput>
+    </FxCompile>
+    <FxCompile Include="Shader\VelocityVS_GPUSkin.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Vertex</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Vertex</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|x64'">5.0</ShaderModel>
+      <ObjectFileOutput Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Shader/cso/%(Filename).cso</ObjectFileOutput>
+      <ObjectFileOutput Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Shader/cso/%(Filename).cso</ObjectFileOutput>
+    </FxCompile>
+    <FxCompile Include="Shader\VertexFactory.hlsl">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
     </FxCompile>
     <FxCompile Include="Shader\VelocityPS.hlsl">
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Pixel</ShaderType>

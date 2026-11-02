@@ -590,7 +590,7 @@ void RenderManager::InitRootSignature()
 	const unsigned int CBV_COUNT = (unsigned int)CONSTANT_TYPE::FOG + 1; // VIEW/PRIMITIVE/MATERIAL/FORWARD_LIGHT/POST_PROCESS/SHADOW/LUMEN/FOG
 
 	// ルートパラメータは全てデスクリプタテーブル (1 DWORD ずつ) なので
-	// 上限 64 DWORD に対して b0..b7 + t0..t38 = 47 DWORD
+	// 上限 64 DWORD に対して b0..b7 + t0..t40 = 49 DWORD
 	static_assert((unsigned int)TEXTURE_TYPE::COUNT <= 64,
 		"root signature exceeds 64 DWORDs (CONSTANT_TYPE + TEXTURE_TYPE)");
 
@@ -620,7 +620,12 @@ void RenderManager::InitRootSignature()
 		range[i].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
 		rootParameters[i].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-		rootParameters[i].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+		// ボーン行列 (t39 / t40) だけは頂点シェーダが読む (GPU スキニング)。
+		// 他の SRV は従来どおりピクセルのみ
+		const bool bVertexVisible =
+			(i == (unsigned int)TEXTURE_TYPE::BONE_MATRICES) ||
+			(i == (unsigned int)TEXTURE_TYPE::PREVIOUS_BONE_MATRICES);
+		rootParameters[i].ShaderVisibility = bVertexVisible ? D3D12_SHADER_VISIBILITY_VERTEX : D3D12_SHADER_VISIBILITY_PIXEL;
 		rootParameters[i].DescriptorTable.NumDescriptorRanges = 1;
 		rootParameters[i].DescriptorTable.pDescriptorRanges = &range[i];
 	}
@@ -891,6 +896,76 @@ void RenderManager::InitPipelines()
 		m_PipelineState["ResponsiveAATwoSided"] =
 			CreatePipeline("Shader/cso/GeometryVS.cso", "Shader/cso/ResponsiveAAPS.cso", responsive, _countof(responsive),
 				0, 0.0f, EBlendStatePreset::Opaque, ECullModePreset::None, EDepthStatePreset::DepthRead);
+	}
+
+	// ---- GPU スキニング順列 (FGPUSkinVertexFactory, SkeletalMeshComponent.h) ----
+	// スケルタルメッシュのメッシュパス PSO。頂点シェーダだけ *_GPUSkin (VertexFactory.hlsl の
+	// GPUSKIN_VERTEX_FACTORY 版) に差し替え、PS / ステートは同名のローカル VF 版と同一。
+	// 名前は "<既存名>_GPUSkin"。Lumen カードキャプチャは無い (スケルタルメッシュは Surface Cache に
+	// 参加しない)。
+	{
+		const char* const kGeometryVS = "Shader/cso/GeometryVS_GPUSkin.cso";
+		const char* const kShadowDepthVS = "Shader/cso/ShadowDepthVS_GPUSkin.cso";
+		const char* const kVelocityVS = "Shader/cso/VelocityVS_GPUSkin.cso";
+		const DXGI_FORMAT velocity[] = { DXGI_FORMAT_R16G16_UNORM };
+		const DXGI_FORMAT responsive[] = { DXGI_FORMAT_R8_UNORM };
+		const EVertexFactoryType vf = EVertexFactoryType::GPUSkinVertexFactory;
+
+		auto Register = [&](const char* Name, const char* VS, const char* PS, const DXGI_FORMAT* Formats, unsigned int NumFormats,
+			int Bias, float SlopeBias, EBlendStatePreset Blend, ECullModePreset Cull, EDepthStatePreset Depth)
+			{
+				m_PipelineState[Name] = CreatePipeline(VS, PS, Formats, NumFormats, Bias, SlopeBias, Blend, Cull, Depth, false, vf);
+			};
+
+		// ベースパス
+		Register("BasePass_GPUSkin", kGeometryVS, "Shader/cso/GeometryPS.cso", gbuffer, _countof(gbuffer),
+			0, 0.0f, EBlendStatePreset::Opaque, ECullModePreset::Back, EDepthStatePreset::DepthWrite);
+		Register("BasePassTwoSided_GPUSkin", kGeometryVS, "Shader/cso/GeometryPS.cso", gbuffer, _countof(gbuffer),
+			0, 0.0f, EBlendStatePreset::Opaque, ECullModePreset::None, EDepthStatePreset::DepthWrite);
+
+		// トランスルーセンシー (Standard / 深度プリパス / Equal / Additive)
+		Register("Translucency_GPUSkin", kGeometryVS, "Shader/cso/TranslucentPS.cso", hdr, _countof(hdr),
+			0, 0.0f, EBlendStatePreset::Translucent, ECullModePreset::Back, EDepthStatePreset::DepthRead);
+		Register("TranslucencyTwoSided_GPUSkin", kGeometryVS, "Shader/cso/TranslucentPS.cso", hdr, _countof(hdr),
+			0, 0.0f, EBlendStatePreset::Translucent, ECullModePreset::None, EDepthStatePreset::DepthRead);
+		Register("TranslucencyAdditive_GPUSkin", kGeometryVS, "Shader/cso/TranslucentPS.cso", hdr, _countof(hdr),
+			0, 0.0f, EBlendStatePreset::Additive, ECullModePreset::Back, EDepthStatePreset::DepthRead);
+		Register("TranslucencyAdditiveTwoSided_GPUSkin", kGeometryVS, "Shader/cso/TranslucentPS.cso", hdr, _countof(hdr),
+			0, 0.0f, EBlendStatePreset::Additive, ECullModePreset::None, EDepthStatePreset::DepthRead);
+		Register("TranslucencyDepthPrepass_GPUSkin", kGeometryVS, "Shader/cso/TranslucentPS.cso", hdr, _countof(hdr),
+			0, 0.0f, EBlendStatePreset::NoColorWrite, ECullModePreset::Back, EDepthStatePreset::DepthWrite);
+		Register("TranslucencyDepthPrepassTwoSided_GPUSkin", kGeometryVS, "Shader/cso/TranslucentPS.cso", hdr, _countof(hdr),
+			0, 0.0f, EBlendStatePreset::NoColorWrite, ECullModePreset::None, EDepthStatePreset::DepthWrite);
+		Register("TranslucencyEqual_GPUSkin", kGeometryVS, "Shader/cso/TranslucentPS.cso", hdr, _countof(hdr),
+			0, 0.0f, EBlendStatePreset::Translucent, ECullModePreset::Back, EDepthStatePreset::DepthReadEqual);
+		Register("TranslucencyEqualTwoSided_GPUSkin", kGeometryVS, "Shader/cso/TranslucentPS.cso", hdr, _countof(hdr),
+			0, 0.0f, EBlendStatePreset::Translucent, ECullModePreset::None, EDepthStatePreset::DepthReadEqual);
+
+		// シャドウ深度
+		Register("ShadowDepth_GPUSkin", kShadowDepthVS, "Shader/cso/ShadowDepthPS.cso", nullptr, 0,
+			1000, 1.5f, EBlendStatePreset::Opaque, ECullModePreset::Back, EDepthStatePreset::DepthWrite);
+		Register("ShadowDepthTwoSided_GPUSkin", kShadowDepthVS, "Shader/cso/ShadowDepthPS.cso", nullptr, 0,
+			1000, 1.5f, EBlendStatePreset::Opaque, ECullModePreset::None, EDepthStatePreset::DepthWrite);
+		Register("ShadowDepthMasked_GPUSkin", kShadowDepthVS, "Shader/cso/ShadowDepthMaskedPS.cso", nullptr, 0,
+			1000, 1.5f, EBlendStatePreset::Opaque, ECullModePreset::Back, EDepthStatePreset::DepthWrite);
+		Register("ShadowDepthMaskedTwoSided_GPUSkin", kShadowDepthVS, "Shader/cso/ShadowDepthMaskedPS.cso", nullptr, 0,
+			1000, 1.5f, EBlendStatePreset::Opaque, ECullModePreset::None, EDepthStatePreset::DepthWrite);
+
+		// ベロシティ (前フレームのボーン行列 t40 を使う)
+		Register("Velocity_GPUSkin", kVelocityVS, "Shader/cso/VelocityPS.cso", velocity, _countof(velocity),
+			0, 0.0f, EBlendStatePreset::Opaque, ECullModePreset::Back, EDepthStatePreset::DepthRead);
+		Register("VelocityTwoSided_GPUSkin", kVelocityVS, "Shader/cso/VelocityPS.cso", velocity, _countof(velocity),
+			0, 0.0f, EBlendStatePreset::Opaque, ECullModePreset::None, EDepthStatePreset::DepthRead);
+		Register("VelocityMasked_GPUSkin", kVelocityVS, "Shader/cso/VelocityMaskedPS.cso", velocity, _countof(velocity),
+			0, 0.0f, EBlendStatePreset::Opaque, ECullModePreset::Back, EDepthStatePreset::DepthRead);
+		Register("VelocityMaskedTwoSided_GPUSkin", kVelocityVS, "Shader/cso/VelocityMaskedPS.cso", velocity, _countof(velocity),
+			0, 0.0f, EBlendStatePreset::Opaque, ECullModePreset::None, EDepthStatePreset::DepthRead);
+
+		// Responsive AA マスク
+		Register("ResponsiveAA_GPUSkin", kGeometryVS, "Shader/cso/ResponsiveAAPS.cso", responsive, _countof(responsive),
+			0, 0.0f, EBlendStatePreset::Opaque, ECullModePreset::Back, EDepthStatePreset::DepthRead);
+		Register("ResponsiveAATwoSided_GPUSkin", kGeometryVS, "Shader/cso/ResponsiveAAPS.cso", responsive, _countof(responsive),
+			0, 0.0f, EBlendStatePreset::Opaque, ECullModePreset::None, EDepthStatePreset::DepthRead);
 	}
 
 	// ---- Temporal AA デバッグ表示 (FSceneRenderer::AddVisualizeTemporalAAPass) ----
@@ -1587,7 +1662,7 @@ static D3D12_DEPTH_STENCIL_DESC BuildDepthStencilStateDesc(EDepthStatePreset Dep
 }
 
 
-ComPtr<ID3D12PipelineState> RenderManager::CreatePipeline(const char* VertexShaderFile, const char* PixelShaderFile, const DXGI_FORMAT* RTVFormats, unsigned int NumRenderTargets, int DepthBias, float SlopeScaledDepthBias, EBlendStatePreset BlendPreset, ECullModePreset CullPreset, EDepthStatePreset DepthPreset, bool bOptional)
+ComPtr<ID3D12PipelineState> RenderManager::CreatePipeline(const char* VertexShaderFile, const char* PixelShaderFile, const DXGI_FORMAT* RTVFormats, unsigned int NumRenderTargets, int DepthBias, float SlopeScaledDepthBias, EBlendStatePreset BlendPreset, ECullModePreset CullPreset, EDepthStatePreset DepthPreset, bool bOptional, EVertexFactoryType VertexFactory)
 {
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC pipelineStateDesc{};
 
@@ -1610,17 +1685,23 @@ ComPtr<ID3D12PipelineState> RenderManager::CreatePipeline(const char* VertexShad
 		return nullptr;
 	}
 
-	// インプットレイアウト
-	D3D12_INPUT_ELEMENT_DESC InputElementDesc[] =
+	// インプットレイアウト (頂点ファクトリごと)。
+	// GPUSkinVertexFactory は VERTEX_SKINNED (VERTEX_3D + BLENDINDICES / BLENDWEIGHT)
+	static const D3D12_INPUT_ELEMENT_DESC InputElementDesc[] =
 	{
-		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT,    0,  0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-		{ "NORMAL",   0, DXGI_FORMAT_R32G32B32_FLOAT,    0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-		{ "TANGENT",  0, DXGI_FORMAT_R32G32B32_FLOAT,    0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-		{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,       0, 36, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-		{ "COLOR",    0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 44, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+		{ "POSITION",     0, DXGI_FORMAT_R32G32B32_FLOAT,    0,  0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+		{ "NORMAL",       0, DXGI_FORMAT_R32G32B32_FLOAT,    0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+		{ "TANGENT",      0, DXGI_FORMAT_R32G32B32_FLOAT,    0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+		{ "TEXCOORD",     0, DXGI_FORMAT_R32G32_FLOAT,       0, 36, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+		{ "COLOR",        0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 44, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+		{ "BLENDINDICES", 0, DXGI_FORMAT_R8G8B8A8_UINT,      0, 60, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+		{ "BLENDWEIGHT",  0, DXGI_FORMAT_R8G8B8A8_UNORM,     0, 64, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
 	};
+	static_assert(offsetof(VERTEX_SKINNED, BlendIndices) == 60 && offsetof(VERTEX_SKINNED, BlendWeights) == 64,
+		"VERTEX_SKINNED layout must match the GPUSkin input layout");
 	pipelineStateDesc.InputLayout.pInputElementDescs = InputElementDesc;
-	pipelineStateDesc.InputLayout.NumElements = _countof(InputElementDesc);
+	pipelineStateDesc.InputLayout.NumElements =
+		(VertexFactory == EVertexFactoryType::GPUSkinVertexFactory) ? _countof(InputElementDesc) : 5;
 
 	pipelineStateDesc.SampleDesc.Count = 1;
 	pipelineStateDesc.SampleDesc.Quality = 0;

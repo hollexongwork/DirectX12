@@ -4,6 +4,8 @@
 #include "LightComponent.h"
 #include "ExponentialHeightFogComponent.h"
 
+unsigned long long FScene::s_FrameNumber = 0;
+
 void FScene::AddPrimitive(UPrimitiveComponent* Primitive)
 {
 	for (const auto& info : m_Primitives)
@@ -30,6 +32,11 @@ void FScene::AddPrimitive(UPrimitiveComponent* Primitive)
 	//  従来の「毎フレームプッシュ」時代の初回フレーム挙動を保存)
 	Primitive->ClearRenderTransformDirty();
 	Primitive->MarkRenderTransformDirty();
+
+	// 初回フレームの動的データ (スキニングのボーン行列) プッシュも予約する
+	// (基底の SendRenderDynamicData_Concurrent は何もしない)
+	Primitive->ClearRenderDynamicDataDirty();
+	Primitive->MarkRenderDynamicDataDirty();
 }
 
 void FScene::RemovePrimitive(UPrimitiveComponent* Primitive)
@@ -53,14 +60,21 @@ void FScene::RemovePrimitive(UPrimitiveComponent* Primitive)
 	m_PrimitiveTransformDirtyList.erase(
 		std::remove(m_PrimitiveTransformDirtyList.begin(), m_PrimitiveTransformDirtyList.end(), Primitive),
 		m_PrimitiveTransformDirtyList.end());
+	m_PrimitiveDynamicDataDirtyList.erase(
+		std::remove(m_PrimitiveDynamicDataDirtyList.begin(), m_PrimitiveDynamicDataDirtyList.end(), Primitive),
+		m_PrimitiveDynamicDataDirtyList.end());
 
 	// 「フラグ = エンキュー済み」の対応を保つためフラグも下ろす
 	// (再登録時は AddPrimitive が積み直す)
 	Primitive->ClearRenderTransformDirty();
+	Primitive->ClearRenderDynamicDataDirty();
 }
 
 void FScene::UpdateAllPrimitiveSceneInfos()
 {
+	// ---- フレーム番号 (GFrameNumber 相当) ----
+	++s_FrameNumber;
+
 	// ---- ベロシティ: 前フレームの描画値 -> Prev (全エントリ) ----
 	// プッシュの有無に関わらず毎フレーム行う (動きが止まったプリミティブは次のフレームで
 	// 速度 0 に戻る。古い Prev が残り続ける危険の解消)
@@ -72,6 +86,8 @@ void FScene::UpdateAllPrimitiveSceneInfos()
 	renderStateDirty.swap(m_PrimitiveRenderStateDirtyList);
 	std::vector<UPrimitiveComponent*> transformDirty;
 	transformDirty.swap(m_PrimitiveTransformDirtyList);
+	std::vector<UPrimitiveComponent*> dynamicDataDirty;
+	dynamicDataDirty.swap(m_PrimitiveDynamicDataDirtyList);
 
 	// ---- レンダーステートダーティ (プッシュ型) ----
 	// リストにあるプリミティブだけプロキシをその場で作り直す (描画順は不変)
@@ -109,6 +125,16 @@ void FScene::UpdateAllPrimitiveSceneInfos()
 		{
 			m_VelocityData.UpdateTransform(component, proxy->GetLocalToWorld());
 		}
+	}
+
+	// ---- 動的データダーティ (プッシュ型) ----
+	// スキニングのボーン行列など、プロキシを作り直さずに毎フレーム送る値
+	// (USkinnedMeshComponent::SendRenderDynamicData_Concurrent)。
+	// プロキシ再生成 / トランスフォームの後に行う (新しいプロキシへ届く)
+	for (UPrimitiveComponent* component : dynamicDataDirty)
+	{
+		component->ClearRenderDynamicDataDirty();
+		component->SendRenderDynamicData_Concurrent();
 	}
 
 	// ---- ベロシティ: テレポート保留をすべて下ろす (今フレームのプッシュで消費済み) ----

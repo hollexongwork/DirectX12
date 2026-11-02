@@ -198,8 +198,17 @@ private:
 		bool     bPolygon2D = false;
 		XMFLOAT4 VertexColor = { 1.0f, 1.0f, 1.0f, 1.0f };
 
-		// マテリアルスロット (UStaticMeshComponent / UFieldQuadComponent)
+		// マテリアルスロット (UStaticMeshComponent / USkinnedMeshComponent / UFieldQuadComponent)
 		std::vector<MaterialSnapshot> Materials;
+
+		// ---- USkeletalMeshComponent (単一ノード再生の設定。キーは "Anim.*") ----
+		bool  bSkeletalMesh = false;
+		float AnimPlayRate = 1.0f;
+		bool  AnimLooping = true;
+		bool  AnimPlaying = true;
+		bool  AnimPauseAnims = false;
+		float AnimGlobalRateScale = 1.0f;
+		float AnimBoundsScale = 1.0f;
 
 		// ---- ULightComponent 系 ----
 		bool        bLight = false;

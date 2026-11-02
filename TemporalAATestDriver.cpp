@@ -8,6 +8,10 @@
 #include "Camera.h"
 #include "StaticMeshActor.h"
 #include "Tree.h"
+#include "SkeletalMeshActor.h"
+#include "SkeletalMeshImporter.h"
+#include "ProceduralSkeletalMesh.h"
+#include "AssetManager.h"
 #include "FBXModel.h"
 #include "DistanceFieldAtlas.h"
 #include "PostProcessVolume.h"
@@ -415,6 +419,7 @@ void FTemporalAATestDriver::ParseCommandLine(const wchar_t* CmdLine)
 			else if (m_ScenarioName == "translucent") m_Scenario = EScenario::Translucent;
 			else if (m_ScenarioName == "qswitch")   m_Scenario = EScenario::QSwitch;
 			else if (m_ScenarioName == "tree")      m_Scenario = EScenario::Tree;
+			else if (m_ScenarioName == "skeletal")  m_Scenario = EScenario::Skeletal;
 			else
 			{
 				CommandLineError("unknown scenario '" + m_ScenarioName + "'");
@@ -639,6 +644,55 @@ void FTemporalAATestDriver::OnBegin(UWorld& World, FSceneRenderer& Renderer, Set
 			return;
 		}
 		m_MovingActorBase = m_MovingActor->GetActorLocation();
+	}
+
+	// ---- skeletal: 最初に見つかった ASkeletalMeshActor の正面にカメラを置く (保存はされない) ----
+	if (m_Scenario == EScenario::Skeletal)
+	{
+		std::vector<ASkeletalMeshActor*> actors;
+		World.GetActorsOfClass<ASkeletalMeshActor>(actors);
+		m_SkeletalActor = actors.empty() ? nullptr : actors[0];
+		if (m_SkeletalActor == nullptr || m_SkeletalActor->GetSkeletalMeshComponent() == nullptr ||
+			m_SkeletalActor->GetSkeletalMeshComponent()->GetNumBones() == 0)
+		{
+			Message("skeletal scenario: no ASkeletalMeshActor with a skeletal mesh in the world");
+			RequestExit(ExitBadCommandLine);
+			return;
+		}
+
+		const XMFLOAT3 target = m_SkeletalActor->GetActorLocation();
+		m_C0Location = { target.x, target.y + kSkeletalCameraOffsetY, target.z + kSkeletalCameraOffsetZ };
+		m_C0Rotation = { 0.0f, 0.0f, 0.0f };
+		m_Camera->SetActorLocation(m_C0Location);
+		m_Camera->SetActorRotation(m_C0Rotation);
+		m_Camera->ResetVelocity();
+		m_Camera->GetCameraComponent()->NotifyCameraCut();
+
+		char msg[160];
+		sprintf_s(msg, "skeletal: actor '%s' at (%.2f, %.2f, %.2f), %d bones, camera C0=(%.2f, %.2f, %.2f)",
+			m_SkeletalActor->GetActorLabel().c_str(), target.x, target.y, target.z,
+			m_SkeletalActor->GetSkeletalMeshComponent()->GetNumBones(),
+			m_C0Location.x, m_C0Location.y, m_C0Location.z);
+		Message(msg);
+
+		// ワールド内の全スケルタルメッシュアクターの概要 (FBX 読み込みの確認用)
+		for (ASkeletalMeshActor* actor : actors)
+		{
+			USkeletalMeshComponent* component = actor->GetSkeletalMeshComponent();
+			const std::shared_ptr<USkeletalMesh>& mesh = component->GetSkeletalMesh();
+			const std::shared_ptr<UAnimSequenceBase> anim = component->GetCurrentAnimation();
+			const FBoxSphereBounds& bounds = component->GetBounds();
+			char info[512];
+			sprintf_s(info, "skeletal: actor '%s' mesh '%s' loaded=%d bones=%d sections=%u materials=%u anim='%s' length=%.3f bounds origin (%.2f, %.2f, %.2f) extent (%.2f, %.2f, %.2f)",
+				actor->GetActorLabel().c_str(), mesh ? mesh->GetName().c_str() : "", (mesh && mesh->IsLoaded()) ? 1 : 0,
+				component->GetNumBones(), mesh ? mesh->GetNumSections() : 0u, component->GetNumMaterialSlots(),
+				anim ? anim->GetName().c_str() : "none", anim ? anim->GetPlayLength() : 0.0f,
+				bounds.Origin.x, bounds.Origin.y, bounds.Origin.z, bounds.BoxExtent.x, bounds.BoxExtent.y, bounds.BoxExtent.z);
+			Message(info);
+		}
+
+		// 書き出し -> 再インポート (FSkeletalMeshImporter の検査)
+		m_bSkeletalRoundTripOK = RunSkeletalRoundTrip(World);
 	}
 
 	// ---- tree: 最初に見つかった ATree (GameManager はフォグの後に 1 体スポーンする) ----
@@ -1001,6 +1055,30 @@ void FTemporalAATestDriver::PostFrame(FSceneRenderer& Renderer, RenderManager& R
 		fflush(m_Log);
 	}
 
+	// ---- skeletal: 末端ボーンの前進 / ベロシティ描画数 ----
+	if (m_Scenario == EScenario::Skeletal && m_SkeletalActor != nullptr)
+	{
+		USkeletalMeshComponent* component = m_SkeletalActor->GetSkeletalMeshComponent();
+		const XMFLOAT3 tip = component->GetBoneLocation(component->GetNumBones() - 1);
+		if (m_bSkeletalHasLastTip)
+		{
+			const float dx = tip.x - m_SkeletalLastTip.x;
+			const float dy = tip.y - m_SkeletalLastTip.y;
+			const float dz = tip.z - m_SkeletalLastTip.z;
+			if (dx * dx + dy * dy + dz * dz > 1.0e-8f)
+			{
+				++m_SkeletalMovedFrames;
+			}
+		}
+		m_SkeletalLastTip = tip;
+		m_bSkeletalHasLastTip = true;
+
+		if (Renderer.GetTemporalAAStats().NumVelocityDraws >= 1)
+		{
+			++m_SkeletalVelocityFrames;
+		}
+	}
+
 	// ---- tree: 再生成後のメッシュが SDF スロットを得ているか (スロットの返却 / 再利用の検査) ----
 	if (m_Scenario == EScenario::Tree && m_Tree != nullptr)
 	{
@@ -1029,6 +1107,149 @@ void FTemporalAATestDriver::PostFrame(FSceneRenderer& Renderer, RenderManager& R
 }
 
 
+// ------------------------------------------------------------
+//  skeletal: 書き出し -> 再インポートのラウンドトリップ
+// ------------------------------------------------------------
+bool FTemporalAATestDriver::RunSkeletalRoundTrip(UWorld& World)
+{
+	// 元データ (GameManager と同じパラメータで生成し直す)
+	FProceduralSkeletalChainParams chain;
+	FSkeletalMeshImportData source;
+	FProceduralSkeletalMeshBuilder::BuildChain(chain, source);
+
+	std::shared_ptr<USkeletalMesh> sourceMesh = FAssetManager::GetInstance()->FindSkeletalMesh("ProceduralChain");
+	std::shared_ptr<UAnimSequence> sourceWave = FAssetManager::GetInstance()->FindAnimSequence("ProceduralChain#Wave");
+	std::shared_ptr<UAnimSequence> sourceIdle = FAssetManager::GetInstance()->FindAnimSequence("ProceduralChain#Idle");
+	if (!sourceMesh || !sourceWave || !sourceIdle)
+	{
+		Message("skeletal roundtrip: source assets (ProceduralChain) not registered");
+		return false;
+	}
+
+	const std::string path = ToNarrow(m_OutDir) + "/ProceduralChain.gltf";
+	std::vector<std::shared_ptr<UAnimSequence>> sequences = { sourceWave, sourceIdle };
+	if (!FSkeletalMeshImporter::ExportSkeletalMesh(path.c_str(), "gltf2", source, sequences))
+	{
+		Message("skeletal roundtrip: export failed: " + path);
+		return false;
+	}
+
+	std::shared_ptr<USkeletalMesh> imported = FAssetManager::GetInstance()->LoadSkeletalMesh(path);
+	if (!imported || !imported->IsLoaded())
+	{
+		Message("skeletal roundtrip: import failed: " + path);
+		return false;
+	}
+
+	// ---- ボーン名 / 親子関係 (再インポートはシーンルート "RootNode" が 1 本増える) ----
+	const FReferenceSkeleton& srcSkel = source.RefSkeleton;
+	const FReferenceSkeleton& dstSkel = imported->GetRefSkeleton();
+	bool bOK = true;
+	for (int i = 0; i < srcSkel.GetNum(); ++i)
+	{
+		const int dst = dstSkel.FindBoneIndex(srcSkel.GetBoneName(i));
+		if (dst == INDEX_NONE)
+		{
+			Message("skeletal roundtrip: bone missing after import: " + srcSkel.GetBoneName(i));
+			bOK = false;
+			continue;
+		}
+		const int srcParent = srcSkel.GetParentIndex(i);
+		const int dstParent = dstSkel.GetParentIndex(dst);
+		if (srcParent != INDEX_NONE && (dstParent == INDEX_NONE || dstSkel.GetBoneName(dstParent) != srcSkel.GetBoneName(srcParent)))
+		{
+			Message("skeletal roundtrip: parent mismatch for bone " + srcSkel.GetBoneName(i));
+			bOK = false;
+		}
+	}
+
+	// ---- アニメーション ----
+	const std::vector<std::shared_ptr<UAnimSequence>>& importedAnims =
+		FAssetManager::GetInstance()->LoadAnimSequences(path, imported->GetSkeleton());
+	if (importedAnims.size() != sequences.size())
+	{
+		Message("skeletal roundtrip: animation count mismatch: " + std::to_string(importedAnims.size()) +
+			" (expected " + std::to_string(sequences.size()) + ")");
+		bOK = false;
+	}
+
+	// ---- 0.7 s のポーズ: 末端ボーン (Bone<N-1>) のコンポーネント空間位置を比較 ----
+	float maxError = 0.0f;
+	if (bOK)
+	{
+		const std::string tipName = srcSkel.GetBoneName(srcSkel.GetNum() - 1);
+		for (size_t a = 0; a < sequences.size(); ++a)
+		{
+			const std::shared_ptr<UAnimSequence>& srcSeq = sequences[a];
+			std::shared_ptr<UAnimSequence> dstSeq;
+			for (const std::shared_ptr<UAnimSequence>& candidate : importedAnims)
+			{
+				if (candidate->GetName() == srcSeq->GetName()) dstSeq = candidate;
+			}
+			if (!dstSeq)
+			{
+				Message("skeletal roundtrip: animation missing after import: " + srcSeq->GetName());
+				bOK = false;
+				continue;
+			}
+
+			auto EvaluateTip = [](const FReferenceSkeleton& Skel, const UAnimSequence& Seq, const std::string& TipName, float Time) -> XMFLOAT3
+				{
+					FBoneContainer bones;
+					bones.InitializeTo(Skel);
+					FCompactPose pose;
+					pose.SetBoneContainer(&bones);
+					FBlendedCurve curve;
+					Seq.GetBonePose(pose, curve, FAnimExtractContext(Time, true));
+					std::vector<FTransform> cs;
+					FAnimationRuntime::FillUpComponentSpaceTransforms(Skel, pose.Bones, cs);
+					const int tip = Skel.FindBoneIndex(TipName);
+					return (tip != INDEX_NONE) ? cs[tip].Translation : XMFLOAT3{ 0.0f, 0.0f, 0.0f };
+				};
+
+			const XMFLOAT3 s = EvaluateTip(srcSkel, *srcSeq, tipName, 0.7f);
+			const XMFLOAT3 d = EvaluateTip(dstSkel, *dstSeq, tipName, 0.7f);
+			const float err = sqrtf((s.x - d.x) * (s.x - d.x) + (s.y - d.y) * (s.y - d.y) + (s.z - d.z) * (s.z - d.z));
+			maxError = (std::max)(maxError, err);
+
+			char msg[256];
+			sprintf_s(msg, "skeletal roundtrip: '%s' tip at 0.7 s: source (%.4f, %.4f, %.4f) imported (%.4f, %.4f, %.4f) err=%.2e (length %.3f / %.3f s)",
+				srcSeq->GetName().c_str(), s.x, s.y, s.z, d.x, d.y, d.z, err, srcSeq->GetPlayLength(), dstSeq->GetPlayLength());
+			Message(msg);
+		}
+	}
+	if (maxError > 1.0e-3f)
+	{
+		Message("skeletal roundtrip: pose mismatch (max error > 1e-3 m)");
+		bOK = false;
+	}
+
+	// ---- 再インポートしたメッシュのアクターを元の隣にスポーン (目視用) ----
+	if (bOK && m_SkeletalActor != nullptr)
+	{
+		ASkeletalMeshActor* actor = World.SpawnActor<ASkeletalMeshActor>();
+		actor->SetActorLabel("SkeletalImported");
+		const XMFLOAT3 base = m_SkeletalActor->GetActorLocation();
+		actor->SetActorLocation({ base.x + 2.5f, base.y, base.z });
+
+		USkeletalMeshComponent* component = actor->GetSkeletalMeshComponent();
+		component->SetSkeletalMesh(imported);
+		component->SetBaseColorTexture(0, "Asset/Texture/lion_head_diff_4k.dds");
+		component->SetNormalTexture(0, "Asset/Texture/lion_head_nor_dx_4k.dds");
+		component->SetARMTexture(0, "Asset/Texture/lion_head_arm_4k.dds");
+		Material& material = component->GetMaterial(0);
+		material.Params.BaseColor = { 0.35f, 0.6f, 0.85f, 1.0f };
+		material.Params.Roughness = 0.7f;
+		material.Params.Specular = 0.5f;
+		component->MarkRenderStateDirty();
+		component->PlayAnimation(importedAnims[0], true);
+	}
+
+	Message(std::string("skeletal roundtrip: ") + (bOK ? "OK" : "FAILED") +
+		" (source bones " + std::to_string(srcSkel.GetNum()) + ", imported bones " + std::to_string(dstSkel.GetNum()) + ")");
+	return bOK;
+}
+
 void FTemporalAATestDriver::Finish(FSceneRenderer& Renderer)
 {
 	// 最終フレームで記録したコピーを WaitGPU して書き出す
@@ -1052,6 +1273,19 @@ void FTemporalAATestDriver::Finish(FSceneRenderer& Renderer)
 		Message("self test was requested but did not run");
 		SetFailure(ExitSelfTestFailed);
 	}
+	if (m_Scenario == EScenario::Skeletal)
+	{
+		const int required = (m_NumFrames - 1) / 2;
+		Message("skeletal scenario: moved_frames=" + std::to_string(m_SkeletalMovedFrames) +
+			"/" + std::to_string((std::max)(0, m_NumFrames - 1)) +
+			" velocity_frames=" + std::to_string(m_SkeletalVelocityFrames) +
+			" (required moved >= " + std::to_string(required) + ")");
+		if (m_SkeletalActor == nullptr || m_SkeletalMovedFrames < required || !m_bSkeletalRoundTripOK)
+		{
+			SetFailure(ExitScenarioCheckFailed);
+		}
+	}
+
 	if (m_Scenario == EScenario::Tree)
 	{
 		const FProceduralTreeStats& stats = (m_Tree != nullptr) ? m_Tree->GetTreeStats() : FProceduralTreeStats{};

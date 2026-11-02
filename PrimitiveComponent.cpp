@@ -37,6 +37,17 @@ void UPrimitiveComponent::MarkRenderStateDirty()
 	}
 }
 
+void UPrimitiveComponent::MarkRenderDynamicDataDirty()
+{
+	const bool bWasDirty = m_RenderDynamicDataDirty;
+	m_RenderDynamicDataDirty = true;
+
+	if (!bWasDirty && IsRegistered() && GetWorld())
+	{
+		GetWorld()->GetScene()->AddPrimitiveDynamicDataDirty(this);
+	}
+}
+
 void UPrimitiveComponent::MarkRenderTransformDirty()
 {
 	if (!m_RenderTransformDirty)

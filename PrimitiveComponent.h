@@ -58,6 +58,12 @@ protected:
 	// 再生成される (描画順は変わらない)。
 	bool m_RenderStateDirty = false;
 
+	// 動的データ (スキニングのボーン行列など、プロキシを作り直さずに
+	// 毎フレーム送る値) の変更フラグ。立っている = FScene の動的データ
+	// ダーティリストにエンキュー済み。次の UpdateAllPrimitiveSceneInfos で
+	// SendRenderDynamicData_Concurrent が呼ばれる (MarkRenderDynamicDataDirty)
+	bool m_RenderDynamicDataDirty = false;
+
 public:
 	void OnRegister() override;
 	void OnUnregister() override;
@@ -77,6 +83,16 @@ public:
 	void MarkRenderStateDirty();
 	bool IsRenderStateDirty() const { return m_RenderStateDirty; }
 	void ClearRenderStateDirty() { m_RenderStateDirty = false; }
+
+	// ---- 動的データ更新 (MarkRenderDynamicDataDirty / SendRenderDynamicData_Concurrent) ----
+	// プロキシを作り直さずに毎フレーム値を送る経路 (USkinnedMeshComponent の
+	// ボーン行列)。フラグを立て、登録済みなら FScene の動的データダーティリストへ
+	// 自分を積む。FScene::UpdateAllPrimitiveSceneInfos が
+	// SendRenderDynamicData_Concurrent を呼ぶ (既定は何もしない)
+	void MarkRenderDynamicDataDirty();
+	bool IsRenderDynamicDataDirty() const { return m_RenderDynamicDataDirty; }
+	void ClearRenderDynamicDataDirty() { m_RenderDynamicDataDirty = false; }
+	virtual void SendRenderDynamicData_Concurrent() {}
 
 	// ---- レンダートランスフォーム更新 (プッシュ型) ----
 	// フラグを立てて FScene のトランスフォームダーティリストへ自分を
