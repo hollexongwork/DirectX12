@@ -3,7 +3,7 @@
 
 // ============================================================
 //  AManny
-//  ASkeletalMeshActor 派生の UE5 マネキン (SKM_Manny.FBX)。
+//  ASkeletalMeshActor 派生のマネキン (SKM_Manny.FBX)。
 //  ACat と同じく、アセットパスと既定マテリアル / 既定トランスフォームを
 //  コンストラクタで焼き込む (FObjectFinder のパス指定に相当)。
 //
