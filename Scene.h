@@ -142,6 +142,7 @@ private:
 	// UpdateAll*SceneInfos がリストだけを処理してクリアする。
 	std::vector<UPrimitiveComponent*> m_PrimitiveRenderStateDirtyList;
 	std::vector<UPrimitiveComponent*> m_PrimitiveTransformDirtyList;
+	std::vector<UPrimitiveComponent*> m_PrimitiveDynamicDataDirtyList;	// SendRenderDynamicData_Concurrent 待ち
 	std::vector<ULightComponent*>     m_LightRenderStateDirtyList;
 	std::vector<ULightComponent*>     m_LightTransformDirtyList;
 
@@ -182,10 +183,16 @@ public:
 
 	// ダーティリストにあるプリミティブだけを処理する:
 	// レンダーステートダーティ -> プロキシ再生成 (その場・描画順不変)、
-	// トランスフォームダーティ -> トランスフォーム / 境界 / 可視性プッシュ。
+	// トランスフォームダーティ -> トランスフォーム / 境界 / 可視性プッシュ、
+	// 動的データダーティ -> SendRenderDynamicData_Concurrent (スキニングのボーン行列)。
 	// UWorld::SendAllEndOfFrameUpdates から毎フレーム呼ばれる。
 	// (FScene::UpdateAllPrimitiveSceneInfos)
 	void UpdateAllPrimitiveSceneInfos();
+
+	// ---- フレーム番号 (GFrameNumber 相当) ----
+	// UpdateAllPrimitiveSceneInfos の先頭で 1 進む。FSkeletalMeshObjectGPUSkin が
+	// 「前フレームのボーン行列」が直前のフレームに更新されたものかを判定するのに使う
+	static unsigned long long GetFrameNumber() { return s_FrameNumber; }
 
 	const std::vector<FPrimitiveSceneInfo>& GetPrimitives() const { return m_Primitives; }
 
@@ -201,6 +208,7 @@ public:
 	// だけが呼ぶこと (二重登録防止フラグはコンポーネント側が管理する)。
 	void AddPrimitiveRenderStateDirty(UPrimitiveComponent* Primitive) { m_PrimitiveRenderStateDirtyList.push_back(Primitive); }
 	void AddPrimitiveTransformDirty(UPrimitiveComponent* Primitive) { m_PrimitiveTransformDirtyList.push_back(Primitive); }
+	void AddPrimitiveDynamicDataDirty(UPrimitiveComponent* Primitive) { m_PrimitiveDynamicDataDirtyList.push_back(Primitive); }
 	void AddLightRenderStateDirty(ULightComponent* Light) { m_LightRenderStateDirtyList.push_back(Light); }
 	void AddLightTransformDirty(ULightComponent* Light) { m_LightTransformDirtyList.push_back(Light); }
 
@@ -253,4 +261,7 @@ public:
 
 	void                SetPostProcessVolume(APostProcessVolume* Volume) { m_PostProcessVolume = Volume; }
 	APostProcessVolume* GetPostProcessVolume() const { return m_PostProcessVolume; }
+
+private:
+	static unsigned long long s_FrameNumber;
 };

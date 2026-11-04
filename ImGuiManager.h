@@ -85,6 +85,8 @@ private:
 	void DrawPrimitiveSection(class UPrimitiveComponent* Component);
 	void DrawCameraSection(class UCameraComponent* Component);
 	void DrawStaticMeshSection(class UStaticMeshComponent* Component);
+	// Skeletal Mesh (USkeletalMeshComponent): マテリアルスロット + Animation (単一ノード再生の操作)
+	void DrawSkeletalMeshSection(class USkeletalMeshComponent* Component);
 	void DrawFieldQuadSection(class UFieldQuadComponent* Component);
 	void DrawPolygon2DSection(class UPolygon2DComponent* Component);
 	void DrawPostProcessVolumeSection(class APostProcessVolume* Volume);

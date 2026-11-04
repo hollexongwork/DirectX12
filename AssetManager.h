@@ -3,9 +3,15 @@
 #include <string>
 #include <unordered_map>
 
+#include <vector>
+
 class FBXModel;
 struct TEXTURE;
 struct FProceduralMeshData;
+class USkeletalMesh;
+class USkeleton;
+class UAnimSequence;
+struct FSkeletalMeshImportData;
 
 // ============================================================
 //  FAssetManager
@@ -44,6 +50,13 @@ private:
 	// 返却される (パラメータ編集のたびに別名のメッシュが増えるため)
 	std::unordered_map<std::string, std::weak_ptr<FBXModel>>   m_ProceduralMeshCache;
 
+	// スケルタルメッシュ (USkeletalMesh) / アニメーション (UAnimSequence) のキャッシュ。
+	// スケルタルメッシュはパス (またはプロシージャル名) をキーに、アニメーションは
+	// "<パス>" (ファイル単位の列) と "<名前>" (登録名) をキーに持つ
+	std::unordered_map<std::string, std::shared_ptr<USkeletalMesh>>              m_SkeletalMeshCache;
+	std::unordered_map<std::string, std::vector<std::shared_ptr<UAnimSequence>>> m_AnimSequenceFileCache;
+	std::unordered_map<std::string, std::shared_ptr<UAnimSequence>>              m_AnimSequenceCache;
+
 public:
 	FAssetManager();
 	~FAssetManager();
@@ -69,4 +82,27 @@ public:
 	// 初回は RenderManager::LoadTexture でロードし、以降は共有
 	// インスタンスを返す。
 	std::shared_ptr<TEXTURE> LoadTexture(const std::string& Path, bool sRGB = false);
+
+	// ---- スケルタルメッシュ / アニメーション (USkeletalMesh / UAnimSequence 相当) ----
+	// FBX / glTF からのロード (FSkeletalMeshImporter)。ロード失敗もキャッシュする (IsLoaded() = false)
+	std::shared_ptr<USkeletalMesh> LoadSkeletalMesh(const std::string& Path, bool FlipUV = true);
+
+	// インポートデータから構築して Name で共有する (プロシージャル生成用。同名なら既存を返す)
+	std::shared_ptr<USkeletalMesh> CreateSkeletalMesh(const std::string& Name, const FSkeletalMeshImportData& Data,
+		std::shared_ptr<USkeleton> Skeleton = nullptr);
+	std::shared_ptr<USkeletalMesh> FindSkeletalMesh(const std::string& Name) const;
+
+	// ファイル内の全アニメーションをロードする (Skeleton のボーン名で対応付け)。
+	// ファイル単位でキャッシュし、各シーケンスは "<Path>#<名前>" でも引ける
+	const std::vector<std::shared_ptr<UAnimSequence>>& LoadAnimSequences(const std::string& Path,
+		const std::shared_ptr<USkeleton>& Skeleton, bool FlipUV = true);
+	// ファイル内の Index 番目 (無ければ nullptr)
+	std::shared_ptr<UAnimSequence> LoadAnimSequence(const std::string& Path, unsigned int Index,
+		const std::shared_ptr<USkeleton>& Skeleton, bool FlipUV = true);
+
+	// 生成したシーケンスを名前で登録 / 取得する (プロシージャル生成用)
+	void RegisterAnimSequence(const std::string& Name, std::shared_ptr<UAnimSequence> Sequence);
+	std::shared_ptr<UAnimSequence> FindAnimSequence(const std::string& Name) const;
+	// 登録済みの全シーケンス名 (ソート済み。Details のアセット選択用)
+	void GetAnimSequenceNames(std::vector<std::string>& OutNames) const;
 };

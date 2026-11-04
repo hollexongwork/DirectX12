@@ -18,17 +18,7 @@ struct FProceduralMeshData;
 //  MarkRenderStateDirty 経由で次フレームのプロキシ再生成に反映される。
 // ============================================================
 
-struct FMaterialSlot
-{
-	Material                 Mat;
-
-	// テクスチャは FAssetManager のキャッシュと共有する
-	// (UTexture2D 相当。プロキシも同じ shared_ptr を保持するため、
-	//  実行時差し替え後も旧テクスチャは旧プロキシが生かし続ける)
-	std::shared_ptr<TEXTURE> BaseColor;
-	std::shared_ptr<TEXTURE> Normal;
-	std::shared_ptr<TEXTURE> ARM;
-};
+// FMaterialSlot は Material.h (USkinnedMeshComponent と共用)
 
 class UStaticMeshComponent : public UPrimitiveComponent
 {

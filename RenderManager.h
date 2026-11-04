@@ -16,7 +16,7 @@
 //    - ルートシグネチャ + PSO キャッシュ
 //    - リソース生成 (RT / テクスチャ / VB / IB) とバインド API
 //  ※ CONSTANT_TYPE / TEXTURE_TYPE の enum 値は HLSL レジスタと
-//    1:1 対応 (b0..b7 / t0..t36)。順序変更・挿入は禁止。
+//    1:1 対応 (b0..b7 / t0..t40)。順序変更・挿入は禁止。
 //    新規リソースは COUNT の直前に追加すること。
 // ============================================================
 
@@ -29,6 +29,24 @@ struct VERTEX_3D
 	XMFLOAT2 TexCoord;
 	XMFLOAT4 Color;
 };
+
+// GPU スキニング用頂点 (FGPUSkinVertexFactory の 1 ストリーム版)。
+// VERTEX_3D と同じ先頭 60 B + ボーン影響 4 組:
+//   BlendIndices = セクションの BoneMap 内のローカルボーン添字 (R8G8B8A8_UINT)
+//   BlendWeights = 重み (R8G8B8A8_UNORM。合計 255 に正規化済み)
+// USkeletalMesh::Build が FSkeletalMeshImportData から作る。
+// HLSL 側は VertexFactory.hlsl の FVertexFactoryInput (GPUSKIN_VERTEX_FACTORY)。
+struct VERTEX_SKINNED
+{
+	XMFLOAT3 Position;
+	XMFLOAT3 Normal;
+	XMFLOAT3 Tangent;
+	XMFLOAT2 TexCoord;
+	XMFLOAT4 Color;
+	uint8_t  BlendIndices[4];
+	uint8_t  BlendWeights[4];
+};
+static_assert(sizeof(VERTEX_SKINNED) == 68, "VERTEX_SKINNED must be VERTEX_3D (60 B) + 8 B of bone influences");
 
 
 
@@ -212,6 +230,17 @@ enum class ECullModePreset
 	None,	// Two Sided (カリング無効)
 };
 
+// 頂点ファクトリ (FLocalVertexFactory / FGPUSkinVertexFactory)。
+// CreatePipeline のインプットレイアウトを選ぶ:
+//   LocalVertexFactory   = VERTEX_3D (スタティックメッシュ / 手組みクアッド)
+//   GPUSkinVertexFactory = VERTEX_SKINNED (+ BLENDINDICES / BLENDWEIGHT。スケルタルメッシュ)
+// スキン版の PSO 名は "<既存名>_GPUSkin" (InitPipelines)
+enum class EVertexFactoryType
+{
+	LocalVertexFactory,
+	GPUSkinVertexFactory,
+};
+
 // 深度書き込み (トランスルーセンシーはテストのみ)
 enum class EDepthStatePreset
 {
@@ -270,7 +299,8 @@ private:
 		EBlendStatePreset BlendPreset = EBlendStatePreset::Opaque,
 		ECullModePreset CullPreset = ECullModePreset::Back,
 		EDepthStatePreset DepthPreset = EDepthStatePreset::DepthWrite,
-		bool bOptional = false);
+		bool bOptional = false,
+		EVertexFactoryType VertexFactory = EVertexFactoryType::LocalVertexFactory);
 
 	// シェーダ可視ヒープ / ルートシグネチャ / ビューポート / シザーを設定する
 	// (BeginFrame と FlushAndResetCommandList の Reset 後の復帰で共通)
@@ -453,8 +483,13 @@ public:
 		LTC_MAT,           // t37 (Texture2D<float4>: LTC 逆行列テーブル。レクトライトのスペキュラ)
 		LTC_AMP,           // t38 (Texture2D<float2>: LTC 振幅 / フレネルテーブル)
 
+		// ---- GPU スキニング (SkeletalMeshComponent.h / VertexFactory.hlsl) ----
+		// 頂点シェーダ可視 (他の SRV はピクセルのみ)。StructuredBuffer<FBoneMatrix> (3 x float4 = 48 B)
+		BONE_MATRICES,          // t39 今フレームの ReferenceToLocal (FSkeletalMeshObjectGPUSkin)
+		PREVIOUS_BONE_MATRICES, // t40 前フレームの ReferenceToLocal (ベロシティパス)
+
 		// ---- Count ----
-		COUNT,             // = 47 (b0..b7 + t0..t38。ルートシグネチャ 47 DWORD)
+		COUNT,             // = 49 (b0..b7 + t0..t40。ルートシグネチャ 49 DWORD)
 	};
 
 	// ------------------------------------------------------------

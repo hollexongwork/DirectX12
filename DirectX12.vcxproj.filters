@@ -355,6 +355,45 @@
     <ClCompile Include="Tree.cpp">
       <Filter>ソース ファイル\GameObject\StaticObject</Filter>
     </ClCompile>
+    <ClCompile Include="AnimationRuntime.cpp">
+      <Filter>ソース ファイル\Mesh</Filter>
+    </ClCompile>
+    <ClCompile Include="AnimSequence.cpp">
+      <Filter>ソース ファイル\Mesh</Filter>
+    </ClCompile>
+    <ClCompile Include="AnimNodes.cpp">
+      <Filter>ソース ファイル\Mesh</Filter>
+    </ClCompile>
+    <ClCompile Include="AnimInstance.cpp">
+      <Filter>ソース ファイル\Mesh</Filter>
+    </ClCompile>
+    <ClCompile Include="Skeleton.cpp">
+      <Filter>ソース ファイル\Mesh</Filter>
+    </ClCompile>
+    <ClCompile Include="SkeletalMesh.cpp">
+      <Filter>ソース ファイル\Mesh</Filter>
+    </ClCompile>
+    <ClCompile Include="SkeletalRenderGPUSkin.cpp">
+      <Filter>ソース ファイル\Mesh</Filter>
+    </ClCompile>
+    <ClCompile Include="SkeletalMeshImporter.cpp">
+      <Filter>ソース ファイル\Mesh</Filter>
+    </ClCompile>
+    <ClCompile Include="ProceduralSkeletalMesh.cpp">
+      <Filter>ソース ファイル\Mesh</Filter>
+    </ClCompile>
+    <ClCompile Include="SkinnedMeshComponent.cpp">
+      <Filter>ソース ファイル\GameObject\Base</Filter>
+    </ClCompile>
+    <ClCompile Include="SkeletalMeshComponent.cpp">
+      <Filter>ソース ファイル\GameObject\Base</Filter>
+    </ClCompile>
+    <ClCompile Include="SkeletalMeshActor.cpp">
+      <Filter>ソース ファイル\GameObject\StaticObject</Filter>
+    </ClCompile>
+    <ClCompile Include="Manny.cpp">
+      <Filter>ソース ファイル\GameObject\StaticObject</Filter>
+    </ClCompile>
     <ClCompile Include="Cat.cpp">
       <Filter>ソース ファイル\GameObject\StaticObject</Filter>
     </ClCompile>
@@ -648,6 +687,54 @@
     <ClInclude Include="Tree.h">
       <Filter>ソース ファイル\GameObject\StaticObject</Filter>
     </ClInclude>
+    <ClInclude Include="Transform.h">
+      <Filter>ソース ファイル\Mesh</Filter>
+    </ClInclude>
+    <ClInclude Include="ReferenceSkeleton.h">
+      <Filter>ソース ファイル\Mesh</Filter>
+    </ClInclude>
+    <ClInclude Include="Skeleton.h">
+      <Filter>ソース ファイル\Mesh</Filter>
+    </ClInclude>
+    <ClInclude Include="AnimationRuntime.h">
+      <Filter>ソース ファイル\Mesh</Filter>
+    </ClInclude>
+    <ClInclude Include="AnimSequence.h">
+      <Filter>ソース ファイル\Mesh</Filter>
+    </ClInclude>
+    <ClInclude Include="AnimNodeBase.h">
+      <Filter>ソース ファイル\Mesh</Filter>
+    </ClInclude>
+    <ClInclude Include="AnimNodes.h">
+      <Filter>ソース ファイル\Mesh</Filter>
+    </ClInclude>
+    <ClInclude Include="AnimInstance.h">
+      <Filter>ソース ファイル\Mesh</Filter>
+    </ClInclude>
+    <ClInclude Include="SkeletalMesh.h">
+      <Filter>ソース ファイル\Mesh</Filter>
+    </ClInclude>
+    <ClInclude Include="SkeletalRenderGPUSkin.h">
+      <Filter>ソース ファイル\Mesh</Filter>
+    </ClInclude>
+    <ClInclude Include="SkeletalMeshImporter.h">
+      <Filter>ソース ファイル\Mesh</Filter>
+    </ClInclude>
+    <ClInclude Include="ProceduralSkeletalMesh.h">
+      <Filter>ソース ファイル\Mesh</Filter>
+    </ClInclude>
+    <ClInclude Include="SkinnedMeshComponent.h">
+      <Filter>ソース ファイル\GameObject\Base</Filter>
+    </ClInclude>
+    <ClInclude Include="SkeletalMeshComponent.h">
+      <Filter>ソース ファイル\GameObject\Base</Filter>
+    </ClInclude>
+    <ClInclude Include="SkeletalMeshActor.h">
+      <Filter>ソース ファイル\GameObject\StaticObject</Filter>
+    </ClInclude>
+    <ClInclude Include="Manny.h">
+      <Filter>ソース ファイル\GameObject\StaticObject</Filter>
+    </ClInclude>
     <ClInclude Include="Cat.h">
       <Filter>ソース ファイル\GameObject\StaticObject</Filter>
     </ClInclude>
@@ -919,6 +1006,18 @@
     </FxCompile>
     <FxCompile Include="Shader\VelocityVS.hlsl">
       <Filter>Shader</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\GeometryVS_GPUSkin.hlsl">
+      <Filter>Shader</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\ShadowDepthVS_GPUSkin.hlsl">
+      <Filter>Shader</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\VelocityVS_GPUSkin.hlsl">
+      <Filter>Shader</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\VertexFactory.hlsl">
+      <Filter>Shader\Header</Filter>
     </FxCompile>
     <FxCompile Include="Shader\VelocityPS.hlsl">
       <Filter>Shader</Filter>

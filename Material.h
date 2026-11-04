@@ -1,9 +1,11 @@
 #pragma once
 #include <windows.h>
 #include <DirectXMath.h>
+#include <memory>
 using namespace DirectX;
 
 class RenderManager;
+struct TEXTURE;
 
 // ============================================================
 //  EBlendMode (EngineTypes.h の EBlendMode 相当)
@@ -192,4 +194,22 @@ public:
 	void SetEnableResponsiveAA(bool bEnable) { bEnableResponsiveAA = bEnable; }
 
 	void Bind(RenderManager* rm) const;
+};
+
+// ============================================================
+//  FMaterialSlot
+//  メッシュコンポーネントのマテリアルスロット (UStaticMeshComponent /
+//  USkinnedMeshComponent 共通。FStaticMaterial / FSkeletalMaterial の
+//  スロット + マテリアルインスタンスの値に相当)。
+//  テクスチャは FAssetManager のキャッシュと共有する
+//  (UTexture2D 相当。プロキシも同じ shared_ptr を保持するため、
+//   実行時差し替え後も旧テクスチャは旧プロキシが生かし続ける)
+// ============================================================
+struct FMaterialSlot
+{
+	Material                 Mat;
+
+	std::shared_ptr<TEXTURE> BaseColor;
+	std::shared_ptr<TEXTURE> Normal;
+	std::shared_ptr<TEXTURE> ARM;
 };

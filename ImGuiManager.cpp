@@ -8,6 +8,8 @@
 #include "Polygon2D.h"
 #include "Field.h"
 #include "StaticMeshComponent.h"
+#include "SkeletalMeshComponent.h"
+#include "AssetManager.h"
 #include "PostProcessVolume.h"
 #include "SceneRenderer.h"
 #include "ShadowRendering.h"
@@ -1075,6 +1077,11 @@ void ImGuiManager::DrawDetailsSection()
 			DrawStaticMeshSection(mesh);
 		}
 
+		if (auto* skeletal = dynamic_cast<USkeletalMeshComponent*>(component))
+		{
+			DrawSkeletalMeshSection(skeletal);
+		}
+
 		if (auto* quad = dynamic_cast<UFieldQuadComponent*>(component))
 		{
 			DrawFieldQuadSection(quad);
@@ -1441,6 +1448,139 @@ void ImGuiManager::DrawStaticMeshSection(UStaticMeshComponent* Component)
 	{
 		Component->MarkRenderStateDirty();
 	}
+}
+
+// ------------------------------------------------------------
+//  Skeletal Mesh (USkeletalMeshComponent)
+//  マテリアルスロット (スタティックメッシュと同じ) と、単一ノード再生
+//  (UAnimSingleNodeInstance) の操作: アセット選択 / Play / Pause / Stop /
+//  Play Rate / Position / Loop / Pause Anims / Global Anim Rate Scale。
+//  アセットは FAssetManager に登録済みの UAnimSequence から選ぶ
+// ------------------------------------------------------------
+void ImGuiManager::DrawSkeletalMeshSection(USkeletalMeshComponent* Component)
+{
+	// 直前の項目にホバーしたときのツールチップ (DrawProceduralTreeSection と同じ)
+	auto Tip = [](const char* Text)
+		{
+			if (IsItemHovered())
+			{
+				SetTooltip("%s", Text);
+			}
+		};
+
+	if (CollapsingHeader("Materials", ImGuiTreeNodeFlags_DefaultOpen))
+	{
+		const unsigned int num = Component->GetNumMaterialSlots();
+		bool changed = false;
+
+		for (unsigned int i = 0; i < num; ++i)
+		{
+			PushID((int)i);
+
+			char slotName[32];
+			sprintf_s(slotName, "Slot %u", i);
+			if (TreeNodeEx(slotName, i == 0 ? ImGuiTreeNodeFlags_DefaultOpen : 0))
+			{
+				changed |= DrawMaterialEditor(Component->GetMaterial(i));
+				TreePop();
+			}
+
+			PopID();
+		}
+
+		if (changed)
+		{
+			Component->MarkRenderStateDirty();
+		}
+	}
+
+	if (!CollapsingHeader("Animation", ImGuiTreeNodeFlags_DefaultOpen))
+		return;
+
+	const std::shared_ptr<USkeletalMesh>& mesh = Component->GetSkeletalMesh();
+	if (!mesh || !mesh->IsLoaded())
+	{
+		TextDisabled("No skeletal mesh");
+		return;
+	}
+
+	TextDisabled("Mesh: %s  (%d bones, %u sections)", mesh->GetName().c_str(), mesh->GetNumBones(), mesh->GetNumSections());
+
+	// ---- アニメーションアセット (FAssetManager に登録済みのもの) ----
+	{
+		std::vector<std::string> names;
+		FAssetManager::GetInstance()->GetAnimSequenceNames(names);
+
+		const std::shared_ptr<UAnimSequenceBase> current = Component->GetCurrentAnimation();
+		const std::string currentLabel = current ? current->GetName() : std::string("None");
+
+		if (BeginCombo("Animation", currentLabel.c_str()))
+		{
+			for (const std::string& name : names)
+			{
+				std::shared_ptr<UAnimSequence> sequence = FAssetManager::GetInstance()->FindAnimSequence(name);
+				if (!sequence) continue;
+				if (!sequence->IsCompatibleWith(mesh->GetSkeleton().get())) continue;
+
+				const bool selected = (current == sequence);
+				if (Selectable(name.c_str(), selected))
+				{
+					const bool bLooping = Component->IsLooping();
+					Component->PlayAnimation(sequence, bLooping);
+				}
+			}
+			EndCombo();
+		}
+		Tip("UAnimSequence registered in FAssetManager that is compatible with this mesh's skeleton.\nSelecting one calls USkeletalMeshComponent::PlayAnimation.");
+	}
+
+	// ---- 再生操作 ----
+	{
+		const bool bPlaying = Component->IsPlaying();
+		if (Button(bPlaying ? "Pause" : "Play"))
+		{
+			if (bPlaying) Component->Stop();
+			else          Component->Play(Component->IsLooping());
+		}
+		SameLine();
+		if (Button("Stop"))
+		{
+			Component->Stop();
+			Component->SetPosition(0.0f);
+		}
+		SameLine();
+		bool bLoop = Component->IsLooping();
+		if (Checkbox("Loop", &bLoop))
+		{
+			if (Component->IsPlaying()) Component->Play(bLoop);
+			else                        Component->SetLooping(bLoop);
+		}
+
+		float rate = Component->GetPlayRate();
+		if (DragFloat("Play Rate", &rate, 0.01f, -4.0f, 4.0f, "%.2f"))
+		{
+			Component->SetPlayRate(rate);
+		}
+
+		const std::shared_ptr<UAnimSequenceBase> current = Component->GetCurrentAnimation();
+		const float length = current ? current->GetPlayLength() : 0.0f;
+		float position = Component->GetPosition();
+		if (SliderFloat("Position", &position, 0.0f, fmaxf(length, 0.0f), "%.3f s"))
+		{
+			Component->SetPosition(position);
+		}
+		TextDisabled("Length %.3f s", length);
+	}
+
+	Separator();
+
+	// ---- USkeletalMeshComponent のフラグ ----
+	Checkbox("Pause Anims", &Component->bPauseAnims);
+	Tip("bPauseAnims: stops TickAnimation (the pose stays at the current position).");
+	DragFloat("Global Anim Rate Scale", &Component->GlobalAnimRateScale, 0.01f, 0.0f, 4.0f, "%.2f");
+	Checkbox("No Skeleton Update", &Component->bNoSkeletonUpdate);
+	Tip("bNoSkeletonUpdate: skips RefreshBoneTransforms (bone matrices stay as they are).");
+	DragFloat("Bounds Scale", &Component->BoundsScale, 0.01f, 0.1f, 10.0f, "%.2f");
 }
 
 void ImGuiManager::DrawFieldQuadSection(UFieldQuadComponent* Component)

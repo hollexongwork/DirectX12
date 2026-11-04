@@ -18,6 +18,7 @@
 #include "FogRendering.h"
 #include "VolumetricFog.h"
 #include "StaticMeshComponent.h"
+#include "SkeletalMeshComponent.h"
 #include "Field.h"
 #include "Polygon2D.h"
 #include "Camera.h"
@@ -661,10 +662,30 @@ SettingsManager::ComponentSnapshot SettingsManager::CaptureComponent(UActorCompo
 			snap.Materials[i] = CaptureMaterial(mesh->GetMaterial(i));
 		}
 	}
+	else if (auto* skinned = dynamic_cast<USkinnedMeshComponent*>(Component))
+	{
+		const unsigned int num = skinned->GetNumMaterialSlots();
+		snap.Materials.resize(num);
+		for (unsigned int i = 0; i < num; ++i)
+		{
+			snap.Materials[i] = CaptureMaterial(skinned->GetMaterial(i));
+		}
+	}
 	else if (auto* quad = dynamic_cast<UFieldQuadComponent*>(Component))
 	{
 		snap.Materials.resize(1);
 		snap.Materials[0] = CaptureMaterial(quad->GetMaterial());
+	}
+
+	if (auto* skeletal = dynamic_cast<USkeletalMeshComponent*>(Component))
+	{
+		snap.bSkeletalMesh = true;
+		snap.AnimPlayRate = skeletal->GetPlayRate();
+		snap.AnimLooping = skeletal->IsLooping();
+		snap.AnimPlaying = skeletal->IsPlaying();
+		snap.AnimPauseAnims = skeletal->bPauseAnims;
+		snap.AnimGlobalRateScale = skeletal->GlobalAnimRateScale;
+		snap.AnimBoundsScale = skeletal->BoundsScale;
 	}
 
 	if (auto* light = dynamic_cast<ULightComponent*>(Component))
@@ -755,12 +776,39 @@ void SettingsManager::ApplyComponent(UActorComponent* Component, const Component
 			mesh->MarkRenderStateDirty();
 		}
 	}
+	else if (auto* skinned = dynamic_cast<USkinnedMeshComponent*>(Component))
+	{
+		const unsigned int num = std::min<unsigned int>(
+			skinned->GetNumMaterialSlots(), (unsigned int)Snap.Materials.size());
+		for (unsigned int i = 0; i < num; ++i)
+		{
+			ApplyMaterial(skinned->GetMaterial(i), Snap.Materials[i]);
+		}
+		if (num > 0)
+		{
+			skinned->MarkRenderStateDirty();
+		}
+	}
 	else if (auto* quad = dynamic_cast<UFieldQuadComponent*>(Component))
 	{
 		if (!Snap.Materials.empty())
 		{
 			ApplyMaterial(quad->GetMaterial(), Snap.Materials[0]);
 			quad->MarkRenderStateDirty();
+		}
+	}
+
+	if (auto* skeletal = dynamic_cast<USkeletalMeshComponent*>(Component))
+	{
+		if (Snap.bSkeletalMesh)
+		{
+			skeletal->SetPlayRate(Snap.AnimPlayRate);
+			skeletal->SetLooping(Snap.AnimLooping);
+			if (Snap.AnimPlaying) skeletal->Play(Snap.AnimLooping);
+			else                  skeletal->Stop();
+			skeletal->bPauseAnims = Snap.AnimPauseAnims;
+			skeletal->GlobalAnimRateScale = Snap.AnimGlobalRateScale;
+			skeletal->BoundsScale = Snap.AnimBoundsScale;
 		}
 	}
 
@@ -1462,6 +1510,16 @@ void SettingsManager::WriteComponent(ConfigFile& Ini, const std::string& Section
 		Ini.SetFloat4(Section, Prefix + "VertexColor", Snap.VertexColor);
 	}
 
+	if (Snap.bSkeletalMesh)
+	{
+		Ini.SetFloat(Section, Prefix + "Anim.PlayRate", Snap.AnimPlayRate);
+		Ini.SetBool(Section, Prefix + "Anim.Looping", Snap.AnimLooping);
+		Ini.SetBool(Section, Prefix + "Anim.Playing", Snap.AnimPlaying);
+		Ini.SetBool(Section, Prefix + "Anim.PauseAnims", Snap.AnimPauseAnims);
+		Ini.SetFloat(Section, Prefix + "Anim.GlobalRateScale", Snap.AnimGlobalRateScale);
+		Ini.SetFloat(Section, Prefix + "Anim.BoundsScale", Snap.AnimBoundsScale);
+	}
+
 	if (!Snap.Materials.empty())
 	{
 		Ini.SetInt(Section, Prefix + "NumMaterials", (int)Snap.Materials.size());
@@ -1649,6 +1707,13 @@ void SettingsManager::ReadComponent(const ConfigFile& Ini, const std::string& Se
 	Ini.GetFloat(Section, Prefix + "FarClip", InOut.FarClip);
 
 	Ini.GetFloat4(Section, Prefix + "VertexColor", InOut.VertexColor);
+
+	Ini.GetFloat(Section, Prefix + "Anim.PlayRate", InOut.AnimPlayRate);
+	Ini.GetBool(Section, Prefix + "Anim.Looping", InOut.AnimLooping);
+	Ini.GetBool(Section, Prefix + "Anim.Playing", InOut.AnimPlaying);
+	Ini.GetBool(Section, Prefix + "Anim.PauseAnims", InOut.AnimPauseAnims);
+	Ini.GetFloat(Section, Prefix + "Anim.GlobalRateScale", InOut.AnimGlobalRateScale);
+	Ini.GetFloat(Section, Prefix + "Anim.BoundsScale", InOut.AnimBoundsScale);
 
 	// マテリアル: 現在のスロット数を超える保存分は読み飛ばす
 	for (size_t i = 0; i < InOut.Materials.size(); ++i)

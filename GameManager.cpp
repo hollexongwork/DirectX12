@@ -16,6 +16,9 @@
 
 #include "Cat.h"
 #include "Tree.h"
+#include "SkeletalMeshActor.h"
+#include "Manny.h"
+#include "ProceduralSkeletalMesh.h"
 
 GameManager* GameManager::m_Instance = nullptr;
 
@@ -68,10 +71,6 @@ GameManager::GameManager(HWND hWnd, const wchar_t* CmdLine)
 	m_World.SpawnActor<AField>();
 
 	// ---- スタティックメッシュ配置 (AStaticMeshActor) ----
-	// 旧 ATable / ACat / ALion / AHorse (同型ボイラープレート) は
-	// AStaticMeshActor へ統合し、レベルロード相当のここで
-	// メッシュ / テクスチャ / トランスフォーム / ラベルを構成する。
-	// スポーン順 (Table -> Cat -> Lion -> Horse) は旧実装のまま。
 	{
 		// 旧 ACat / AHorse / ATable が設定していた共通マテリアル値
 		auto SetDefaultLitMaterial = [](Material& material)
@@ -171,6 +170,49 @@ GameManager::GameManager(HWND hWnd, const wchar_t* CmdLine)
 		ATree* tree = m_World.SpawnActor<ATree>();
 		tree->SetActorLabel("Tree");
 		tree->SetActorLocation({ 7.0f, 0.0f, 6.0f });
+	}
+
+	// ---- スケルタルメッシュ (ASkeletalMeshActor) ----
+	// リグ付きアセットがリポジトリに無いので、プロシージャルなチェーンのリグ
+	// (FProceduralSkeletalMeshBuilder) と波打つアニメーションをアセットとして登録し、
+	// UE と同じ単一ノード再生 (PlayAnimation) で動かす。既存の [Actor.N] 添字を
+	// ずらさないよう最後にスポーンする
+	{
+		FProceduralSkeletalChainParams chain;
+		FSkeletalMeshImportData importData;
+		FProceduralSkeletalMeshBuilder::BuildChain(chain, importData);
+
+		std::shared_ptr<USkeletalMesh> mesh = FAssetManager::GetInstance()->CreateSkeletalMesh("ProceduralChain", importData);
+		std::shared_ptr<UAnimSequence> wave = FProceduralSkeletalMeshBuilder::CreateWaveSequence(mesh->GetSkeleton(), chain);
+		std::shared_ptr<UAnimSequence> idle = FProceduralSkeletalMeshBuilder::CreateIdleSequence(mesh->GetSkeleton(), chain);
+		FAssetManager::GetInstance()->RegisterAnimSequence("ProceduralChain#Wave", wave);
+		FAssetManager::GetInstance()->RegisterAnimSequence("ProceduralChain#Idle", idle);
+
+		ASkeletalMeshActor* skeletal = m_World.SpawnActor<ASkeletalMeshActor>();
+		skeletal->SetActorLabel("Skeletal");
+		skeletal->SetActorLocation({ -6.0f, 0.0f, -8.0f });
+
+		USkeletalMeshComponent* component = skeletal->GetSkeletalMeshComponent();
+		component->SetSkeletalMesh(mesh);
+		component->SetBaseColorTexture(0, "Asset/Texture/lion_head_diff_4k.dds");
+		component->SetNormalTexture(0, "Asset/Texture/lion_head_nor_dx_4k.dds");
+		component->SetARMTexture(0, "Asset/Texture/lion_head_arm_4k.dds");
+		{
+			Material& material = component->GetMaterial(0);
+			material.Params.BaseColor = { 0.85f, 0.6f, 0.35f, 1.0f };
+			material.Params.Metallic = 0.0f;
+			material.Params.Specular = 0.5f;
+			material.Params.Roughness = 0.7f;
+			component->MarkRenderStateDirty();
+		}
+		component->PlayAnimation(wave, true);
+	}
+
+	// ---- マネキン ----
+	{
+		AManny* manny = m_World.SpawnActor<AManny>();
+		manny->SetActorLabel("Manny");
+		manny->SetActorLocation({ -8.5f, 0.0f, -8.0f });
 	}
 }
 
