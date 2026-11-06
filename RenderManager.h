@@ -587,6 +587,10 @@ public:
 	//                          (シャドウ / Lumen カードキャプチャ後の復帰用)
 	void         SetDefaultViewportSize(unsigned int Width, unsigned int Height);
 	void         RestoreDefaultViewport();
+	// 既定のグラフィックス状態 (シェーダ可視ヒープ / 既定ルートシグネチャ / ビューポート / シザー)
+	// を現在のコマンドリストへ即時記録する。独立したグラフィックスルートシグネチャを使う
+	// パス (Volumetric Fog のボクセル化) の後に呼ぶ。RTV / DSV は触らない
+	void         RestoreDefaultGraphicsState() { SetDefaultGraphicsState(); }
 	unsigned int GetDefaultViewportWidth() const { return m_DefaultViewportWidth; }
 	unsigned int GetDefaultViewportHeight() const { return m_DefaultViewportHeight; }
 

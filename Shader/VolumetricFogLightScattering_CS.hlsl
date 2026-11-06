@@ -64,15 +64,28 @@ void main(uint3 DispatchThreadId : SV_DispatchThreadID)
         lightScattering += directionalColor * (shadow * phase);
     }
 
+    // ---- 媒質属性 ----
+    float4 vbufferA = VBufferA[gridCoordinate];
+    float4 vbufferB = VBufferB[gridCoordinate];
+    float3 scattering = vbufferA.rgb;
+    float absorption = vbufferA.a;
+    float3 emissive = vbufferB.rgb;
+
+    // 消散係数 = 散乱 (平均) + 吸収 (= 密度 x ExtinctionScale)
+    float extinction = dot(scattering, float3(1.0f, 1.0f, 1.0f) / 3.0f) + absorption;
+
     // ---- スカイ (IBL irradiance を「視線方向の空」として採光) ----
     // 等方散乱の ∫ L(ω) p(ω) dω ≒ 視線方向まわりのコサイン平均 (E(v) / π)。
     // 強度は VolumetricFogStaticLightingScatteringIntensity (静的 /
     // 環境ライティングの散乱強度) を充てる。
+    // ボリュームマテリアルの Ambient Occlusion: VBufferB.a = Σ σt (1 - AO) なので
+    // スカイ項を 1 - Σσt(1-AO) / Σσt で減衰する (高さフォグは AO = 1 = 減衰なし) [PORT]
     [branch]
     if (DirectionalInscatteringColor.w > 0.0f)
     {
         float3 skyRadiance = SkyIrradiance.SampleLevel(LinearClampSampler, cameraVector, 0.0f).rgb / PI;
-        lightScattering += skyRadiance * DirectionalInscatteringColor.w;
+        float skyOcclusion = 1.0f - saturate(vbufferB.a / max(extinction, 1e-6f));
+        lightScattering += skyRadiance * (DirectionalInscatteringColor.w * skyOcclusion);
     }
 
     // ---- ローカルライト (ライトグリッドのセルを巡回) ----
@@ -109,15 +122,6 @@ void main(uint3 DispatchThreadId : SV_DispatchThreadID)
     }
 
     // ---- 媒質属性との合成 ----
-    float4 vbufferA = VBufferA[gridCoordinate];
-    float4 vbufferB = VBufferB[gridCoordinate];
-    float3 scattering = vbufferA.rgb;
-    float absorption = vbufferA.a;
-    float3 emissive = vbufferB.rgb;
-
-    // 消散係数 = 散乱 (平均) + 吸収 (= 密度 x ExtinctionScale)
-    float extinction = dot(scattering, float3(1.0f, 1.0f, 1.0f) / 3.0f) + absorption;
-
     float4 newScatteringAndExtinction = float4(lightScattering * scattering + emissive, extinction);
 
     // ---- テンポラル再投影 ----

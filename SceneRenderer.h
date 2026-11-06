@@ -9,6 +9,7 @@
 #include "ScreenPercentage.h"
 #include "SceneViewState.h"
 #include "LightRendering.h"
+#include "PrimitiveSceneProxy.h"	// FVoxelizeVolumeElement
 
 class FScene;
 class FShadowSceneRenderer;
@@ -300,6 +301,11 @@ private:
 	// フラスタムで独立にカリングする (視界外のキャスターでも影は落ちる)。
 	FConvexVolume              m_ViewFrustum;
 	std::vector<unsigned char> m_PrimitiveVisibilityMap;	// 登録順 1:1 (1 = 可視)
+
+	// ---- Volume ドメインのプリミティブ (VoxelizeFogVolumePrimitives の入力) ----
+	// RenderBasePass が可視プリミティブのうち bHasVolumeMaterialDomain のものから集め、
+	// RenderLighting の ComputeVolumetricFog が FVolumetricFog へ渡す
+	std::vector<FVoxelizeVolumeElement> m_VoxelizeVolumeElements;
 
 	// フラスタムを凍結してカリング挙動を可視化する
 	FConvexVolume m_FrozenViewFrustum;

@@ -2467,6 +2467,8 @@ void ImGuiManager::DrawExponentialHeightFogSection(UExponentialHeightFogComponen
 				Text("Volume Memory : %.1f MB (5 x RGBA16F)",
 					(double)stats.NumFroxels * 8.0 * 5.0 / (1024.0 * 1024.0));
 				TextDisabled(stats.bDispatchedThisFrame ? "Status: active" : "Status: idle");
+				Text("Volume Materials : %u element(s) voxelized (max %u)",
+					stats.NumVoxelizedElements, MAX_VOXELIZE_VOLUME_ELEMENTS);
 
 				Checkbox("Temporal Reprojection", &params.bTemporalReprojection);
 				Checkbox("Jitter", &params.bJitter);
@@ -2487,6 +2489,85 @@ void ImGuiManager::DrawExponentialHeightFogSection(UExponentialHeightFogComponen
 bool ImGuiManager::DrawMaterialEditor(Material& Mat)
 {
 	bool changed = false;
+
+	// ---- Material Domain (UMaterial::MaterialDomain) ----
+	// Surface はサーフェス系のパス、Volume は Volumetric Fog へのボクセル化
+	// (FVolumetricFog::VoxelizeFogVolumePrimitives)。Volume のときは Volume 用の
+	// 入力だけを出す (Blend Mode / BaseColor などサーフェスの入力は使われない)
+	static const char* domainNames[] = { "Surface", "Volume" };
+	int domain = (int)Mat.GetMaterialDomain();
+	if (Combo("Material Domain", &domain, domainNames, IM_ARRAYSIZE(domainNames)))
+	{
+		Mat.SetMaterialDomain((EMaterialDomain)domain);
+		changed = true;
+	}
+
+	if (Mat.IsVolumeDomain())
+	{
+		TextDisabled("Voxelized into Volumetric Fog (needs Exponential Height Fog with Volumetric Fog on)");
+
+		FVolumeMaterialParameters& v = Mat.VolumeParams;
+
+		// 形状 (EVolumeShape): プリミティブの境界ボックス (OBB) か境界球
+		static const char* shapeNames[] = { "Box (Bounds)", "Sphere (Bounds)" };
+		int shape = (int)Mat.GetVolumeShape();
+		if (Combo("Volume Shape", &shape, shapeNames, IM_ARRAYSIZE(shapeNames)))
+		{
+			Mat.SetVolumeShape((EVolumeShape)shape);
+			changed = true;
+		}
+
+		// ---- Material 出力ピン (Albedo / Emissive Color / Extinction / Ambient Occlusion) ----
+		changed |= ColorEdit3("Albedo", &v.Albedo.x, ImGuiColorEditFlags_Float);
+		changed |= ColorEdit3("Emissive Color [/m]", &v.Emissive.x, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR);
+		changed |= DragFloat("Extinction (Opacity) [1/m]", &v.ExtinctionParams.x, 0.01f, 0.0f, 100.0f);
+		changed |= SliderFloat("Hardness", &v.ExtinctionParams.y, 0.0f, 4.0f);
+		changed |= SliderFloat("Ambient Occlusion", &v.Albedo.w, 0.0f, 1.0f);
+		changed |= SliderFloat("Edge Falloff", &v.ExtinctionParams.z, 0.0f, 1.0f);
+
+		// ---- Noise ノード + Panner ----
+		if (TreeNodeEx("Noise (Gradient - Computational)", ImGuiTreeNodeFlags_DefaultOpen))
+		{
+			bool useNoise = v.NoiseFlags.x > 0.5f;
+			if (Checkbox("Use Noise", &useNoise))
+			{
+				v.NoiseFlags.x = useNoise ? 1.0f : 0.0f;
+				changed = true;
+			}
+
+			changed |= DragFloat("Scale [1/m]", &v.NoiseParams.x, 0.01f, 0.001f, 100.0f);
+
+			int levels = (int)(v.NoiseParams.y + 0.5f);
+			if (SliderInt("Levels", &levels, 1, 8))
+			{
+				v.NoiseParams.y = (float)levels;
+				changed = true;
+			}
+
+			changed |= DragFloat("Level Scale", &v.NoisePanner.w, 0.01f, 1.01f, 8.0f);
+			changed |= DragFloatRange2("Output Min / Max", &v.NoiseParams.z, &v.NoiseParams.w, 0.01f, -4.0f, 4.0f);
+
+			bool turbulence = v.NoiseFlags.y > 0.5f;
+			if (Checkbox("Turbulence", &turbulence))
+			{
+				v.NoiseFlags.y = turbulence ? 1.0f : 0.0f;
+				changed = true;
+			}
+
+			bool filterWidth = v.NoiseFlags.z > 0.5f;
+			if (Checkbox("Filter Width (froxel size)", &filterWidth))
+			{
+				v.NoiseFlags.z = filterWidth ? 1.0f : 0.0f;
+				changed = true;
+			}
+
+			changed |= DragFloat3("Panner Speed [m/s]", &v.NoisePanner.x, 0.01f, -10.0f, 10.0f);
+
+			TreePop();
+		}
+
+		return changed;
+	}
 
 	// ---- Blend Mode / Two Sided ----
 	// Opaque / Masked はベースパス (G-Buffer)、Translucent / Additive は

@@ -871,6 +871,15 @@ SettingsManager::MaterialSnapshot SettingsManager::CaptureMaterial(const Materia
 	snap.RefractionDataX = Mat.Params.RefractionData.x;
 	snap.RefractionDataY = Mat.Params.RefractionData.y;
 	snap.RefractionDepthBias = Mat.Params.RefractionDepthBias;
+
+	// ---- Material Domain / Volume ----
+	snap.MaterialDomain = (int)Mat.GetMaterialDomain();
+	snap.VolumeAlbedo = Mat.VolumeParams.Albedo;
+	snap.VolumeEmissive = Mat.VolumeParams.Emissive;
+	snap.VolumeExtinctionParams = Mat.VolumeParams.ExtinctionParams;
+	snap.VolumeNoiseParams = Mat.VolumeParams.NoiseParams;
+	snap.VolumeNoisePanner = Mat.VolumeParams.NoisePanner;
+	snap.VolumeNoiseFlags = Mat.VolumeParams.NoiseFlags;
 	return snap;
 }
 
@@ -925,6 +934,18 @@ void SettingsManager::ApplyMaterial(Material& Mat, const MaterialSnapshot& Snap)
 
 	Mat.Params.RefractionData = { Snap.RefractionDataX, Snap.RefractionDataY };
 	Mat.Params.RefractionDepthBias = Snap.RefractionDepthBias;
+
+	// ---- Material Domain / Volume (範囲外値は Surface に丸める) ----
+	int domain = Snap.MaterialDomain;
+	if (domain < 0 || domain >= (int)EMaterialDomain::MD_MAX)
+		domain = (int)EMaterialDomain::MD_Surface;
+	Mat.SetMaterialDomain((EMaterialDomain)domain);
+	Mat.VolumeParams.Albedo = Snap.VolumeAlbedo;
+	Mat.VolumeParams.Emissive = Snap.VolumeEmissive;
+	Mat.VolumeParams.ExtinctionParams = Snap.VolumeExtinctionParams;
+	Mat.VolumeParams.NoiseParams = Snap.VolumeNoiseParams;
+	Mat.VolumeParams.NoisePanner = Snap.VolumeNoisePanner;
+	Mat.VolumeParams.NoiseFlags = Snap.VolumeNoiseFlags;
 	Mat.SetRefractionUseF0(Snap.RefractionUseF0);
 }
 
@@ -1564,6 +1585,15 @@ void SettingsManager::WriteComponent(ConfigFile& Ini, const std::string& Section
 			Ini.SetFloat(Section, mp + "RefractionDataX", mat.RefractionDataX);
 			Ini.SetFloat(Section, mp + "RefractionDataY", mat.RefractionDataY);
 			Ini.SetFloat(Section, mp + "RefractionDepthBias", mat.RefractionDepthBias);
+
+			// ---- Material Domain / Volume ----
+			Ini.SetInt(Section, mp + "MaterialDomain", mat.MaterialDomain);
+			Ini.SetFloat4(Section, mp + "Volume.Albedo", mat.VolumeAlbedo);
+			Ini.SetFloat4(Section, mp + "Volume.Emissive", mat.VolumeEmissive);
+			Ini.SetFloat4(Section, mp + "Volume.ExtinctionParams", mat.VolumeExtinctionParams);
+			Ini.SetFloat4(Section, mp + "Volume.NoiseParams", mat.VolumeNoiseParams);
+			Ini.SetFloat4(Section, mp + "Volume.NoisePanner", mat.VolumeNoisePanner);
+			Ini.SetFloat4(Section, mp + "Volume.NoiseFlags", mat.VolumeNoiseFlags);
 		}
 	}
 
@@ -1758,6 +1788,15 @@ void SettingsManager::ReadComponent(const ConfigFile& Ini, const std::string& Se
 		Ini.GetFloat(Section, mp + "RefractionDataX", mat.RefractionDataX);
 		Ini.GetFloat(Section, mp + "RefractionDataY", mat.RefractionDataY);
 		Ini.GetFloat(Section, mp + "RefractionDepthBias", mat.RefractionDepthBias);
+
+		// ---- Material Domain / Volume (キーが無い旧 INI は Surface のまま) ----
+		Ini.GetInt(Section, mp + "MaterialDomain", mat.MaterialDomain);
+		Ini.GetFloat4(Section, mp + "Volume.Albedo", mat.VolumeAlbedo);
+		Ini.GetFloat4(Section, mp + "Volume.Emissive", mat.VolumeEmissive);
+		Ini.GetFloat4(Section, mp + "Volume.ExtinctionParams", mat.VolumeExtinctionParams);
+		Ini.GetFloat4(Section, mp + "Volume.NoiseParams", mat.VolumeNoiseParams);
+		Ini.GetFloat4(Section, mp + "Volume.NoisePanner", mat.VolumeNoisePanner);
+		Ini.GetFloat4(Section, mp + "Volume.NoiseFlags", mat.VolumeNoiseFlags);
 	}
 
 	// ライト (クラス名一致は呼び出し側で確認済み = 型も一致)。

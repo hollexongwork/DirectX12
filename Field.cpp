@@ -55,6 +55,13 @@ public:
 		FPrimitiveViewRelevance relevance;
 		relevance.bOpaque = false;
 
+		// Volume ドメインはサーフェス系のどのパスにも流れない (ボクセル化のみ)
+		if (m_Material.IsVolumeDomain())
+		{
+			relevance.bHasVolumeMaterialDomain = true;
+			return relevance;
+		}
+
 		switch (m_Material.GetBlendMode())
 		{
 		case EBlendMode::BLEND_Masked:
@@ -75,8 +82,8 @@ public:
 	// ---- ベースパス (Opaque / Masked -> G-Buffer) ----
 	void DrawPrimitive(RenderManager* RM) const override
 	{
-		// Translucent / Additive はトランスルーセンシーパスが描く
-		if (IsTranslucentBlendMode(m_Material.GetBlendMode()))
+		// Translucent / Additive はトランスルーセンシーパスが描く。Volume は描かない
+		if (IsTranslucentBlendMode(m_Material.GetBlendMode()) || m_Material.IsVolumeDomain())
 			return;
 
 		// Matrix Setting (PRIMITIVE 定数: プロキシに積まれたワールド行列)
@@ -96,7 +103,7 @@ public:
 		ETranslucencyDrawMode Mode = ETranslucencyDrawMode::Standard) const override
 	{
 		const EBlendMode blendMode = m_Material.GetBlendMode();
-		if (!IsTranslucentBlendMode(blendMode))
+		if (!IsTranslucentBlendMode(blendMode) || m_Material.IsVolumeDomain())
 			return;
 
 		UploadPrimitiveConstant(RM);
@@ -142,7 +149,7 @@ public:
 	void DrawShadowDepth(RenderManager* RM) const override
 	{
 		const EBlendMode blendMode = m_Material.GetBlendMode();
-		if (IsTranslucentBlendMode(blendMode))
+		if (IsTranslucentBlendMode(blendMode) || m_Material.IsVolumeDomain())
 			return;
 
 		UploadPrimitiveConstant(RM);
@@ -171,7 +178,7 @@ public:
 	void DrawVelocity(RenderManager* RM, const XMFLOAT4X4& PreviousLocalToWorld) const override
 	{
 		const EBlendMode blendMode = m_Material.GetBlendMode();
-		if (IsTranslucentBlendMode(blendMode))
+		if (IsTranslucentBlendMode(blendMode) || m_Material.IsVolumeDomain())
 			return;
 
 		UploadPrimitiveConstant(RM, &PreviousLocalToWorld);
@@ -201,7 +208,17 @@ public:
 	// テクスチャ / b2 はバインドしない
 	bool HasResponsiveAATranslucency(bool bForceAll) const override
 	{
-		return IsTranslucentBlendMode(m_Material.GetBlendMode()) && (bForceAll || m_Material.ShouldEnableResponsiveAA());
+		return !m_Material.IsVolumeDomain()
+			&& IsTranslucentBlendMode(m_Material.GetBlendMode()) && (bForceAll || m_Material.ShouldEnableResponsiveAA());
+	}
+
+	// ---- Volumetric Fog のボクセル化 (ワールド AABB をボックスにする) ----
+	void GatherVoxelizeVolumeElements(std::vector<FVoxelizeVolumeElement>& Out) const override
+	{
+		if (m_Material.IsVolumeDomain())
+		{
+			AppendVoxelizeVolumeElement(Out, nullptr, m_Material);
+		}
 	}
 
 	void DrawResponsiveAA(RenderManager* RM, bool bForceAll) const override

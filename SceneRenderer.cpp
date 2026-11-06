@@ -875,12 +875,21 @@ void FSceneRenderer::RenderBasePass(FScene* Scene, const FSceneView& View)
 	// FPrimitiveViewRelevance で Opaque / Masked のみベースパスへ流す
 	// (Translucent / Additive は RenderTranslucency が後→前ソートで描く)。
 	const std::vector<FPrimitiveSceneInfo>& primitives = Scene->GetPrimitives();
+	m_VoxelizeVolumeElements.clear();
 	for (size_t i = 0; i < primitives.size(); ++i)
 	{
 		if (m_PrimitiveVisibilityMap[i] == 0)
 			continue;
 
 		const FPrimitiveViewRelevance relevance = primitives[i].Proxy->GetViewRelevance();
+
+		// Material Domain = Volume のスロットは Volumetric Fog のボクセル化へ
+		// (VoxelizeFogVolumePrimitives。RenderLighting の ComputeVolumetricFog が描く)
+		if (relevance.bHasVolumeMaterialDomain)
+		{
+			primitives[i].Proxy->GatherVoxelizeVolumeElements(m_VoxelizeVolumeElements);
+		}
+
 		if (!relevance.HasOpaqueRelevance())
 			continue;
 
@@ -1147,6 +1156,8 @@ void FSceneRenderer::RenderLighting()
 		fogInputs.LightGrid = m_LightGrid.get();
 		fogInputs.ShadowRenderer = m_ShadowRenderer.get();
 		fogInputs.SkyIrradianceSRVIndex = m_IBLBaker ? m_IBLBaker->GetIrradianceSRVIndex() : 0;
+		fogInputs.VolumeElements = &m_VoxelizeVolumeElements;		// RenderBasePass が集めた Volume ドメインのプリミティブ
+		fogInputs.Time = Time::GetTime();								// ボリュームマテリアルの Panner
 		m_FogRenderer->ComputeVolumetricFog(fogInputs);
 	}
 

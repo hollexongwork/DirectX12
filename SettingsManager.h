@@ -164,6 +164,15 @@ private:
 		float    RefractionDataX = 1.5f;		// IOR / 法線強度 / 2D オフセット X
 		float    RefractionDataY = 0.0f;		// 2D オフセット Y
 		float    RefractionDepthBias = 0.0f;	// [m]
+
+		// ---- Material Domain / Volume (CPU 専用。既定値は Material.h と一致) ----
+		int      MaterialDomain = 0;			// EMaterialDomain (0=Surface 1=Volume)
+		XMFLOAT4 VolumeAlbedo = { 1.0f, 1.0f, 1.0f, 1.0f };			// rgb = Albedo, w = AmbientOcclusion
+		XMFLOAT4 VolumeEmissive = { 0.0f, 0.0f, 0.0f, 0.0f };			// rgb [/m]
+		XMFLOAT4 VolumeExtinctionParams = { 0.1f, 0.6f, 0.0f, 0.0f };	// Extinction / Hardness / EdgeFalloff / Shape
+		XMFLOAT4 VolumeNoiseParams = { 1.0f, 4.0f, 0.0f, 1.0f };		// Scale / Levels / OutputMin / OutputMax
+		XMFLOAT4 VolumeNoisePanner = { 0.0f, 0.0f, 0.0f, 2.0f };		// Speed xyz / LevelScale
+		XMFLOAT4 VolumeNoiseFlags = { 1.0f, 0.0f, 1.0f, 0.0f };		// UseNoise / Turbulence / FilterWidth
 	};
 
 	// ---- コンポーネント 1 個分のスナップショット ----

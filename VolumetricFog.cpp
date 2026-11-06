@@ -9,6 +9,7 @@
 #include <vector>
 #include <cstring>
 #include <cmath>
+#include <algorithm>
 
 // ============================================================
 //  FVolumetricFog : Volumetric Fog の froxel ボリューム構築 (compute)。
@@ -25,6 +26,8 @@ FVolumetricFog::~FVolumetricFog()
 	{
 		if (m_ParamBuffer[i] && m_ParamPtr[i])
 			m_ParamBuffer[i]->Unmap(0, nullptr);
+		if (m_ElementBuffer[i] && m_ElementPtr[i])
+			m_ElementBuffer[i]->Unmap(0, nullptr);
 	}
 
 	ReleaseVolumes();
@@ -74,11 +77,30 @@ void FVolumetricFog::CreateVolumes(unsigned int Width, unsigned int Height)
 	// ------------------------------------------------------------
 	//  ボリュームテクスチャ (全て R16G16B16A16_FLOAT, GridSize, UAV 状態で開始)
 	// ------------------------------------------------------------
-	CreateVolumeTexture(m_VBufferA, L"VolumetricFogVBufferA");
-	CreateVolumeTexture(m_VBufferB, L"VolumetricFogVBufferB");
+	CreateVolumeTexture(m_VBufferA, L"VolumetricFogVBufferA", true);	// ボクセル化の RT0
+	CreateVolumeTexture(m_VBufferB, L"VolumetricFogVBufferB", true);	// ボクセル化の RT1
 	CreateVolumeTexture(m_LightScattering[0], L"VolumetricFogLightScattering0");
 	CreateVolumeTexture(m_LightScattering[1], L"VolumetricFogLightScattering1");
 	CreateVolumeTexture(m_IntegratedLightScattering, L"VolumetricFogIntegratedLightScattering");
+
+	// ------------------------------------------------------------
+	//  ボクセル化の RTV (Texture3D の全 W スライス。GS が SV_RenderTargetArrayIndex で選ぶ)。
+	//  自前ヒープの固定 2 枠へ作り直す (CreateVolumes は GPU アイドル時にしか呼ばれない)
+	// ------------------------------------------------------------
+	if (m_VoxelizeRTVHeap)
+	{
+		FVolumeTexture* targets[2] = { &m_VBufferA, &m_VBufferB };
+		for (int i = 0; i < 2; ++i)
+		{
+			D3D12_RENDER_TARGET_VIEW_DESC rtv{};
+			rtv.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+			rtv.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE3D;
+			rtv.Texture3D.MipSlice = 0;
+			rtv.Texture3D.FirstWSlice = 0;
+			rtv.Texture3D.WSize = m_GridSizeZ;
+			Device()->CreateRenderTargetView(targets[i]->Resource.Get(), &rtv, m_VoxelizeRTV[i]);
+		}
+	}
 
 	// 履歴 (LightScattering) の中身は未定義 -> 次の Dispatch はテンポラル再投影を使わない。
 	// m_FrameNumber (ジッタ位相) / m_LightScatteringFrame (ピンポン) は保持する
@@ -95,25 +117,35 @@ ID3D12GraphicsCommandList* FVolumetricFog::CommandList()
 	return m_Owner->GetGraphicsCommandList();
 }
 
+bool FVolumetricFog::ReadShaderBytecode(const char* csoFile, std::vector<char>& Out)
+{
+	std::ifstream file(csoFile, std::ios_base::in | std::ios_base::binary);
+	if (!file)
+	{
+		char msg[512];
+		sprintf_s(msg, "[VolumetricFog] shader .cso not found: %s\n", csoFile);
+		OutputDebugStringA(msg);
+		assert(false && "VolumetricFog shader .cso not found");
+		return false;
+	}
+	file.seekg(0, std::ios_base::end);
+	int filesize = (int)file.tellg();
+	file.seekg(0, std::ios_base::beg);
+	Out.resize(filesize);
+	if (filesize > 0)
+	{
+		file.read(&Out[0], filesize);
+	}
+	file.close();
+	return filesize > 0;
+}
+
 ComPtr<ID3D12PipelineState> FVolumetricFog::CreateComputePipeline(const char* csoFile)
 {
 	std::vector<char> cs;
+	if (!ReadShaderBytecode(csoFile, cs))
 	{
-		std::ifstream file(csoFile, std::ios_base::in | std::ios_base::binary);
-		if (!file)
-		{
-			char msg[512];
-			sprintf_s(msg, "[VolumetricFog] shader .cso not found: %s\n", csoFile);
-			OutputDebugStringA(msg);
-			assert(false && "VolumetricFog shader .cso not found");
-			return nullptr;
-		}
-		file.seekg(0, std::ios_base::end);
-		int filesize = (int)file.tellg();
-		file.seekg(0, std::ios_base::beg);
-		cs.resize(filesize);
-		file.read(&cs[0], filesize);
-		file.close();
+		return nullptr;
 	}
 
 	D3D12_COMPUTE_PIPELINE_STATE_DESC desc{};
@@ -150,7 +182,7 @@ XMFLOAT3 FVolumetricFog::ComputeGridZParams(float NearPlane, float FarPlane)
 	return XMFLOAT3((float)B, (float)O, (float)S);
 }
 
-void FVolumetricFog::CreateVolumeTexture(FVolumeTexture& Out, const wchar_t* Name)
+void FVolumetricFog::CreateVolumeTexture(FVolumeTexture& Out, const wchar_t* Name, bool bRenderTarget)
 {
 	D3D12_HEAP_PROPERTIES prop{};
 	prop.Type = D3D12_HEAP_TYPE_DEFAULT;
@@ -165,6 +197,10 @@ void FVolumetricFog::CreateVolumeTexture(FVolumeTexture& Out, const wchar_t* Nam
 	d.SampleDesc.Count = 1;
 	d.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
 	d.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+	if (bRenderTarget)
+	{
+		d.Flags |= D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;	// ボクセル化の加算 RTV
+	}
 
 	HRESULT hr = Device()->CreateCommittedResource(&prop, D3D12_HEAP_FLAG_NONE,
 		&d, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
@@ -318,6 +354,9 @@ void FVolumetricFog::Init()
 	m_PSOLightScattering = CreateComputePipeline("Shader/cso/VolumetricFogLightScattering_CS.cso");
 	m_PSOIntegration = CreateComputePipeline("Shader/cso/VolumetricFogIntegration_CS.cso");
 
+	// ボクセル化 (RTV ヒープは CreateVolumes が使うので先に)
+	InitVoxelization();
+
 	// ------------------------------------------------------------
 	//  ボリュームテクスチャ (バックバッファ解像度で開始。レンダー解像度が
 	//  変わると FSceneRenderer::ResizeRenderTargets が ReleaseVolumes / CreateVolumes で作り直す)
@@ -365,6 +404,8 @@ void FVolumetricFog::Dispatch(const FVolumetricFogInputs& Inputs)
 		// t34 は無効時もバインドされる (シェーダ側で参照しない) ので、
 		// 初期状態 (UAV) のままにせずピクセル読み取り状態へ揃えておく。
 		m_bHistoryValid = false;
+		m_Stats.NumVoxelizedElements = 0;
+		m_Stats.NumVoxelizeDraws = 0;
 		Transition(m_IntegratedLightScattering, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 		return;
 	}
@@ -467,7 +508,10 @@ void FVolumetricFog::Dispatch(const FVolumetricFogInputs& Inputs)
 	}
 	const bool bTemporal = m_Params.bTemporalReprojection && Inputs.bHistoryValid && m_bHistoryValid;
 	p.TemporalParams = { bTemporal ? 1.0f : 0.0f, bTemporal ? 1.0f : 0.0f,
-		m_Params.InverseSquaredLightDistanceBiasScale, 0.0f };
+		m_Params.InverseSquaredLightDistanceBiasScale, Inputs.Time };
+
+	// ボクセル化: 境界の投影 (VIEW 定数は転置済みなのでそのまま)
+	p.WorldToView = view.View;
 
 	// フォグ
 	p.FogDensityParams0 = { fog->FogData[0].Density, fog->FogData[0].HeightFalloff, fog->FogData[0].Height, fog->VolumetricFogExtinctionScale };
@@ -560,6 +604,36 @@ void FVolumetricFog::Dispatch(const FVolumetricFogInputs& Inputs)
 		Transition(m_VBufferB, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 	}
 
+	// ---- Pass 1b : Volume ドメインのプリミティブを VBufferA / VBufferB へ加算 ----
+	//  (グラフィックス。コンピュートのルートシグネチャ / バインドはここで失われるので
+	//   直後に積み直す)
+	m_Stats.NumVoxelizedElements = 0;
+	m_Stats.NumVoxelizeDraws = 0;
+	if (Inputs.VolumeElements != nullptr && !Inputs.VolumeElements->empty() && m_PSOVoxelize != nullptr)
+	{
+		VoxelizeFogVolumePrimitives(Inputs.VolumeElements);
+
+		// コンピュート側のバインドを復帰 (b0 / t0..t10 / u0..u3)
+		cl->SetDescriptorHeaps(1, &heap);
+		cl->SetComputeRootSignature(m_RootSignature.Get());
+		cl->SetComputeRootConstantBufferView(0, m_ParamBuffer[m_ParamFrame]->GetGPUVirtualAddress());
+		bindSRV(0, lightSRV);
+		bindSRV(1, Inputs.ShadowRenderer ? Inputs.ShadowRenderer->GetLocalShadowParamSRVIndex() : lightSRV);
+		bindSRV(2, bLightGridReady ? Inputs.LightGrid->GetNumCulledLightsGridSRVIndex() : lightSRV);
+		bindSRV(3, bLightGridReady ? Inputs.LightGrid->GetCulledLightDataGridSRVIndex() : lightSRV);
+		bindSRV(4, Inputs.ShadowRenderer ? Inputs.ShadowRenderer->GetCSMSRVIndex() : lightSRV);
+		bindSRV(5, Inputs.ShadowRenderer ? Inputs.ShadowRenderer->GetLocalShadowSRVIndex() : lightSRV);
+		bindSRV(6, m_VBufferA.SRVIndex);
+		bindSRV(7, m_VBufferB.SRVIndex);
+		bindSRV(8, scatterHistory.SRVIndex);
+		bindSRV(9, scatterWrite.SRVIndex);
+		bindSRV(10, Inputs.SkyIrradianceSRVIndex);
+		bindUAV(0, m_VBufferA.UAVIndex);
+		bindUAV(1, m_VBufferB.UAVIndex);
+		bindUAV(2, scatterWrite.UAVIndex);
+		bindUAV(3, m_IntegratedLightScattering.UAVIndex);
+	}
+
 	// ---- Pass 2 : ライト散乱 + テンポラル再投影 (LightScattering) ----
 	{
 		Transition(scatterWrite, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -594,4 +668,234 @@ void FVolumetricFog::Dispatch(const FVolumetricFogInputs& Inputs)
 	m_bHistoryValid = true;
 	m_FrameNumber++;
 	m_Stats.bDispatchedThisFrame = true;
+}
+
+
+// ============================================================
+//  ボクセル化 (VoxelizeFogVolumePrimitives 相当)
+//  Material Domain = Volume のプリミティブの境界を、属性パスの直後に
+//  VBufferA / VBufferB へ加算ラスタライズする。
+//  シェーダ: VolumetricFogVoxelizationVS / GS / PS
+// ============================================================
+void FVolumetricFog::InitVoxelization()
+{
+	// ------------------------------------------------------------
+	//  グラフィックスルートシグネチャ: [0] CBV b0 / [1] CBV b1 (どちらもルート CBV)
+	// ------------------------------------------------------------
+	{
+		D3D12_ROOT_PARAMETER params[2]{};
+		for (unsigned int i = 0; i < 2; ++i)
+		{
+			params[i].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+			params[i].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+			params[i].Descriptor.ShaderRegister = i;
+			params[i].Descriptor.RegisterSpace = 0;
+		}
+
+		D3D12_ROOT_SIGNATURE_DESC rs{};
+		rs.NumParameters = _countof(params);
+		rs.pParameters = params;
+		rs.NumStaticSamplers = 0;
+		rs.pStaticSamplers = nullptr;
+		rs.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;	// 頂点入力無し
+
+		ComPtr<ID3DBlob> blob, err;
+		HRESULT hr = D3D12SerializeRootSignature(&rs, D3D_ROOT_SIGNATURE_VERSION_1, &blob, &err);
+		if (FAILED(hr))
+		{
+			OutputDebugStringA("[VolumetricFog] voxelization D3D12SerializeRootSignature failed:\n");
+			if (err && err->GetBufferPointer())
+			{
+				OutputDebugStringA((const char*)err->GetBufferPointer());
+			}
+			assert(false && "VolumetricFog voxelization root signature");
+			return;
+		}
+		hr = Device()->CreateRootSignature(0, blob->GetBufferPointer(), blob->GetBufferSize(),
+			IID_PPV_ARGS(&m_VoxelizeRootSignature));
+		assert(SUCCEEDED(hr));
+	}
+
+	// ------------------------------------------------------------
+	//  PSO: VS + GS + PS、点リスト (1 点 = 1 要素、インスタンス = スライス 8 枚のパス)、
+	//  加算ブレンド (One / One) x 2 RT (RGBA16F)、カリング無し、深度無し
+	// ------------------------------------------------------------
+	{
+		std::vector<char> vs, gs, ps;
+		if (!ReadShaderBytecode("Shader/cso/VolumetricFogVoxelizationVS.cso", vs)
+			|| !ReadShaderBytecode("Shader/cso/VolumetricFogVoxelizationGS.cso", gs)
+			|| !ReadShaderBytecode("Shader/cso/VolumetricFogVoxelizationPS.cso", ps))
+		{
+			OutputDebugStringA("[VolumetricFog] voxelization shaders missing: volume materials are disabled\n");
+			return;
+		}
+
+		D3D12_GRAPHICS_PIPELINE_STATE_DESC desc{};
+		desc.pRootSignature = m_VoxelizeRootSignature.Get();
+		desc.VS = { vs.data(), vs.size() };
+		desc.GS = { gs.data(), gs.size() };
+		desc.PS = { ps.data(), ps.size() };
+
+		desc.BlendState.AlphaToCoverageEnable = FALSE;
+		desc.BlendState.IndependentBlendEnable = FALSE;
+		D3D12_RENDER_TARGET_BLEND_DESC& rt = desc.BlendState.RenderTarget[0];
+		rt.BlendEnable = TRUE;
+		rt.LogicOpEnable = FALSE;
+		rt.SrcBlend = D3D12_BLEND_ONE;
+		rt.DestBlend = D3D12_BLEND_ONE;
+		rt.BlendOp = D3D12_BLEND_OP_ADD;
+		rt.SrcBlendAlpha = D3D12_BLEND_ONE;
+		rt.DestBlendAlpha = D3D12_BLEND_ONE;
+		rt.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+		rt.LogicOp = D3D12_LOGIC_OP_NOOP;
+		rt.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+		desc.BlendState.RenderTarget[1] = rt;
+
+		desc.SampleMask = UINT_MAX;
+
+		desc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+		desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+		desc.RasterizerState.FrontCounterClockwise = FALSE;
+		desc.RasterizerState.DepthClipEnable = FALSE;
+		desc.RasterizerState.ConservativeRaster = D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
+
+		desc.DepthStencilState.DepthEnable = FALSE;
+		desc.DepthStencilState.StencilEnable = FALSE;
+
+		desc.InputLayout = { nullptr, 0 };
+		desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
+		desc.NumRenderTargets = 2;
+		desc.RTVFormats[0] = DXGI_FORMAT_R16G16B16A16_FLOAT;
+		desc.RTVFormats[1] = DXGI_FORMAT_R16G16B16A16_FLOAT;
+		desc.DSVFormat = DXGI_FORMAT_UNKNOWN;
+		desc.SampleDesc.Count = 1;
+		desc.SampleDesc.Quality = 0;
+
+		HRESULT hr = Device()->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(&m_PSOVoxelize));
+		if (FAILED(hr))
+		{
+			OutputDebugStringA("[VolumetricFog] voxelization PSO creation failed: volume materials are disabled\n");
+			m_PSOVoxelize.Reset();
+			return;
+		}
+	}
+
+	// ------------------------------------------------------------
+	//  RTV ヒープ (2 枠。RTV は CreateVolumes がボリューム生成のたびに作り直す)
+	// ------------------------------------------------------------
+	{
+		D3D12_DESCRIPTOR_HEAP_DESC hd{};
+		hd.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+		hd.NumDescriptors = 2;
+		hd.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+		HRESULT hr = Device()->CreateDescriptorHeap(&hd, IID_PPV_ARGS(&m_VoxelizeRTVHeap));
+		assert(SUCCEEDED(hr));
+		m_VoxelizeRTVHeap->SetName(L"VolumetricFogVoxelizationRTVHeap");
+
+		const UINT inc = Device()->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+		D3D12_CPU_DESCRIPTOR_HANDLE base = m_VoxelizeRTVHeap->GetCPUDescriptorHandleForHeapStart();
+		for (int i = 0; i < 2; ++i)
+		{
+			m_VoxelizeRTV[i] = base;
+			m_VoxelizeRTV[i].ptr += (SIZE_T)inc * i;
+		}
+	}
+
+	// ------------------------------------------------------------
+	//  b1 リング (要素 x 256 B x 2 フレーム。アップロードヒープ、常時マップ)
+	// ------------------------------------------------------------
+	{
+		D3D12_HEAP_PROPERTIES prop{};
+		prop.Type = D3D12_HEAP_TYPE_UPLOAD;
+
+		D3D12_RESOURCE_DESC d{};
+		d.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+		d.Width = (UINT64)VOXELIZE_ELEMENT_STRIDE * MAX_VOXELIZE_VOLUME_ELEMENTS;
+		d.Height = 1;
+		d.DepthOrArraySize = 1;
+		d.MipLevels = 1;
+		d.Format = DXGI_FORMAT_UNKNOWN;
+		d.SampleDesc.Count = 1;
+		d.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
+		for (int i = 0; i < 2; ++i)
+		{
+			HRESULT hr = Device()->CreateCommittedResource(&prop, D3D12_HEAP_FLAG_NONE,
+				&d, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+				IID_PPV_ARGS(&m_ElementBuffer[i]));
+			assert(SUCCEEDED(hr));
+			m_ElementBuffer[i]->SetName(L"VolumetricFogVoxelizeElements");
+			m_ElementBuffer[i]->Map(0, nullptr, &m_ElementPtr[i]);
+		}
+	}
+}
+
+void FVolumetricFog::VoxelizeFogVolumePrimitives(const std::vector<FVoxelizeVolumeElement>* Elements)
+{
+	if (Elements == nullptr || Elements->empty()
+		|| m_PSOVoxelize == nullptr || m_VoxelizeRootSignature == nullptr
+		|| m_VoxelizeRTVHeap == nullptr || m_ElementPtr[m_ParamFrame] == nullptr)
+	{
+		return;
+	}
+
+	ID3D12GraphicsCommandList* cl = CommandList();
+
+	// ---- 要素定数 (b1 リング) ----
+	const unsigned int numElements = (std::min)((unsigned int)Elements->size(), MAX_VOXELIZE_VOLUME_ELEMENTS);
+	char* ring = (char*)m_ElementPtr[m_ParamFrame];
+	for (unsigned int i = 0; i < numElements; ++i)
+	{
+		const FVoxelizeVolumeElement& e = (*Elements)[i];
+		FVoxelizeVolumeElementParams params{};
+		XMStoreFloat4x4(&params.BoxToWorld, XMMatrixTranspose(XMLoadFloat4x4(&e.BoxToWorld)));
+		XMStoreFloat4x4(&params.WorldToBox, XMMatrixTranspose(XMLoadFloat4x4(&e.WorldToBox)));
+		params.BoundsSphere = { e.BoundsSphere.Center.x, e.BoundsSphere.Center.y, e.BoundsSphere.Center.z, e.BoundsSphere.W };
+		params.Material = e.Material;
+		std::memcpy(ring + (size_t)VOXELIZE_ELEMENT_STRIDE * i, &params, sizeof(params));
+	}
+
+	// ---- VBufferA / VBufferB を RTV へ ----
+	Transition(m_VBufferA, D3D12_RESOURCE_STATE_RENDER_TARGET);
+	Transition(m_VBufferB, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+	// ---- グラフィックス状態 (ビューポート = froxel グリッド、深度無し) ----
+	cl->OMSetRenderTargets(2, m_VoxelizeRTV, FALSE, nullptr);
+
+	D3D12_VIEWPORT vp{};
+	vp.TopLeftX = 0.0f;
+	vp.TopLeftY = 0.0f;
+	vp.Width = (float)m_GridSizeX;
+	vp.Height = (float)m_GridSizeY;
+	vp.MinDepth = 0.0f;
+	vp.MaxDepth = 1.0f;
+	cl->RSSetViewports(1, &vp);
+
+	D3D12_RECT scissor{ 0, 0, (LONG)m_GridSizeX, (LONG)m_GridSizeY };
+	cl->RSSetScissorRects(1, &scissor);
+
+	cl->SetGraphicsRootSignature(m_VoxelizeRootSignature.Get());
+	cl->SetPipelineState(m_PSOVoxelize.Get());
+	cl->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_POINTLIST);
+	cl->SetGraphicsRootConstantBufferView(0, m_ParamBuffer[m_ParamFrame]->GetGPUVirtualAddress());
+
+	// 1 要素 = 1 点 x (GridSizeZ / 8) インスタンス (GS がインスタンスごとに 8 スライス分のクアッドを出す)
+	const UINT numPasses = (m_GridSizeZ + 7u) / 8u;	// MAX_SLICES_PER_VOXELIZATION_PASS
+	const D3D12_GPU_VIRTUAL_ADDRESS ringBase = m_ElementBuffer[m_ParamFrame]->GetGPUVirtualAddress();
+	for (unsigned int i = 0; i < numElements; ++i)
+	{
+		cl->SetGraphicsRootConstantBufferView(1, ringBase + (UINT64)VOXELIZE_ELEMENT_STRIDE * i);
+		cl->DrawInstanced(1, numPasses, 0, 0);
+	}
+
+	// ---- 散乱パス (コンピュート) が読める状態へ ----
+	Transition(m_VBufferA, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+	Transition(m_VBufferB, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+
+	// RTV を外し、既定のグラフィックス状態 (RS / ビューポート / ヒープ) へ戻す
+	cl->OMSetRenderTargets(0, nullptr, FALSE, nullptr);
+	m_Owner->RestoreDefaultGraphicsState();
+
+	m_Stats.NumVoxelizedElements = numElements;
+	m_Stats.NumVoxelizeDraws = numElements;
 }

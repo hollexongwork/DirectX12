@@ -962,6 +962,24 @@
     <FxCompile Include="Shader\VolumetricFogCommon.hlsl">
       <Filter>Shader\Fog</Filter>
     </FxCompile>
+    <FxCompile Include="Shader\VolumetricFogGridCommon.hlsl">
+      <Filter>Shader\Fog</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\VolumetricFogVoxelizationCommon.hlsl">
+      <Filter>Shader\Fog</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\VolumetricFogVoxelizationVS.hlsl">
+      <Filter>Shader\Fog</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\VolumetricFogVoxelizationGS.hlsl">
+      <Filter>Shader\Fog</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\VolumetricFogVoxelizationPS.hlsl">
+      <Filter>Shader\Fog</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\Noise.hlsl">
+      <Filter>Shader\Header</Filter>
+    </FxCompile>
     <FxCompile Include="Shader\VolumetricFogIntegration_CS.hlsl">
       <Filter>Shader\Fog</Filter>
     </FxCompile>

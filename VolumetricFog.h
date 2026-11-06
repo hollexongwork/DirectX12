@@ -2,6 +2,9 @@
 #include "RenderManager.h"
 #include "ShadowRendering.h"
 #include "Scene.h"
+#include "Material.h"
+#include "PrimitiveSceneProxy.h"
+#include <vector>
 
 class FLightGridInjection;
 class FShadowSceneRenderer;
@@ -19,6 +22,13 @@ class FShadowSceneRenderer;
 //
 //    Pass 1 (VolumetricFogAttributes_CS):
 //        指数高さフォグの密度 -> 散乱 / 吸収 (VBufferA) + 発光 (VBufferB)
+//    Pass 1b (VolumetricFogVoxelization VS/GS/PS, グラフィックス):
+//        Material Domain = Volume のプリミティブの境界を VBufferA / VBufferB
+//        へ加算ラスタライズ (VoxelizeFogVolumePrimitives)。
+//        RTV = Texture3D スライス、GS が SV_RenderTargetArrayIndex で
+//        スライスを選ぶ。独立したグラフィックスルートシグネチャ
+//        (b0 = コンピュートと同じ FVolumetricFogParams, b1 = 要素)。
+//        終了後に RenderManager::RestoreDefaultGraphicsState で既定へ戻す
 //    Pass 2 (VolumetricFogLightScattering_CS):
 //        ディレクショナル (CSM 影) + ローカルライト (ライトグリッド +
 //        シャドウアトラス) + スカイ (IBL irradiance) を HG 位相関数で
@@ -66,7 +76,14 @@ struct FVolumetricFogInputs
 	// ディレクショナルライトは ForwardLightData (b3) の「選択されたフォワードディレクショナルライト」を使う
 
 	const FExponentialHeightFogSceneInfo* FogInfo = nullptr;	// 解決済みフォグ (null = 無効)
+
+	// Material Domain = Volume のプリミティブ (null / 空 = ボクセル化パスを飛ばす)
+	const std::vector<FVoxelizeVolumeElement>* VolumeElements = nullptr;
+	float                         Time = 0.0f;					// 経過時間 [s] (ボリュームマテリアルの Panner)
 };
+
+// ボクセル化パスが 1 フレームに受け付ける要素数の上限 (b1 リングバッファの容量)
+static const unsigned int MAX_VOXELIZE_VOLUME_ELEMENTS = 256;
 
 class FVolumetricFog
 {
@@ -88,11 +105,13 @@ public:
 		unsigned int GridSizeZ = 0;
 		unsigned int NumFroxels = 0;
 		bool         bDispatchedThisFrame = false;
+		unsigned int NumVoxelizedElements = 0;	// 今フレーム VBuffer へ描いた Volume 要素数
+		unsigned int NumVoxelizeDraws = 0;		// その描画呼び出し数 (= 要素数。上限で切られた分は含まない)
 	};
 
 private:
-	// HLSL 側 (VolumetricFogCommon.hlsl) の cbuffer FVolumetricFogParams (b0)
-	// と 1:1 ミラー必須 (720 bytes)。
+	// HLSL 側 (VolumetricFogGridCommon.hlsl) の cbuffer FVolumetricFogParams (b0)
+	// と 1:1 ミラー必須 (784 bytes)。
 	struct FVolumetricFogParams
 	{
 		XMFLOAT4X4 ViewToWorld;						// ビュー -> ワールド (転置済み)
@@ -133,9 +152,26 @@ private:
 
 		XMFLOAT3     LightGridZParams;
 		unsigned int PadB;
+
+		// ---- ボリュームマテリアルのボクセル化 ----
+		XMFLOAT4X4 WorldToView;						// ワールド -> ビュー (転置済み)
 	};
-	static_assert(sizeof(FVolumetricFogParams) == 720,
+	static_assert(sizeof(FVolumetricFogParams) == 784,
 		"FVolumetricFogParams must mirror HLSL cbuffer FVolumetricFogParams (b0)");
+
+	// HLSL 側 (VolumetricFogVoxelizationCommon.hlsl) の cbuffer
+	// FVoxelizeVolumeElementParams (b1) と 1:1 ミラー必須 (240 bytes)。
+	// 256 B 境界で b1 リングバッファに並ぶ
+	struct FVoxelizeVolumeElementParams
+	{
+		XMFLOAT4X4 BoxToWorld;						// 単位ボックス -> ワールド (転置済み)
+		XMFLOAT4X4 WorldToBox;						// ワールド -> 単位ボックス (転置済み)
+		XMFLOAT4   BoundsSphere;					// xyz = 中心, w = 半径
+		FVolumeMaterialParameters Material;
+	};
+	static_assert(sizeof(FVoxelizeVolumeElementParams) == 240,
+		"FVoxelizeVolumeElementParams must mirror HLSL cbuffer FVoxelizeVolumeElementParams (b1)");
+	static constexpr unsigned int VOXELIZE_ELEMENT_STRIDE = 256;
 
 	RenderManager* m_Owner = nullptr;
 	Params         m_Params;
@@ -168,6 +204,17 @@ private:
 	ComPtr<ID3D12PipelineState> m_PSOLightScattering;
 	ComPtr<ID3D12PipelineState> m_PSOIntegration;
 
+	// ---- ボクセル化 (グラフィックス) ----
+	//  ルートシグネチャ: [0] CBV b0 (FVolumetricFogParams) / [1] CBV b1 (FVoxelizeVolumeElementParams)
+	//  PSO: VS + GS + PS、点リスト、入力レイアウト無し、加算 (One/One) x 2 RT、深度無し
+	//  RTV ヒープ: 自前 2 枠 (VBufferA / VBufferB の Texture3D 全スライス)
+	ComPtr<ID3D12RootSignature>  m_VoxelizeRootSignature;
+	ComPtr<ID3D12PipelineState>  m_PSOVoxelize;
+	ComPtr<ID3D12DescriptorHeap> m_VoxelizeRTVHeap;
+	D3D12_CPU_DESCRIPTOR_HANDLE  m_VoxelizeRTV[2]{};
+	ComPtr<ID3D12Resource>       m_ElementBuffer[2];		// b1 リング (2 フレームインフライト)
+	void* m_ElementPtr[2] = {};
+
 	// ---- ボリュームテクスチャ (Texture3D, R16G16B16A16_FLOAT) ----
 	struct FVolumeTexture
 	{
@@ -194,9 +241,19 @@ private:
 
 	ID3D12Device* Device();
 	ID3D12GraphicsCommandList* CommandList();
+	static bool ReadShaderBytecode(const char* csoFile, std::vector<char>& Out);
 	ComPtr<ID3D12PipelineState> CreateComputePipeline(const char* csoFile);
-	void CreateVolumeTexture(FVolumeTexture& Out, const wchar_t* Name);
+	void InitVoxelization();	// ルートシグネチャ / PSO / RTV ヒープ / b1 リング
+	// bRenderTarget: ボクセル化の RTV にする (ALLOW_RENDER_TARGET。VBufferA / VBufferB)
+	void CreateVolumeTexture(FVolumeTexture& Out, const wchar_t* Name, bool bRenderTarget = false);
 	void Transition(FVolumeTexture& Volume, D3D12_RESOURCE_STATES NewState);
+
+	// Pass 1b: Material Domain = Volume のプリミティブの境界を VBufferA / VBufferB へ
+	// 加算ラスタライズする (VoxelizeFogVolumePrimitives 相当)。
+	// 入口で VBufferA / B を RENDER_TARGET へ、出口で NON_PIXEL_SHADER_RESOURCE へ遷移し、
+	// 既定のグラフィックス状態 (RS / ビューポート / ヒープ) を復帰する。
+	// Elements が null / 空なら何もしない
+	void VoxelizeFogVolumePrimitives(const std::vector<FVoxelizeVolumeElement>* Elements);
 
 public:
 	explicit FVolumetricFog(RenderManager* owner);

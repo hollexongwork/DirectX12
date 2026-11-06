@@ -1,6 +1,8 @@
 #pragma once
 #include <DirectXMath.h>
+#include <vector>
 #include "BoxSphereBounds.h"
+#include "Material.h"
 
 using namespace DirectX;
 
@@ -45,6 +47,10 @@ class FBXModel;
 //                            SceneColor へフォワード合成)
 //  複数マテリアルスロットを持つプリミティブは全スロットの
 //  Blend Mode を OR で集約する (両フラグが立ち得る)。
+//    bHasVolumeMaterialDomain -> Volumetric Fog のボクセル化
+//                           (FMaterialRelevance::bHasVolumeMaterialDomain。
+//                            Material Domain = Volume のスロットを持つ。
+//                            そのスロットはサーフェス系のパスへは流れない)
 // ============================================================
 
 struct FPrimitiveViewRelevance
@@ -52,9 +58,28 @@ struct FPrimitiveViewRelevance
 	bool bOpaque = true;
 	bool bMasked = false;
 	bool bNormalTranslucency = false;
+	bool bHasVolumeMaterialDomain = false;
 
 	bool HasOpaqueRelevance() const { return bOpaque || bMasked; }
 	bool HasTranslucency() const { return bNormalTranslucency; }
+};
+
+// ============================================================
+//  FVoxelizeVolumeElement
+//  Volume ドメインのマテリアルを持つプリミティブ 1 スロット分の
+//  ボクセル化要素 (FVoxelizeVolumeMeshProcessor へ渡るメッシュ
+//  バッチに相当)。FSceneRenderer::RenderBasePass が可視プリミティブ
+//  から集め (GatherVoxelizeVolumeElements)、
+//  FVolumetricFog::VoxelizeFogVolumePrimitives が描く。
+//  [PORT] メッシュの三角形ではなく境界 (OBB / 球) だけを持つ
+//  (UE のドキュメント「Volume マテリアルはメッシュの境界に適用される」)
+// ============================================================
+struct FVoxelizeVolumeElement
+{
+	XMFLOAT4X4 BoxToWorld;	// 単位ボックス [-1,1]^3 -> ワールド (転置前)
+	XMFLOAT4X4 WorldToBox;	// ワールド -> 単位ボックス (転置前)
+	FSphere    BoundsSphere;	// ワールド境界球
+	FVolumeMaterialParameters Material;	// マテリアルの Volume 入力 (値コピー)
 };
 
 class FPrimitiveSceneProxy
@@ -181,7 +206,20 @@ public:
 	// 1 つも無いフレームはマスクのクリアもせず、TAA は Responsive 無効 (ダミー) で走る
 	virtual bool HasResponsiveAATranslucency(bool bForceAll) const { return false; }
 
+	// Volumetric Fog のボクセル化 (FVolumetricFog::VoxelizeFogVolumePrimitives) へ
+	// Material Domain = Volume のスロットを積む (GetDynamicMeshElements の Volume 版)。
+	// GetViewRelevance().bHasVolumeMaterialDomain のプリミティブだけが呼ばれる。
+	// 既定は何も積まない
+	virtual void GatherVoxelizeVolumeElements(std::vector<FVoxelizeVolumeElement>& Out) const {}
+
 protected:
+	// GatherVoxelizeVolumeElements の共通処理: ローカル境界 (メッシュの AABB) を
+	// m_LocalToWorld で OBB にし、ワールド境界球 (m_Bounds) と Volume 入力を
+	// 1 要素として積む。LocalBounds = nullptr ならワールド AABB (m_Bounds) を
+	// そのままボックスにする (スケルタルメッシュなどローカル境界を持たないもの)
+	void AppendVoxelizeVolumeElement(std::vector<FVoxelizeVolumeElement>& Out,
+		const FBoxSphereBounds* LocalBounds, const Material& Mat) const;
+
 	// PRIMITIVE 定数 (b1, FPrimitiveUniformShaderParameters 相当) へ
 	// プロキシのワールド行列を転置してアップロードする共通処理。
 	// PreviousLocalToWorld (転置前) を渡すとベロシティ用の前フレーム行列として書く。

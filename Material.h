@@ -45,6 +45,73 @@ inline bool IsOpaqueBlendMode(EBlendMode BlendMode)
 }
 
 // ============================================================
+//  EMaterialDomain (EngineTypes.h の EMaterialDomain 相当)
+//  マテリアルがどのレンダリング経路で評価されるか。
+//    MD_Surface : サーフェス (ベースパス / トランスルーセンシー /
+//                 シャドウ / ベロシティ / Lumen カード)
+//    MD_Volume  : ボリューム (Volumetric Fog の froxel ボリュームへ
+//                 プリミティブの境界をボクセル化する。サーフェス系の
+//                 どのパスにも描かれない。FVolumetricFog::
+//                 VoxelizeFogVolumePrimitives)
+//  [PORT] DeferredDecal / LightFunction / PostProcess / UI は無い
+// ============================================================
+enum class EMaterialDomain : unsigned int
+{
+	MD_Surface = 0,
+	MD_Volume = 1,
+	MD_MAX,
+};
+
+// ============================================================
+//  EVolumeShape
+//  Volume ドメインのボクセル化形状 (VolumetricFogVoxelization の
+//  EVoxelizeShape 相当)。プリミティブの境界ボックス (OBB) か
+//  境界球のどちらに媒質を詰めるか。[PORT] UE はメッシュから決める
+//  (UE のサンプルは SphereMask ノードで球にする) が、本エンジンは
+//  マテリアルグラフが無いのでマテリアルのプロパティにする
+// ============================================================
+enum class EVolumeShape : unsigned int
+{
+	Box = 0,
+	Sphere = 1,
+	MAX,
+};
+
+// ============================================================
+//  FVolumeMaterialParameters
+//  Volume ドメインのマテリアル入力 (MaterialTemplate の Volume 用
+//  ピン: Albedo / Emissive Color / Extinction / Ambient Occlusion)
+//  と、それを作るノード (UE のサンプル M_VolumetricFog 相当:
+//  FogColor -> Albedo, Noise(AbsoluteWorldPosition x Scale, Panner)
+//  x Opacity x Hardness -> Extinction) の固定機能版。
+//  b2 (MaterialConstantBuffer) の外。FVolumetricFog の
+//  ボクセル化パスが自前の cbuffer (FVoxelizeVolumeElementParams) へ
+//  コピーする。HLSL 側 VolumetricFogVoxelizationCommon.hlsl の
+//  FVolumeMaterialParameters と 1:1 ミラー (96 bytes)。
+//  単位はメートル (Extinction [1/m], Emissive [/m])。
+// ============================================================
+struct FVolumeMaterialParameters
+{
+	// rgb = Albedo (散乱アルベド, FogColor パラメータ), w = AmbientOcclusion (0..1)
+	XMFLOAT4 Albedo = { 1.0f, 1.0f, 1.0f, 1.0f };
+	// rgb = Emissive Color [/m], w = 未使用
+	XMFLOAT4 Emissive = { 0.0f, 0.0f, 0.0f, 0.0f };
+	// x = Extinction (Opacity パラメータ) [1/m], y = Hardness (Extinction 乗数),
+	// z = EdgeFalloff (境界からのフェード幅。形状半径比 0..1), w = EVolumeShape
+	XMFLOAT4 ExtinctionParams = { 0.1f, 0.6f, 0.0f, 0.0f };
+	// x = Noise Scale (ワールド座標の乗数 = 周波数 [1/m]), y = Levels (オクターブ数),
+	// z = OutputMin, w = OutputMax (Noise ノードの出力レンジ)
+	XMFLOAT4 NoiseParams = { 1.0f, 4.0f, 0.0f, 1.0f };
+	// xyz = Panner Speed (ワールド座標のスクロール [m/s]), w = LevelScale (オクターブ間の周波数比)
+	XMFLOAT4 NoisePanner = { 0.0f, 0.0f, 0.0f, 2.0f };
+	// x = bUseNoise (0/1), y = bTurbulence (0/1: |noise| で尖らせる), z = bUseFilterWidth
+	// (0/1: froxel サイズより細かいオクターブを減衰), w = 未使用
+	XMFLOAT4 NoiseFlags = { 1.0f, 0.0f, 1.0f, 0.0f };
+};
+static_assert(sizeof(FVolumeMaterialParameters) == 96,
+	"FVolumeMaterialParameters must mirror HLSL FVolumeMaterialParameters (96 bytes)");
+
+// ============================================================
 //  ESubstrateSSSType (HLSL SUBSTRATE_SSS_TYPE_* と 1:1)
 //  Substrate Slab の Sub-Surface Type 。
 //    None             : 標準 Lambert
@@ -159,6 +226,12 @@ private:
 	// (R8_UNORM) へ描き、TAA がその画素の現フレーム重みを 0.25 にする (動く半透明の残像を短くする)。
 	// Material は FSlot へ値コピーされるのでプロキシへもそのまま渡る
 	bool bEnableResponsiveAA = false;
+
+	// ---- Material Domain (UMaterial::MaterialDomain) ----
+	// CPU 専用 (b2 の外)。MD_Volume のスロットはサーフェス系のパス
+	// (ベース / 半透明 / シャドウ / ベロシティ / Responsive AA / Lumen カード)
+	// から除外され、FVolumetricFog のボクセル化パスが VolumeParams で評価する
+	EMaterialDomain MaterialDomain = EMaterialDomain::MD_Surface;
 	
 public:	
 
@@ -192,6 +265,18 @@ public:
 	// ---- Responsive AA (UMaterial::bEnableResponsiveAA。Translucent / Additive のみ有効) ----
 	bool ShouldEnableResponsiveAA() const { return bEnableResponsiveAA; }
 	void SetEnableResponsiveAA(bool bEnable) { bEnableResponsiveAA = bEnable; }
+
+	// ---- Material Domain (UMaterial::MaterialDomain / FMaterial::GetMaterialDomain) ----
+	EMaterialDomain GetMaterialDomain() const { return MaterialDomain; }
+	void            SetMaterialDomain(EMaterialDomain Domain) { MaterialDomain = Domain; }
+	// FMaterial::IsVolumeDomain 相当。true のスロットはサーフェスのどのパスにも描かれない
+	bool IsVolumeDomain() const { return MaterialDomain == EMaterialDomain::MD_Volume; }
+
+	// ---- Volume ドメインのマテリアル入力 (b2 の外。ボクセル化パスがコピーする) ----
+	FVolumeMaterialParameters VolumeParams;
+
+	EVolumeShape GetVolumeShape() const { return (EVolumeShape)(unsigned int)(VolumeParams.ExtinctionParams.w + 0.5f); }
+	void         SetVolumeShape(EVolumeShape Shape) { VolumeParams.ExtinctionParams.w = (float)(unsigned int)Shape; }
 
 	void Bind(RenderManager* rm) const;
 };

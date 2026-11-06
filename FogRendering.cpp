@@ -236,6 +236,8 @@ void FFogSceneRenderer::ComputeVolumetricFog(const FComputeInputs& Inputs)
 	in.LightGrid = Inputs.LightGrid;
 	in.ShadowRenderer = Inputs.ShadowRenderer;
 	in.SkyIrradianceSRVIndex = Inputs.SkyIrradianceSRVIndex;
+	in.VolumeElements = Inputs.VolumeElements;
+	in.Time = Inputs.Time;
 
 	// 無効フレームは null を渡す (履歴を捨てて何もしない)
 	in.FogInfo = (m_bHasFog && m_bVolumetricFogActive) ? &m_FogInfo : nullptr;

@@ -66,7 +66,8 @@ private:
 
 	static bool IsResponsiveAASlot(const FSlot& Slot, bool bForceAll)
 	{
-		return IsTranslucentBlendMode(Slot.Mat.GetBlendMode()) && (bForceAll || Slot.Mat.ShouldEnableResponsiveAA());
+		return !Slot.Mat.IsVolumeDomain()
+			&& IsTranslucentBlendMode(Slot.Mat.GetBlendMode()) && (bForceAll || Slot.Mat.ShouldEnableResponsiveAA());
 	}
 
 public:
@@ -83,6 +84,19 @@ public:
 	// 動かないフレームでもボーンが動くので毎フレーム速度を描く (FSkeletalMeshSceneProxy)
 	bool AlwaysHasVelocity() const override { return true; }
 
+	// ---- Volumetric Fog のボクセル化 (Material Domain = Volume のスロットごとに 1 要素) ----
+	// スケルタルメッシュはローカル境界を持たないのでワールド AABB (m_Bounds) をボックスにする
+	void GatherVoxelizeVolumeElements(std::vector<FVoxelizeVolumeElement>& Out) const override
+	{
+		for (const FSlot& slot : m_Slots)
+		{
+			if (slot.Mat.IsVolumeDomain())
+			{
+				AppendVoxelizeVolumeElement(Out, nullptr, slot.Mat);
+			}
+		}
+	}
+
 	FPrimitiveViewRelevance GetViewRelevance() const override
 	{
 		FPrimitiveViewRelevance relevance;
@@ -90,6 +104,13 @@ public:
 
 		for (const FSlot& slot : m_Slots)
 		{
+			// Volume ドメインはサーフェス系のどのパスにも流れない (ボクセル化のみ)
+			if (slot.Mat.IsVolumeDomain())
+			{
+				relevance.bHasVolumeMaterialDomain = true;
+				continue;
+			}
+
 			switch (slot.Mat.GetBlendMode())
 			{
 			case EBlendMode::BLEND_Masked:
@@ -120,7 +141,7 @@ public:
 		for (unsigned int i = 0; i < numSections; ++i)
 		{
 			const FSlot& slot = ResolveSlot(i);
-			if (IsTranslucentBlendMode(slot.Mat.GetBlendMode()))
+			if (IsTranslucentBlendMode(slot.Mat.GetBlendMode()) || slot.Mat.IsVolumeDomain())
 			{
 				continue;
 			}
@@ -144,7 +165,7 @@ public:
 		{
 			const FSlot& slot = ResolveSlot(i);
 			const EBlendMode blendMode = slot.Mat.GetBlendMode();
-			if (!IsTranslucentBlendMode(blendMode))
+			if (!IsTranslucentBlendMode(blendMode) || slot.Mat.IsVolumeDomain())
 			{
 				continue;
 			}
@@ -195,7 +216,7 @@ public:
 		{
 			const FSlot& slot = ResolveSlot(i);
 			const EBlendMode blendMode = slot.Mat.GetBlendMode();
-			if (IsTranslucentBlendMode(blendMode))
+			if (IsTranslucentBlendMode(blendMode) || slot.Mat.IsVolumeDomain())
 			{
 				continue;
 			}
@@ -229,7 +250,7 @@ public:
 		{
 			const FSlot& slot = ResolveSlot(i);
 			const EBlendMode blendMode = slot.Mat.GetBlendMode();
-			if (IsTranslucentBlendMode(blendMode))
+			if (IsTranslucentBlendMode(blendMode) || slot.Mat.IsVolumeDomain())
 			{
 				continue;
 			}

@@ -2,6 +2,7 @@
 #include "RenderManager.h"
 #include "PrimitiveSceneProxy.h"
 #include "PrimitiveComponent.h"
+#include <algorithm>
 
 FPrimitiveSceneProxy::FPrimitiveSceneProxy(const UPrimitiveComponent* Component)
 {
@@ -35,4 +36,37 @@ void FPrimitiveSceneProxy::UploadPrimitiveConstant(RenderManager* RHI, const XMF
 	XMStoreFloat4x4(&constant.PreviousLocalToWorld, XMMatrixTranspose(previousLocalToWorld));
 
 	RHI->SetConstant(RenderManager::CONSTANT_TYPE::PRIMITIVE, &constant, sizeof(constant));
+}
+
+// ------------------------------------------------------------
+//  Volume ドメインのボクセル化要素 (境界 OBB / 球 + マテリアル入力)
+// ------------------------------------------------------------
+void FPrimitiveSceneProxy::AppendVoxelizeVolumeElement(std::vector<FVoxelizeVolumeElement>& Out,
+	const FBoxSphereBounds* LocalBounds, const Material& Mat) const
+{
+	XMMATRIX boxToWorld;
+	if (LocalBounds != nullptr)
+	{
+		// 単位ボックス -> ローカル AABB -> ワールド (OBB)
+		const XMFLOAT3& e = LocalBounds->BoxExtent;
+		const XMFLOAT3& o = LocalBounds->Origin;
+		boxToWorld = XMMatrixScaling((std::max)(e.x, 1e-4f), (std::max)(e.y, 1e-4f), (std::max)(e.z, 1e-4f))
+			* XMMatrixTranslation(o.x, o.y, o.z)
+			* XMLoadFloat4x4(&m_LocalToWorld);
+	}
+	else
+	{
+		// ワールド AABB をそのままボックスに
+		const XMFLOAT3& e = m_Bounds.BoxExtent;
+		const XMFLOAT3& o = m_Bounds.Origin;
+		boxToWorld = XMMatrixScaling((std::max)(e.x, 1e-4f), (std::max)(e.y, 1e-4f), (std::max)(e.z, 1e-4f))
+			* XMMatrixTranslation(o.x, o.y, o.z);
+	}
+
+	FVoxelizeVolumeElement element;
+	XMStoreFloat4x4(&element.BoxToWorld, boxToWorld);
+	XMStoreFloat4x4(&element.WorldToBox, XMMatrixInverse(nullptr, boxToWorld));
+	element.BoundsSphere = FSphere(m_Bounds.Origin, m_Bounds.SphereRadius);
+	element.Material = Mat.VolumeParams;
+	Out.push_back(element);
 }

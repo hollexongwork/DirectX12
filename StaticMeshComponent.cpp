@@ -67,7 +67,18 @@ private:
 	// または bForceAll = FTemporalAADebugSettings::bForceResponsiveAA)
 	static bool IsResponsiveAASlot(const FSlot& Slot, bool bForceAll)
 	{
-		return IsTranslucentBlendMode(Slot.Mat.GetBlendMode()) && (bForceAll || Slot.Mat.ShouldEnableResponsiveAA());
+		return !Slot.Mat.IsVolumeDomain()
+			&& IsTranslucentBlendMode(Slot.Mat.GetBlendMode()) && (bForceAll || Slot.Mat.ShouldEnableResponsiveAA());
+	}
+
+	// 全スロットが Material Domain = Volume (サーフェスを持たない = DF / Lumen に参加しない)
+	bool HasOnlyVolumeDomainSlots() const
+	{
+		for (const FSlot& slot : m_Slots)
+		{
+			if (!slot.Mat.IsVolumeDomain()) return false;
+		}
+		return !m_Slots.empty();
 	}
 
 public:
@@ -76,13 +87,34 @@ public:
 		, m_Mesh(Component->GetStaticMesh())
 		, m_Slots(Component->GetMaterialSlots())	// Material は値コピー / テクスチャは shared_ptr コピー (参照カウント +1)
 	{
+		// Volume ドメインだけのプリミティブは Distance Field (DF シャドウ / Lumen) に寄与しない
+		if (HasOnlyVolumeDomainSlots())
+		{
+			m_bAffectDistanceField = false;
+		}
 	}
 
 	// Distance Field Shadows: 有効な SDF を持つメッシュを返す
 	const FBXModel* GetDistanceFieldMesh() const override
 	{
-		return (IsMeshValid() && m_Mesh->GetDistanceField().bValid)
+		return (IsMeshValid() && m_Mesh->GetDistanceField().bValid && !HasOnlyVolumeDomainSlots())
 			? m_Mesh.get() : nullptr;
+	}
+
+	// ---- Volumetric Fog のボクセル化 (Material Domain = Volume のスロットごとに 1 要素) ----
+	// メッシュのローカル AABB を LocalToWorld で OBB にする
+	void GatherVoxelizeVolumeElements(std::vector<FVoxelizeVolumeElement>& Out) const override
+	{
+		if (!IsMeshValid()) return;
+
+		const FBoxSphereBounds localBounds = m_Mesh->GetLocalBounds();
+		for (const FSlot& slot : m_Slots)
+		{
+			if (slot.Mat.IsVolumeDomain())
+			{
+				AppendVoxelizeVolumeElement(Out, &localBounds, slot.Mat);
+			}
+		}
 	}
 
 	// ---- FPrimitiveViewRelevance (全マテリアルスロットの OR 集約) ----
@@ -93,6 +125,13 @@ public:
 
 		for (const FSlot& slot : m_Slots)
 		{
+			// Volume ドメインはサーフェス系のどのパスにも流れない (ボクセル化のみ)
+			if (slot.Mat.IsVolumeDomain())
+			{
+				relevance.bHasVolumeMaterialDomain = true;
+				continue;
+			}
+
 			switch (slot.Mat.GetBlendMode())
 			{
 			case EBlendMode::BLEND_Masked:
@@ -126,8 +165,8 @@ public:
 		{
 			const FSlot& slot = ResolveSlot(i);
 
-			// Translucent / Additive はトランスルーセンシーパスが描く
-			if (IsTranslucentBlendMode(slot.Mat.GetBlendMode()))
+			// Translucent / Additive はトランスルーセンシーパスが描く。Volume は描かない
+			if (IsTranslucentBlendMode(slot.Mat.GetBlendMode()) || slot.Mat.IsVolumeDomain())
 			{
 				continue;
 			}
@@ -159,7 +198,7 @@ public:
 			const FSlot& slot = ResolveSlot(i);
 
 			const EBlendMode blendMode = slot.Mat.GetBlendMode();
-			if (!IsTranslucentBlendMode(blendMode))
+			if (!IsTranslucentBlendMode(blendMode) || slot.Mat.IsVolumeDomain())
 			{
 				continue;
 			}
@@ -220,7 +259,7 @@ public:
 			const FSlot& slot = ResolveSlot(i);
 
 			const EBlendMode blendMode = slot.Mat.GetBlendMode();
-			if (IsTranslucentBlendMode(blendMode))
+			if (IsTranslucentBlendMode(blendMode) || slot.Mat.IsVolumeDomain())
 			{
 				continue;
 			}
@@ -263,7 +302,7 @@ public:
 			const FSlot& slot = ResolveSlot(i);
 
 			const EBlendMode blendMode = slot.Mat.GetBlendMode();
-			if (IsTranslucentBlendMode(blendMode))
+			if (IsTranslucentBlendMode(blendMode) || slot.Mat.IsVolumeDomain())
 			{
 				continue;
 			}
@@ -345,7 +384,7 @@ public:
 		{
 			const FSlot& slot = ResolveSlot(i);
 
-			if (IsTranslucentBlendMode(slot.Mat.GetBlendMode()))
+			if (IsTranslucentBlendMode(slot.Mat.GetBlendMode()) || slot.Mat.IsVolumeDomain())
 			{
 				continue;
 			}

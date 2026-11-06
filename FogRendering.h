@@ -111,6 +111,9 @@ public:
 		FLightGridInjection* LightGrid = nullptr;
 		FShadowSceneRenderer* ShadowRenderer = nullptr;
 		unsigned int                  SkyIrradianceSRVIndex = 0;
+		// Material Domain = Volume のプリミティブ (FSceneRenderer::RenderBasePass が集める)
+		const std::vector<FVoxelizeVolumeElement>* VolumeElements = nullptr;
+		float                         Time = 0.0f;	// 経過時間 [s] (ボリュームマテリアルの Panner)
 	};
 	void ComputeVolumetricFog(const FComputeInputs& Inputs);
 

@@ -19,6 +19,7 @@
 #include "SkeletalMeshActor.h"
 #include "Manny.h"
 #include "ProceduralSkeletalMesh.h"
+#include "ProceduralMeshGenerator.h"
 
 GameManager* GameManager::m_Instance = nullptr;
 
@@ -213,6 +214,38 @@ GameManager::GameManager(HWND hWnd, const wchar_t* CmdLine)
 		AManny* manny = m_World.SpawnActor<AManny>();
 		manny->SetActorLabel("Manny");
 		manny->SetActorLocation({ -8.5f, 0.0f, -8.0f });
+	}
+
+	// ---- ボリュームマテリアルのデモ (Material Domain = Volume) ----
+	// 単位ボックスのスタティックメッシュに Volume マテリアルを載せる。メッシュ自体は
+	// どのサーフェスパスにも描かれず、境界 (OBB) が Volumetric Fog へボクセル化される
+	// (UE のサンプル M_VolumetricFog 相当: FogColor / Noise x Opacity x Hardness)。
+	// ※ 新しいアクターは [Actor.N] の添字を保つため末尾にスポーンする
+	{
+		AStaticMeshActor* fogVolume = m_World.SpawnActor<AStaticMeshActor>();
+		fogVolume->SetActorLabel("FogVolume");
+
+		UStaticMeshComponent* mesh = fogVolume->GetStaticMeshComponent();
+		FProceduralMeshSection box = FProceduralMeshBuilder::CreateBox({ 1.0f, 1.0f, 1.0f });
+		box.bAffectDistanceField = false;	// 媒質なので SDF には入れない
+		mesh->SetProceduralMesh("FogVolumeUnitBox", FProceduralMeshData::FromSection(box));
+		mesh->SetCastShadow(false);
+		mesh->SetAffectDistanceFieldLighting(false);
+
+		// テーブルの天板 (y = 3.7 m) の上に漂う 9 x 1.8 x 4.4 m の霧の塊
+		fogVolume->SetActorLocation({ 0.0f, 4.6f, 0.0f });
+		fogVolume->SetActorScale3D({ 4.5f, 0.9f, 2.2f });
+
+		Material& mat = mesh->GetMaterial(0);
+		mat.SetMaterialDomain(EMaterialDomain::MD_Volume);
+		mat.SetVolumeShape(EVolumeShape::Box);
+		mat.VolumeParams.Albedo = { 1.0f, 1.0f, 1.0f, 1.0f };
+		mat.VolumeParams.Emissive = { 0.0f, 0.0f, 0.0f, 0.0f };
+		mat.VolumeParams.ExtinctionParams = { 3.0f, 1.0f, 0.35f, 0.0f };	// Extinction / Hardness / EdgeFalloff / Box
+		mat.VolumeParams.NoiseParams = { 0.6f, 4.0f, 0.0f, 1.0f };			// Scale / Levels / OutputMin / OutputMax
+		mat.VolumeParams.NoisePanner = { 0.3f, 0.05f, 0.15f, 2.0f };		// Speed / LevelScale
+		mat.VolumeParams.NoiseFlags = { 1.0f, 0.0f, 1.0f, 0.0f };			// UseNoise / Turbulence / FilterWidth
+		mesh->MarkRenderStateDirty();	// GetMaterial() 直接書き換えの反映
 	}
 }
 
