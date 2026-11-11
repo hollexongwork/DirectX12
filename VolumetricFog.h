@@ -172,6 +172,8 @@ private:
 	static_assert(sizeof(FVoxelizeVolumeElementParams) == 240,
 		"FVoxelizeVolumeElementParams must mirror HLSL cbuffer FVoxelizeVolumeElementParams (b1)");
 	static constexpr unsigned int VOXELIZE_ELEMENT_STRIDE = 256;
+	static_assert(sizeof(FVoxelizeVolumeElementParams) <= VOXELIZE_ELEMENT_STRIDE && (VOXELIZE_ELEMENT_STRIDE % 256) == 0,
+		"VOXELIZE_ELEMENT_STRIDE must hold one element and be 256 B aligned");
 
 	RenderManager* m_Owner = nullptr;
 	Params         m_Params;

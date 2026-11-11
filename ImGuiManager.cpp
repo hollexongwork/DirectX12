@@ -2518,50 +2518,46 @@ bool ImGuiManager::DrawMaterialEditor(Material& Mat)
 		}
 
 		// ---- Material 出力ピン (Albedo / Emissive Color / Extinction / Ambient Occlusion) ----
-		changed |= ColorEdit3("Albedo", &v.Albedo.x, ImGuiColorEditFlags_Float);
+		changed |= ColorEdit3("Albedo (Color)", &v.Albedo.x, ImGuiColorEditFlags_Float);
 		changed |= ColorEdit3("Emissive Color [/m]", &v.Emissive.x, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR);
-		changed |= DragFloat("Extinction (Opacity) [1/m]", &v.ExtinctionParams.x, 0.01f, 0.0f, 100.0f);
-		changed |= SliderFloat("Hardness", &v.ExtinctionParams.y, 0.0f, 4.0f);
+		changed |= DragFloat("Extinction [1/m]", &v.ExtinctionParams.x, 0.01f, 0.0f, 100.0f);
 		changed |= SliderFloat("Ambient Occlusion", &v.Albedo.w, 0.0f, 1.0f);
-		changed |= SliderFloat("Edge Falloff", &v.ExtinctionParams.z, 0.0f, 1.0f);
+		changed |= SliderFloat("Edge Falloff", &v.ExtinctionParams.w, 0.0f, 1.0f);
 
-		// ---- Noise ノード + Panner ----
-		if (TreeNodeEx("Noise (Gradient - Computational)", ImGuiTreeNodeFlags_DefaultOpen))
+		// ---- Fbm Perlin noise (マテリアル関数) -> Multiply -> Power -> Extinction ----
+		if (TreeNodeEx("Noise (Fbm Perlin noise)", ImGuiTreeNodeFlags_DefaultOpen))
 		{
-			bool useNoise = v.NoiseFlags.x > 0.5f;
+			bool useNoise = v.NoiseParams.w > 0.5f;
 			if (Checkbox("Use Noise", &useNoise))
 			{
-				v.NoiseFlags.x = useNoise ? 1.0f : 0.0f;
+				v.NoiseParams.w = useNoise ? 1.0f : 0.0f;
 				changed = true;
 			}
 
-			changed |= DragFloat("Scale [1/m]", &v.NoiseParams.x, 0.01f, 0.001f, 100.0f);
-
-			int levels = (int)(v.NoiseParams.y + 0.5f);
-			if (SliderInt("Levels", &levels, 1, 8))
+			static const char* dimensionNames[] = { "2D (XZ plane)", "3D", "4D (3D + Evolution)" };
+			int dimension = Mat.GetVolumeNoiseDimension() - 2;
+			if (Combo("Dimension", &dimension, dimensionNames, IM_ARRAYSIZE(dimensionNames)))
 			{
-				v.NoiseParams.y = (float)levels;
+				Mat.SetVolumeNoiseDimension(dimension + 2);
 				changed = true;
 			}
 
-			changed |= DragFloat("Level Scale", &v.NoisePanner.w, 0.01f, 1.01f, 8.0f);
-			changed |= DragFloatRange2("Output Min / Max", &v.NoiseParams.z, &v.NoiseParams.w, 0.01f, -4.0f, 4.0f);
+			// Position = (WorldPos + OffsetSpeed x Time) x Scale がそのままノイズ空間 (格子 1 セル = 1.0)
+			changed |= DragFloat3("Scale [1/m] (lattice cells per meter)", &v.NoiseScale.x, 0.01f, 0.0f, 100.0f);
+			changed |= DragFloat3("Offset Speed [m/s]", &v.NoiseOffsetSpeed.x, 0.01f, -10.0f, 10.0f);
+			changed |= DragFloat("Evolution Speed [1/s]", &v.NoiseOffsetSpeed.w, 0.01f, 0.0f, 100.0f);
 
-			bool turbulence = v.NoiseFlags.y > 0.5f;
-			if (Checkbox("Turbulence", &turbulence))
+			int octaves = (int)(v.NoiseParams.x + 0.5f);
+			if (SliderInt("Octaves", &octaves, 1, 8))
 			{
-				v.NoiseFlags.y = turbulence ? 1.0f : 0.0f;
+				v.NoiseParams.x = (float)octaves;
 				changed = true;
 			}
+			changed |= DragFloat("Lacunarity", &v.NoiseParams.y, 0.01f, 1.0f, 8.0f);
+			changed |= SliderFloat("Gain", &v.NoiseScale.w, 0.0f, 1.0f);
 
-			bool filterWidth = v.NoiseFlags.z > 0.5f;
-			if (Checkbox("Filter Width (froxel size)", &filterWidth))
-			{
-				v.NoiseFlags.z = filterWidth ? 1.0f : 0.0f;
-				changed = true;
-			}
-
-			changed |= DragFloat3("Panner Speed [m/s]", &v.NoisePanner.x, 0.01f, -10.0f, 10.0f);
+			changed |= DragFloat("Multiply", &v.ExtinctionParams.y, 0.01f, 0.0f, 10.0f);
+			changed |= DragFloat("Power", &v.ExtinctionParams.z, 0.01f, 0.01f, 16.0f);
 
 			TreePop();
 		}

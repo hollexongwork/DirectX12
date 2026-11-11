@@ -16,7 +16,7 @@
 //                                       XY 矩形と Z スライス範囲を求めて
 //                                       スライスごとに 1 クアッドを
 //                                       SV_RenderTargetArrayIndex = スライス
-//                                       で出力する (UE と同じく GS 1 回あたり
+//                                       で出力する (GS 1 回あたり
 //                                       MAX_SLICES_PER_VOXELIZATION_PASS 枚)
 //    PS (VolumetricFogVoxelizationPS) : froxel のサンプル位置 (属性パスと
 //                                       同じジッタ) でボリュームマテリアルを
@@ -49,12 +49,12 @@
 // C++ 側 (Material.h) の FVolumeMaterialParameters と 1:1 ミラー (96 bytes)
 struct FVolumeMaterialParameters
 {
-    float4 Albedo; // rgb = 散乱アルベド, w = AmbientOcclusion
-    float4 Emissive; // rgb = 発光 [/m], w = 未使用
-    float4 ExtinctionParams; // x = Extinction [1/m], y = Hardness, z = EdgeFalloff (0..1), w = EVolumeShape
-    float4 NoiseParams; // x = Scale [1/m], y = Levels, z = OutputMin, w = OutputMax
-    float4 NoisePanner; // xyz = Panner Speed [m/s], w = LevelScale
-    float4 NoiseFlags; // x = bUseNoise, y = bTurbulence, z = bUseFilterWidth, w = 未使用
+    float4 Albedo; // rgb = 散乱アルベド (Color), w = AmbientOcclusion
+    float4 Emissive; // rgb = 発光 [/m], w = EVolumeShape
+    float4 ExtinctionParams; // x = Extinction [1/m], y = Multiply (1.5), z = Power (5), w = EdgeFalloff (0..1)
+    float4 NoiseScale; // xyz = Scale (ワールド座標 -> ノイズ空間 [1/m]), w = Gain
+    float4 NoiseOffsetSpeed; // xyz = OffsetSpeed [m/s], w = EvolutionSpeed [1/s]
+    float4 NoiseParams; // x = Octaves, y = Lacunarity, z = Dimension (2/3/4), w = bUseNoise
 };
 
 // C++ 側 (VolumetricFog.h) の FVoxelizeVolumeElementParams と 1:1 ミラー (240 bytes)

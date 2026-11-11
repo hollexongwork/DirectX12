@@ -81,32 +81,36 @@ enum class EVolumeShape : unsigned int
 //  FVolumeMaterialParameters
 //  Volume ドメインのマテリアル入力 (MaterialTemplate の Volume 用
 //  ピン: Albedo / Emissive Color / Extinction / Ambient Occlusion)
-//  と、それを作るノード (UE のサンプル M_VolumetricFog 相当:
-//  FogColor -> Albedo, Noise(AbsoluteWorldPosition x Scale, Panner)
-//  x Opacity x Hardness -> Extinction) の固定機能版。
+//  と、それを作るノード列の固定機能版。グラフ:
+//    Color -> Albedo
+//    Noise(Position = (AbsoluteWorldPosition + OffsetSpeed x Time) x Scale,
+//          Octaves, Lacunarity, Evolution = frac(Time x EvolutionSpeed x 0.001) x 1000, Gain)
+//      x Multiply -> Power -> Extinction
+//    Ambient Occlusion = 1
+//  Noise はマテリアル関数 "Fbm Perlin noise" (Shader/Noise.hlsl の FBMNoise。
+//  2D / 3D / 4D (Evolution) を選べる)。Position がそのままノイズ空間
+//  (格子 1 セル = 1.0) なので、Scale [1/m] が格子の細かさになる。
 //  b2 (MaterialConstantBuffer) の外。FVolumetricFog の
 //  ボクセル化パスが自前の cbuffer (FVoxelizeVolumeElementParams) へ
 //  コピーする。HLSL 側 VolumetricFogVoxelizationCommon.hlsl の
 //  FVolumeMaterialParameters と 1:1 ミラー (96 bytes)。
-//  単位はメートル (Extinction [1/m], Emissive [/m])。
 // ============================================================
 struct FVolumeMaterialParameters
 {
-	// rgb = Albedo (散乱アルベド, FogColor パラメータ), w = AmbientOcclusion (0..1)
+	// rgb = Albedo (Color パラメータ), w = AmbientOcclusion (0..1)
 	XMFLOAT4 Albedo = { 1.0f, 1.0f, 1.0f, 1.0f };
-	// rgb = Emissive Color [/m], w = 未使用
+	// rgb = Emissive Color [/m], w = EVolumeShape
 	XMFLOAT4 Emissive = { 0.0f, 0.0f, 0.0f, 0.0f };
-	// x = Extinction (Opacity パラメータ) [1/m], y = Hardness (Extinction 乗数),
-	// z = EdgeFalloff (境界からのフェード幅。形状半径比 0..1), w = EVolumeShape
-	XMFLOAT4 ExtinctionParams = { 0.1f, 0.6f, 0.0f, 0.0f };
-	// x = Noise Scale (ワールド座標の乗数 = 周波数 [1/m]), y = Levels (オクターブ数),
-	// z = OutputMin, w = OutputMax (Noise ノードの出力レンジ)
-	XMFLOAT4 NoiseParams = { 1.0f, 4.0f, 0.0f, 1.0f };
-	// xyz = Panner Speed (ワールド座標のスクロール [m/s]), w = LevelScale (オクターブ間の周波数比)
-	XMFLOAT4 NoisePanner = { 0.0f, 0.0f, 0.0f, 2.0f };
-	// x = bUseNoise (0/1), y = bTurbulence (0/1: |noise| で尖らせる), z = bUseFilterWidth
-	// (0/1: froxel サイズより細かいオクターブを減衰), w = 未使用
-	XMFLOAT4 NoiseFlags = { 1.0f, 0.0f, 1.0f, 0.0f };
+	// x = Extinction [1/m] (ノイズ出力に掛ける全体の濃さ), y = Multiply (ノイズ出力の乗数, グラフの 1.5),
+	// z = Power (グラフの 5), w = EdgeFalloff (境界からのフェード幅。形状半径比 0..1)
+	XMFLOAT4 ExtinctionParams = { 1.0f, 1.5f, 5.0f, 0.0f };
+	// xyz = Scale (ワールド座標 [m] -> ノイズ空間の乗数 = 格子の細かさ [1/m]), w = Gain
+	XMFLOAT4 NoiseScale = { 1.0f, 1.0f, 1.0f, 0.5f };
+	// xyz = OffsetSpeed [m/s] (ワールド座標のスクロール), w = EvolutionSpeed (4 軸目の速度 [1/s])
+	XMFLOAT4 NoiseOffsetSpeed = { 0.0f, 0.0f, 0.0f, 0.0f };
+	// x = Octaves (1..8), y = Lacunarity, z = Dimension (2 = XZ 平面の 2D, 3 = 3D, 4 = 3D + Evolution),
+	// w = bUseNoise (0/1)
+	XMFLOAT4 NoiseParams = { 3.0f, 2.0f, 4.0f, 1.0f };
 };
 static_assert(sizeof(FVolumeMaterialParameters) == 96,
 	"FVolumeMaterialParameters must mirror HLSL FVolumeMaterialParameters (96 bytes)");
@@ -275,8 +279,12 @@ public:
 	// ---- Volume ドメインのマテリアル入力 (b2 の外。ボクセル化パスがコピーする) ----
 	FVolumeMaterialParameters VolumeParams;
 
-	EVolumeShape GetVolumeShape() const { return (EVolumeShape)(unsigned int)(VolumeParams.ExtinctionParams.w + 0.5f); }
-	void         SetVolumeShape(EVolumeShape Shape) { VolumeParams.ExtinctionParams.w = (float)(unsigned int)Shape; }
+	EVolumeShape GetVolumeShape() const { return (EVolumeShape)(unsigned int)(VolumeParams.Emissive.w + 0.5f); }
+	void         SetVolumeShape(EVolumeShape Shape) { VolumeParams.Emissive.w = (float)(unsigned int)Shape; }
+
+	// ノイズの次元 (FBM_NOISE_DIMENSION_2D/3D/4D = 2/3/4)
+	int  GetVolumeNoiseDimension() const { return (int)(VolumeParams.NoiseParams.z + 0.5f); }
+	void SetVolumeNoiseDimension(int Dimension) { VolumeParams.NoiseParams.z = (float)((Dimension < 2) ? 2 : ((Dimension > 4) ? 4 : Dimension)); }
 
 	void Bind(RenderManager* rm) const;
 };

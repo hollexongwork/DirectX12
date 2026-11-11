@@ -241,10 +241,13 @@ GameManager::GameManager(HWND hWnd, const wchar_t* CmdLine)
 		mat.SetVolumeShape(EVolumeShape::Box);
 		mat.VolumeParams.Albedo = { 1.0f, 1.0f, 1.0f, 1.0f };
 		mat.VolumeParams.Emissive = { 0.0f, 0.0f, 0.0f, 0.0f };
-		mat.VolumeParams.ExtinctionParams = { 3.0f, 1.0f, 0.35f, 0.0f };	// Extinction / Hardness / EdgeFalloff / Box
-		mat.VolumeParams.NoiseParams = { 0.6f, 4.0f, 0.0f, 1.0f };			// Scale / Levels / OutputMin / OutputMax
-		mat.VolumeParams.NoisePanner = { 0.3f, 0.05f, 0.15f, 2.0f };		// Speed / LevelScale
-		mat.VolumeParams.NoiseFlags = { 1.0f, 0.0f, 1.0f, 0.0f };			// UseNoise / Turbulence / FilterWidth
+		// グラフの既定 (Octaves 3 / Lacunarity 2 / Gain 0.5 / x1.5 / Power 5)。
+		// ノイズ格子 (1 / Scale) は霧の厚み (1.8 m) と同程度にする。視線が体積を通る間に
+		// 何周期も平均されると模様が消えるため
+		mat.VolumeParams.ExtinctionParams = { 4.0f, 1.5f, 5.0f, 0.3f };		// Extinction / Multiply / Power / EdgeFalloff
+		mat.VolumeParams.NoiseScale = { 0.5f, 0.5f, 0.5f, 0.5f };			// Scale [1/m] (格子 2 m) / Gain
+		mat.VolumeParams.NoiseOffsetSpeed = { 0.3f, 0.05f, 0.15f, 0.2f };	// OffsetSpeed [m/s] / EvolutionSpeed
+		mat.VolumeParams.NoiseParams = { 3.0f, 2.0f, 4.0f, 1.0f };			// Octaves / Lacunarity / 4D (Evolution) / UseNoise
 		mesh->MarkRenderStateDirty();	// GetMaterial() 直接書き換えの反映
 	}
 }

@@ -877,9 +877,9 @@ SettingsManager::MaterialSnapshot SettingsManager::CaptureMaterial(const Materia
 	snap.VolumeAlbedo = Mat.VolumeParams.Albedo;
 	snap.VolumeEmissive = Mat.VolumeParams.Emissive;
 	snap.VolumeExtinctionParams = Mat.VolumeParams.ExtinctionParams;
+	snap.VolumeNoiseScale = Mat.VolumeParams.NoiseScale;
+	snap.VolumeNoiseOffsetSpeed = Mat.VolumeParams.NoiseOffsetSpeed;
 	snap.VolumeNoiseParams = Mat.VolumeParams.NoiseParams;
-	snap.VolumeNoisePanner = Mat.VolumeParams.NoisePanner;
-	snap.VolumeNoiseFlags = Mat.VolumeParams.NoiseFlags;
 	return snap;
 }
 
@@ -943,9 +943,9 @@ void SettingsManager::ApplyMaterial(Material& Mat, const MaterialSnapshot& Snap)
 	Mat.VolumeParams.Albedo = Snap.VolumeAlbedo;
 	Mat.VolumeParams.Emissive = Snap.VolumeEmissive;
 	Mat.VolumeParams.ExtinctionParams = Snap.VolumeExtinctionParams;
+	Mat.VolumeParams.NoiseScale = Snap.VolumeNoiseScale;
+	Mat.VolumeParams.NoiseOffsetSpeed = Snap.VolumeNoiseOffsetSpeed;
 	Mat.VolumeParams.NoiseParams = Snap.VolumeNoiseParams;
-	Mat.VolumeParams.NoisePanner = Snap.VolumeNoisePanner;
-	Mat.VolumeParams.NoiseFlags = Snap.VolumeNoiseFlags;
 	Mat.SetRefractionUseF0(Snap.RefractionUseF0);
 }
 
@@ -1591,9 +1591,9 @@ void SettingsManager::WriteComponent(ConfigFile& Ini, const std::string& Section
 			Ini.SetFloat4(Section, mp + "Volume.Albedo", mat.VolumeAlbedo);
 			Ini.SetFloat4(Section, mp + "Volume.Emissive", mat.VolumeEmissive);
 			Ini.SetFloat4(Section, mp + "Volume.ExtinctionParams", mat.VolumeExtinctionParams);
+			Ini.SetFloat4(Section, mp + "Volume.NoiseScale", mat.VolumeNoiseScale);
+			Ini.SetFloat4(Section, mp + "Volume.NoiseOffsetSpeed", mat.VolumeNoiseOffsetSpeed);
 			Ini.SetFloat4(Section, mp + "Volume.NoiseParams", mat.VolumeNoiseParams);
-			Ini.SetFloat4(Section, mp + "Volume.NoisePanner", mat.VolumeNoisePanner);
-			Ini.SetFloat4(Section, mp + "Volume.NoiseFlags", mat.VolumeNoiseFlags);
 		}
 	}
 
@@ -1794,9 +1794,23 @@ void SettingsManager::ReadComponent(const ConfigFile& Ini, const std::string& Se
 		Ini.GetFloat4(Section, mp + "Volume.Albedo", mat.VolumeAlbedo);
 		Ini.GetFloat4(Section, mp + "Volume.Emissive", mat.VolumeEmissive);
 		Ini.GetFloat4(Section, mp + "Volume.ExtinctionParams", mat.VolumeExtinctionParams);
-		Ini.GetFloat4(Section, mp + "Volume.NoiseParams", mat.VolumeNoiseParams);
-		Ini.GetFloat4(Section, mp + "Volume.NoisePanner", mat.VolumeNoisePanner);
-		Ini.GetFloat4(Section, mp + "Volume.NoiseFlags", mat.VolumeNoiseFlags);
+		Ini.GetFloat4(Section, mp + "Volume.NoiseScale", mat.VolumeNoiseScale);
+		Ini.GetFloat4(Section, mp + "Volume.NoiseOffsetSpeed", mat.VolumeNoiseOffsetSpeed);
+		if (!Ini.GetFloat4(Section, mp + "Volume.NoiseParams", mat.VolumeNoiseParams))
+		{
+			// 旧レイアウト (2026-11-09 以前) の INI: Octaves = NoiseSize.w, Lacunarity = NoiseOffset.w,
+			// UseNoise / Dimension = NoiseFlags.xy から移行する (Size / Offset の xyz は廃止)
+			XMFLOAT4 oldSize, oldOffset, oldFlags;
+			if (Ini.GetFloat4(Section, mp + "Volume.NoiseSize", oldSize))
+				mat.VolumeNoiseParams.x = oldSize.w;
+			if (Ini.GetFloat4(Section, mp + "Volume.NoiseOffset", oldOffset))
+				mat.VolumeNoiseParams.y = oldOffset.w;
+			if (Ini.GetFloat4(Section, mp + "Volume.NoiseFlags", oldFlags))
+			{
+				mat.VolumeNoiseParams.w = oldFlags.x;
+				mat.VolumeNoiseParams.z = oldFlags.y;
+			}
+		}
 	}
 
 	// ライト (クラス名一致は呼び出し側で確認済み = 型も一致)。

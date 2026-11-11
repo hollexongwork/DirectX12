@@ -169,10 +169,10 @@ private:
 		int      MaterialDomain = 0;			// EMaterialDomain (0=Surface 1=Volume)
 		XMFLOAT4 VolumeAlbedo = { 1.0f, 1.0f, 1.0f, 1.0f };			// rgb = Albedo, w = AmbientOcclusion
 		XMFLOAT4 VolumeEmissive = { 0.0f, 0.0f, 0.0f, 0.0f };			// rgb [/m]
-		XMFLOAT4 VolumeExtinctionParams = { 0.1f, 0.6f, 0.0f, 0.0f };	// Extinction / Hardness / EdgeFalloff / Shape
-		XMFLOAT4 VolumeNoiseParams = { 1.0f, 4.0f, 0.0f, 1.0f };		// Scale / Levels / OutputMin / OutputMax
-		XMFLOAT4 VolumeNoisePanner = { 0.0f, 0.0f, 0.0f, 2.0f };		// Speed xyz / LevelScale
-		XMFLOAT4 VolumeNoiseFlags = { 1.0f, 0.0f, 1.0f, 0.0f };		// UseNoise / Turbulence / FilterWidth
+		XMFLOAT4 VolumeExtinctionParams = { 1.0f, 1.5f, 5.0f, 0.0f };	// Extinction / Multiply / Power / EdgeFalloff
+		XMFLOAT4 VolumeNoiseScale = { 1.0f, 1.0f, 1.0f, 0.5f };		// Scale xyz [1/m] / Gain
+		XMFLOAT4 VolumeNoiseOffsetSpeed = { 0.0f, 0.0f, 0.0f, 0.0f };	// OffsetSpeed xyz [m/s] / EvolutionSpeed
+		XMFLOAT4 VolumeNoiseParams = { 3.0f, 2.0f, 4.0f, 1.0f };		// Octaves / Lacunarity / Dimension (2/3/4) / UseNoise
 	};
 
 	// ---- コンポーネント 1 個分のスナップショット ----
