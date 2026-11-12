@@ -10,6 +10,7 @@
 #include "Camera.h"
 #include "AntiAliasingSettings.h"
 #include "ProceduralTree.h"
+#include "HeterogeneousVolumeComponent.h"
 
 using namespace DirectX;
 
@@ -286,6 +287,19 @@ private:
 		bool  AtmosphereSunLight = true;
 		int   AtmosphereSunLightIndex = 0;
 
+		// ---- UHeterogeneousVolumeComponent (キーは "HV.*") ----
+		// 既定値は HeterogeneousVolumeComponent.h と一致させる (構造体の既定値をそのまま使う)
+		bool     bHeterogeneousVolume = false;
+		XMUINT3  HVVolumeResolution = { 192, 128, 192 };
+		float    HVStepFactor = 1.0f;
+		float    HVShadowStepFactor = 2.0f;
+		float    HVShadowBiasFactor = 0.5f;
+		float    HVLightingDownsampleFactor = 2.0f;
+		int      HVSource = 0;					// EHeterogeneousVolumeSource (0 = Cloud, 1 = Fire)
+		FProceduralCloudParams       HVCloud;
+		FProceduralFireParams        HVFire;
+		FHeterogeneousVolumeMaterial HVMaterial;
+
 		// ---- UExponentialHeightFogComponent ----
 		// 既定値は ExponentialHeightFogComponent.h のコンストラクタと一致させる
 		bool     bExponentialHeightFog = false;
@@ -334,6 +348,11 @@ private:
 		// AExponentialHeightFog 固有 (bEnabled)
 		bool  bExponentialHeightFogActor = false;
 		bool  FogEnabled = true;
+
+		// ACampfire 固有 (ライトのゆらぎ。キーは "Campfire.*")
+		bool  bCampfire = false;
+		float CampfireFlickerAmount = 0.30f;
+		float CampfireFlickerSpeed = 7.0f;
 
 		// ATree 固有 (生成パラメータ。キーは "Tree.*")
 		bool                  bTree = false;

@@ -16,6 +16,8 @@ class FShadowSceneRenderer;
 class FLightSceneProxy;
 class FLumenSceneData;
 class FFogSceneRenderer;
+class FHeterogeneousVolumeRenderer;
+struct FHeterogeneousVolumeData;
 class FScreenshotCapture;
 class FDefaultTemporalUpscaler;
 class FPrimitiveSceneProxy;
@@ -202,6 +204,13 @@ private:
 	// (デファード直後) を記録する。トランスルーセンシーは b7 + t33/t34 を
 	// バインドしてサーフェス位置で直接評価する。
 	std::unique_ptr<FFogSceneRenderer> m_FogRenderer;
+
+	// ---- Heterogeneous Volumes (FHeterogeneousVolumeRenderer, HeterogeneousVolumes.h) ----
+	// RenderBasePass が可視プロキシから FHeterogeneousVolumeData を集め、RenderLighting が
+	// 密度ベイク / ライティングキャッシュ (コンピュート, 冒頭) とレイマーチの合成
+	// (フォグパス直後) を記録する。ポインタはプロキシが所有する (そのフレームのみ有効)
+	std::unique_ptr<FHeterogeneousVolumeRenderer>   m_HeterogeneousVolumeRenderer;
+	std::vector<const FHeterogeneousVolumeData*>    m_HeterogeneousVolumes;
 
 	// ---- スクリーンショット (FScreenshotCapture, ScreenshotCapture.h) ----
 	// RequestScreenshot で要求 -> RenderPostProcessing 末尾で UI 描画前の
@@ -457,6 +466,9 @@ public:
 
 	// Exponential Height Fog / Volumetric Fog (ImGui の Details / SettingsManager 用)
 	FFogSceneRenderer* GetFogRenderer() { return m_FogRenderer.get(); }
+
+	// Heterogeneous Volumes (ImGui の Details 用)
+	FHeterogeneousVolumeRenderer* GetHeterogeneousVolumeRenderer() { return m_HeterogeneousVolumeRenderer.get(); }
 
 	// ---- スクリーンショット ----
 	// 次の RenderPostProcessing でバックバッファ (UI 無し) を 24bit BMP に保存する。

@@ -24,6 +24,8 @@
 #include "Camera.h"
 #include "CameraComponent.h"
 #include "Tree.h"
+#include "Campfire.h"
+#include "PointLightComponent.h"
 
 #include <filesystem>
 #include <cmath>
@@ -542,6 +544,25 @@ SettingsManager::ActorSnapshot SettingsManager::CaptureActor(AActor* Actor)
 		snap.Components.push_back(CaptureComponent(component.get()));
 	}
 
+	// ACampfire: ライトの Intensity はゆらぎ込みで毎フレーム変わるので、ゆらぎの中心を保存する
+	// (保存した瞬間の位相で INI の値がぶれない)
+	if (auto* campfire = dynamic_cast<ACampfire*>(Actor))
+	{
+		snap.bCampfire = true;
+		snap.CampfireFlickerAmount = campfire->GetFlickerAmount();
+		snap.CampfireFlickerSpeed = campfire->GetFlickerSpeed();
+
+		const float flicker = campfire->GetCurrentFlicker();
+		const auto& components = Actor->GetComponents();
+		for (size_t i = 0; i < components.size() && i < snap.Components.size(); ++i)
+		{
+			if (components[i].get() == campfire->GetLightComponent() && flicker > 1e-3f)
+			{
+				snap.Components[i].Intensity /= flicker;
+			}
+		}
+	}
+
 	return snap;
 }
 
@@ -581,6 +602,18 @@ void SettingsManager::ApplyActor(AActor* Actor, const ActorSnapshot& Snap)
 		{
 			tree->SetTreeParams(Snap.Tree);	// 次の Tick で再生成 (ハッシュが同じなら何もしない)
 		}
+	}
+
+	if (auto* campfire = dynamic_cast<ACampfire*>(Actor))
+	{
+		if (Snap.bCampfire)
+		{
+			campfire->SetFlickerAmount(Snap.CampfireFlickerAmount);
+			campfire->SetFlickerSpeed(Snap.CampfireFlickerSpeed);
+		}
+		// この後のコンポーネント適用でライトの Intensity (ゆらぎの中心) が入るので、
+		// 「入れた値 = 中心」として扱わせる
+		campfire->ResetFlicker();
 	}
 
 	// コンポーネントは生成順インデックスで対応付け、
@@ -698,6 +731,20 @@ SettingsManager::ComponentSnapshot SettingsManager::CaptureComponent(UActorCompo
 	{
 		snap.bExponentialHeightFog = true;
 		CaptureFogComponent(fog, snap);
+	}
+
+	if (auto* heterogeneousVolume = dynamic_cast<UHeterogeneousVolumeComponent*>(Component))
+	{
+		snap.bHeterogeneousVolume = true;
+		snap.HVVolumeResolution = heterogeneousVolume->GetVolumeResolution();
+		snap.HVStepFactor = heterogeneousVolume->GetStepFactor();
+		snap.HVShadowStepFactor = heterogeneousVolume->GetShadowStepFactor();
+		snap.HVShadowBiasFactor = heterogeneousVolume->GetShadowBiasFactor();
+		snap.HVLightingDownsampleFactor = heterogeneousVolume->GetLightingDownsampleFactor();
+		snap.HVSource = (int)heterogeneousVolume->GetVolumeSource();
+		snap.HVCloud = heterogeneousVolume->GetCloudParams();
+		snap.HVFire = heterogeneousVolume->GetFireParams();
+		snap.HVMaterial = heterogeneousVolume->GetVolumeMaterial();
 	}
 
 	return snap;
@@ -825,6 +872,26 @@ void SettingsManager::ApplyComponent(UActorComponent* Component, const Component
 		if (Snap.bExponentialHeightFog)
 		{
 			ApplyFogComponent(fog, Snap);
+		}
+	}
+
+	if (auto* heterogeneousVolume = dynamic_cast<UHeterogeneousVolumeComponent*>(Component))
+	{
+		if (Snap.bHeterogeneousVolume)
+		{
+			// セッター経由 (MarkRenderStateDirty 込み。範囲外の値はセッター / Sanitize が丸める)
+			heterogeneousVolume->SetVolumeResolution(Snap.HVVolumeResolution);
+			heterogeneousVolume->SetStepFactor(Snap.HVStepFactor);
+			heterogeneousVolume->SetShadowStepFactor(Snap.HVShadowStepFactor);
+			heterogeneousVolume->SetShadowBiasFactor(Snap.HVShadowBiasFactor);
+			heterogeneousVolume->SetLightingDownsampleFactor(Snap.HVLightingDownsampleFactor);
+			int source = Snap.HVSource;
+			if (source < 0 || source >= (int)EHeterogeneousVolumeSource::MAX)
+				source = (int)EHeterogeneousVolumeSource::ProceduralCloud;
+			heterogeneousVolume->SetVolumeSource((EHeterogeneousVolumeSource)source);
+			heterogeneousVolume->SetCloudParams(Snap.HVCloud);
+			heterogeneousVolume->SetFireParams(Snap.HVFire);
+			heterogeneousVolume->SetVolumeMaterial(Snap.HVMaterial);
 		}
 	}
 }
@@ -1441,6 +1508,12 @@ void SettingsManager::WriteActor(ConfigFile& Ini, const std::string& Section, co
 		Ini.SetBool(Section, "Enabled", Snap.FogEnabled);
 	}
 
+	if (Snap.bCampfire)
+	{
+		Ini.SetFloat(Section, "Campfire.FlickerAmount", Snap.CampfireFlickerAmount);
+		Ini.SetFloat(Section, "Campfire.FlickerSpeed", Snap.CampfireFlickerSpeed);
+	}
+
 	if (Snap.bTree)
 	{
 		WriteTreeParams(Ini, Section, Snap.Tree);
@@ -1471,6 +1544,12 @@ void SettingsManager::ReadActor(const ConfigFile& Ini, const std::string& Sectio
 	if (InOut.bExponentialHeightFogActor)
 	{
 		Ini.GetBool(Section, "Enabled", InOut.FogEnabled);
+	}
+
+	if (InOut.bCampfire)
+	{
+		Ini.GetFloat(Section, "Campfire.FlickerAmount", InOut.CampfireFlickerAmount);
+		Ini.GetFloat(Section, "Campfire.FlickerSpeed", InOut.CampfireFlickerSpeed);
 	}
 
 	if (InOut.bTree)
@@ -1680,6 +1759,82 @@ void SettingsManager::WriteComponent(ConfigFile& Ini, const std::string& Section
 		}
 	}
 
+	if (Snap.bHeterogeneousVolume)
+	{
+		// ---- UHeterogeneousVolumeComponent ("HV.*") ----
+		const std::string hv = Prefix + "HV.";
+		Ini.SetUInt(Section, hv + "VolumeResolutionX", Snap.HVVolumeResolution.x);
+		Ini.SetUInt(Section, hv + "VolumeResolutionY", Snap.HVVolumeResolution.y);
+		Ini.SetUInt(Section, hv + "VolumeResolutionZ", Snap.HVVolumeResolution.z);
+		Ini.SetFloat(Section, hv + "StepFactor", Snap.HVStepFactor);
+		Ini.SetFloat(Section, hv + "ShadowStepFactor", Snap.HVShadowStepFactor);
+		Ini.SetFloat(Section, hv + "ShadowBiasFactor", Snap.HVShadowBiasFactor);
+		Ini.SetFloat(Section, hv + "LightingDownsampleFactor", Snap.HVLightingDownsampleFactor);
+		Ini.SetInt(Section, hv + "Source", Snap.HVSource);
+
+		const FProceduralFireParams& fire = Snap.HVFire;
+		const std::string f = hv + "Fire.";
+		Ini.SetUInt(Section, f + "Seed", fire.Seed);
+		Ini.SetBool(Section, f + "Animate", fire.bAnimate != 0);
+		Ini.SetFloat(Section, f + "BaseRadius", fire.BaseRadius);
+		Ini.SetFloat(Section, f + "TipRadiusScale", fire.TipRadiusScale);
+		Ini.SetFloat(Section, f + "TaperPower", fire.TaperPower);
+		Ini.SetFloat(Section, f + "FlameHeight", fire.FlameHeight);
+		Ini.SetFloat(Section, f + "Turbulence", fire.Turbulence);
+		Ini.SetFloat(Section, f + "NoiseFrequency", fire.NoiseFrequency);
+		Ini.SetInt(Section, f + "NoiseOctaves", fire.NoiseOctaves);
+		Ini.SetFloat(Section, f + "NoiseStrength", fire.NoiseStrength);
+		Ini.SetFloat(Section, f + "HeightErosion", fire.HeightErosion);
+		Ini.SetFloat(Section, f + "RiseSpeed", fire.RiseSpeed);
+		Ini.SetFloat(Section, f + "EvolutionSpeed", fire.EvolutionSpeed);
+		Ini.SetFloat(Section, f + "HeatGain", fire.HeatGain);
+		Ini.SetFloat(Section, f + "FlameOpacity", fire.FlameOpacity);
+		Ini.SetFloat(Section, f + "SmokeDensity", fire.SmokeDensity);
+		Ini.SetFloat(Section, f + "SmokeStart", fire.SmokeStart);
+
+		const FProceduralCloudParams& cloud = Snap.HVCloud;
+		const std::string c = hv + "Cloud.";
+		Ini.SetUInt(Section, c + "Seed", cloud.Seed);
+		Ini.SetInt(Section, c + "NumPuffs", cloud.NumPuffs);
+		Ini.SetFloat(Section, c + "PuffRadiusMin", cloud.PuffRadiusMin);
+		Ini.SetFloat(Section, c + "PuffRadiusMax", cloud.PuffRadiusMax);
+		Ini.SetFloat(Section, c + "Spread", cloud.Spread);
+		Ini.SetFloat(Section, c + "TowerHeight", cloud.TowerHeight);
+		Ini.SetFloat(Section, c + "BottomHeight", cloud.BottomHeight);
+		Ini.SetFloat(Section, c + "BottomSoftness", cloud.BottomSoftness);
+		Ini.SetFloat(Section, c + "SmoothUnion", cloud.SmoothUnion);
+		Ini.SetFloat(Section, c + "EdgeSoftness", cloud.EdgeSoftness);
+		Ini.SetFloat(Section, c + "BillowFrequency", cloud.BillowFrequency);
+		Ini.SetFloat(Section, c + "BillowStrength", cloud.BillowStrength);
+		Ini.SetInt(Section, c + "BillowOctaves", cloud.BillowOctaves);
+		Ini.SetFloat(Section, c + "BillowPerlinMix", cloud.BillowPerlinMix);
+		Ini.SetFloat(Section, c + "DetailFrequency", cloud.DetailFrequency);
+		Ini.SetFloat(Section, c + "DetailStrength", cloud.DetailStrength);
+		Ini.SetInt(Section, c + "DetailOctaves", cloud.DetailOctaves);
+		Ini.SetFloat(Section, c + "DensityVariation", cloud.DensityVariation);
+		Ini.SetFloat(Section, c + "BorderFade", cloud.BorderFade);
+
+		const FHeterogeneousVolumeMaterial& material = Snap.HVMaterial;
+		const std::string m = hv + "Material.";
+		Ini.SetFloat3(Section, m + "Albedo", material.Albedo);
+		Ini.SetFloat(Section, m + "Extinction", material.Extinction);
+		Ini.SetFloat3(Section, m + "Emissive", material.Emissive);
+		Ini.SetFloat(Section, m + "PhaseGForward", material.PhaseGForward);
+		Ini.SetFloat(Section, m + "PhaseGBackward", material.PhaseGBackward);
+		Ini.SetFloat(Section, m + "PhaseForwardWeight", material.PhaseForwardWeight);
+		Ini.SetInt(Section, m + "MultiScatteringOctaves", material.MultiScatteringOctaves);
+		Ini.SetFloat(Section, m + "MultiScatteringContribution", material.MultiScatteringContribution);
+		Ini.SetFloat(Section, m + "MultiScatteringOcclusion", material.MultiScatteringOcclusion);
+		Ini.SetFloat(Section, m + "MultiScatteringEccentricity", material.MultiScatteringEccentricity);
+		Ini.SetFloat(Section, m + "AmbientIntensity", material.AmbientIntensity);
+		Ini.SetFloat(Section, m + "AmbientOcclusionScale", material.AmbientOcclusionScale);
+		Ini.SetFloat(Section, m + "GroundBounce", material.GroundBounce);
+		Ini.SetFloat(Section, m + "DirectionalLightIntensityScale", material.DirectionalLightIntensityScale);
+		Ini.SetFloat(Section, m + "BlackbodyTemperatureMin", material.BlackbodyTemperatureMin);
+		Ini.SetFloat(Section, m + "BlackbodyTemperatureMax", material.BlackbodyTemperatureMax);
+		Ini.SetFloat(Section, m + "BlackbodyIntensity", material.BlackbodyIntensity);
+	}
+
 	if (Snap.bExponentialHeightFog)
 	{
 		// キー名は UExponentialHeightFogComponent のプロパティ名と一致させる
@@ -1868,6 +2023,86 @@ void SettingsManager::ReadComponent(const ConfigFile& Ini, const std::string& Se
 	Ini.GetFloat(Section, Prefix + "SourceHeight", InOut.SourceHeight);
 	Ini.GetFloat(Section, Prefix + "BarnDoorAngle", InOut.BarnDoorAngle);
 	Ini.GetFloat(Section, Prefix + "BarnDoorLength", InOut.BarnDoorLength);
+
+	// Heterogeneous Volume ("HV.*"。キーが無ければ現在値 = コード既定値のまま)
+	if (InOut.bHeterogeneousVolume)
+	{
+		const std::string hv = Prefix + "HV.";
+		Ini.GetUInt(Section, hv + "VolumeResolutionX", InOut.HVVolumeResolution.x);
+		Ini.GetUInt(Section, hv + "VolumeResolutionY", InOut.HVVolumeResolution.y);
+		Ini.GetUInt(Section, hv + "VolumeResolutionZ", InOut.HVVolumeResolution.z);
+		Ini.GetFloat(Section, hv + "StepFactor", InOut.HVStepFactor);
+		Ini.GetFloat(Section, hv + "ShadowStepFactor", InOut.HVShadowStepFactor);
+		Ini.GetFloat(Section, hv + "ShadowBiasFactor", InOut.HVShadowBiasFactor);
+		Ini.GetFloat(Section, hv + "LightingDownsampleFactor", InOut.HVLightingDownsampleFactor);
+		Ini.GetInt(Section, hv + "Source", InOut.HVSource);
+
+		FProceduralFireParams& fire = InOut.HVFire;
+		const std::string f = hv + "Fire.";
+		Ini.GetUInt(Section, f + "Seed", fire.Seed);
+		bool bAnimate = (fire.bAnimate != 0);
+		Ini.GetBool(Section, f + "Animate", bAnimate);
+		fire.bAnimate = bAnimate ? 1 : 0;
+		Ini.GetFloat(Section, f + "BaseRadius", fire.BaseRadius);
+		Ini.GetFloat(Section, f + "TipRadiusScale", fire.TipRadiusScale);
+		Ini.GetFloat(Section, f + "TaperPower", fire.TaperPower);
+		Ini.GetFloat(Section, f + "FlameHeight", fire.FlameHeight);
+		Ini.GetFloat(Section, f + "Turbulence", fire.Turbulence);
+		Ini.GetFloat(Section, f + "NoiseFrequency", fire.NoiseFrequency);
+		Ini.GetInt(Section, f + "NoiseOctaves", fire.NoiseOctaves);
+		Ini.GetFloat(Section, f + "NoiseStrength", fire.NoiseStrength);
+		Ini.GetFloat(Section, f + "HeightErosion", fire.HeightErosion);
+		Ini.GetFloat(Section, f + "RiseSpeed", fire.RiseSpeed);
+		Ini.GetFloat(Section, f + "EvolutionSpeed", fire.EvolutionSpeed);
+		Ini.GetFloat(Section, f + "HeatGain", fire.HeatGain);
+		Ini.GetFloat(Section, f + "FlameOpacity", fire.FlameOpacity);
+		Ini.GetFloat(Section, f + "SmokeDensity", fire.SmokeDensity);
+		Ini.GetFloat(Section, f + "SmokeStart", fire.SmokeStart);
+		fire.Sanitize();
+
+		FProceduralCloudParams& cloud = InOut.HVCloud;
+		const std::string c = hv + "Cloud.";
+		Ini.GetUInt(Section, c + "Seed", cloud.Seed);
+		Ini.GetInt(Section, c + "NumPuffs", cloud.NumPuffs);
+		Ini.GetFloat(Section, c + "PuffRadiusMin", cloud.PuffRadiusMin);
+		Ini.GetFloat(Section, c + "PuffRadiusMax", cloud.PuffRadiusMax);
+		Ini.GetFloat(Section, c + "Spread", cloud.Spread);
+		Ini.GetFloat(Section, c + "TowerHeight", cloud.TowerHeight);
+		Ini.GetFloat(Section, c + "BottomHeight", cloud.BottomHeight);
+		Ini.GetFloat(Section, c + "BottomSoftness", cloud.BottomSoftness);
+		Ini.GetFloat(Section, c + "SmoothUnion", cloud.SmoothUnion);
+		Ini.GetFloat(Section, c + "EdgeSoftness", cloud.EdgeSoftness);
+		Ini.GetFloat(Section, c + "BillowFrequency", cloud.BillowFrequency);
+		Ini.GetFloat(Section, c + "BillowStrength", cloud.BillowStrength);
+		Ini.GetInt(Section, c + "BillowOctaves", cloud.BillowOctaves);
+		Ini.GetFloat(Section, c + "BillowPerlinMix", cloud.BillowPerlinMix);
+		Ini.GetFloat(Section, c + "DetailFrequency", cloud.DetailFrequency);
+		Ini.GetFloat(Section, c + "DetailStrength", cloud.DetailStrength);
+		Ini.GetInt(Section, c + "DetailOctaves", cloud.DetailOctaves);
+		Ini.GetFloat(Section, c + "DensityVariation", cloud.DensityVariation);
+		Ini.GetFloat(Section, c + "BorderFade", cloud.BorderFade);
+		cloud.Sanitize();	// 手編集された INI の範囲外の値を丸める
+
+		FHeterogeneousVolumeMaterial& material = InOut.HVMaterial;
+		const std::string m = hv + "Material.";
+		Ini.GetFloat3(Section, m + "Albedo", material.Albedo);
+		Ini.GetFloat(Section, m + "Extinction", material.Extinction);
+		Ini.GetFloat3(Section, m + "Emissive", material.Emissive);
+		Ini.GetFloat(Section, m + "PhaseGForward", material.PhaseGForward);
+		Ini.GetFloat(Section, m + "PhaseGBackward", material.PhaseGBackward);
+		Ini.GetFloat(Section, m + "PhaseForwardWeight", material.PhaseForwardWeight);
+		Ini.GetInt(Section, m + "MultiScatteringOctaves", material.MultiScatteringOctaves);
+		Ini.GetFloat(Section, m + "MultiScatteringContribution", material.MultiScatteringContribution);
+		Ini.GetFloat(Section, m + "MultiScatteringOcclusion", material.MultiScatteringOcclusion);
+		Ini.GetFloat(Section, m + "MultiScatteringEccentricity", material.MultiScatteringEccentricity);
+		Ini.GetFloat(Section, m + "AmbientIntensity", material.AmbientIntensity);
+		Ini.GetFloat(Section, m + "AmbientOcclusionScale", material.AmbientOcclusionScale);
+		Ini.GetFloat(Section, m + "GroundBounce", material.GroundBounce);
+		Ini.GetFloat(Section, m + "DirectionalLightIntensityScale", material.DirectionalLightIntensityScale);
+		Ini.GetFloat(Section, m + "BlackbodyTemperatureMin", material.BlackbodyTemperatureMin);
+		Ini.GetFloat(Section, m + "BlackbodyTemperatureMax", material.BlackbodyTemperatureMax);
+		Ini.GetFloat(Section, m + "BlackbodyIntensity", material.BlackbodyIntensity);
+	}
 
 	// Exponential Height Fog (クラス名一致は呼び出し側で確認済み)
 	if (InOut.bExponentialHeightFog)

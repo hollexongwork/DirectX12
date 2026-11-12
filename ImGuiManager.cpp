@@ -26,7 +26,10 @@
 #include "ExponentialHeightFog.h"
 #include "ExponentialHeightFogComponent.h"
 #include "Tree.h"
+#include "Campfire.h"
 #include "FogRendering.h"
+#include "HeterogeneousVolumeComponent.h"
+#include "HeterogeneousVolumes.h"
 #include "VolumetricFog.h"
 #include "SettingsManager.h"
 #include "Input.h"
@@ -1096,6 +1099,11 @@ void ImGuiManager::DrawDetailsSection()
 		{
 			DrawExponentialHeightFogSection(fog);
 		}
+
+		if (auto* heterogeneousVolume = dynamic_cast<UHeterogeneousVolumeComponent*>(component))
+		{
+			DrawHeterogeneousVolumeSection(heterogeneousVolume);
+		}
 	}
 
 	// ---- アクター固有プロパティ (選択コンポーネントに依らず表示) ----
@@ -1112,6 +1120,11 @@ void ImGuiManager::DrawDetailsSection()
 	if (auto* tree = dynamic_cast<ATree*>(actor))
 	{
 		DrawProceduralTreeSection(tree);
+	}
+
+	if (auto* campfire = dynamic_cast<ACampfire*>(actor))
+	{
+		DrawCampfireSection(campfire);
 	}
 
 	// ---- ビューポート操作設定 ----
@@ -2232,6 +2245,262 @@ void ImGuiManager::DrawLightComponentSection(ULightComponent* Light)
 //  編集は全て公開セッター経由 -> MarkRenderStateDirty -> 次フレームに
 //  FScene の SceneInfo が再スナップショットされる。
 // ============================================================
+// ------------------------------------------------------------
+//  Heterogeneous Volume (UHeterogeneousVolumeComponent)
+//  ボリュームの設定 / 雲の形 (密度ベイクの入力) / マテリアル / レンダラ設定。
+//  形の変更は密度の再ベイク + ライティングキャッシュの更新を起こす
+//  (どちらもコンピュートなのでドラッグ中も追従する)。
+// ------------------------------------------------------------
+void ImGuiManager::DrawHeterogeneousVolumeSection(UHeterogeneousVolumeComponent* Component)
+{
+	if (!Component)
+		return;
+
+	if (!CollapsingHeader("Heterogeneous Volume", ImGuiTreeNodeFlags_DefaultOpen))
+		return;
+
+	TextDisabled("Unit box [-1,1]^3. Scale = half extents [m]. Lit by the sun + sky.");
+
+	// ---- 密度のソース (Sparse Volume Texture の代わり) ----
+	{
+		static const char* sourceNames[] = { "Procedural Cloud (static)", "Procedural Fire (animated)" };
+		int source = (int)Component->GetVolumeSource();
+		if (Combo("Volume Source", &source, sourceNames, IM_ARRAYSIZE(sourceNames)))
+		{
+			Component->SetVolumeSource((EHeterogeneousVolumeSource)source);
+		}
+	}
+	const bool bFireSource = (Component->GetVolumeSource() == EHeterogeneousVolumeSource::ProceduralFire);
+
+	// ---- UHeterogeneousVolumeComponent の同名プロパティ ----
+	{
+		const XMUINT3 resolution = Component->GetVolumeResolution();
+		int r[3] = { (int)resolution.x, (int)resolution.y, (int)resolution.z };
+		// 入力確定時だけ反映する (テクスチャを作り直すため)
+		if (InputInt3("Volume Resolution", r, ImGuiInputTextFlags_EnterReturnsTrue))
+		{
+			Component->SetVolumeResolution(XMUINT3(
+				(unsigned int)(r[0] < 16 ? 16 : r[0]),
+				(unsigned int)(r[1] < 16 ? 16 : r[1]),
+				(unsigned int)(r[2] < 16 ? 16 : r[2])));
+		}
+
+		float stepFactor = Component->GetStepFactor();
+		if (DragFloat("Step Factor", &stepFactor, 0.01f, 0.25f, 8.0f))
+		{
+			Component->SetStepFactor(stepFactor);
+		}
+
+		float shadowStepFactor = Component->GetShadowStepFactor();
+		if (DragFloat("Shadow Step Factor", &shadowStepFactor, 0.01f, 0.25f, 8.0f))
+		{
+			Component->SetShadowStepFactor(shadowStepFactor);
+		}
+
+		float shadowBiasFactor = Component->GetShadowBiasFactor();
+		if (DragFloat("Shadow Bias Factor", &shadowBiasFactor, 0.01f, 0.0f, 4.0f))
+		{
+			Component->SetShadowBiasFactor(shadowBiasFactor);
+		}
+
+		float lightingDownsample = Component->GetLightingDownsampleFactor();
+		if (DragFloat("Lighting Downsample Factor", &lightingDownsample, 0.05f, 1.0f, 8.0f))
+		{
+			Component->SetLightingDownsampleFactor(lightingDownsample);
+		}
+	}
+
+	// ---- 炎の形と動き (密度 + 熱のベイクの入力。毎フレームベイクされる) ----
+	if (bFireSource && TreeNodeEx("Fire Shape (procedural density + heat)", ImGuiTreeNodeFlags_DefaultOpen))
+	{
+		FProceduralFireParams fire = Component->GetFireParams();
+		bool changed = false;
+
+		int seed = (int)fire.Seed;
+		if (InputInt("Seed", &seed))
+		{
+			fire.Seed = (unsigned int)(seed < 0 ? 0 : seed);
+			changed = true;
+		}
+
+		bool animate = (fire.bAnimate != 0);
+		if (Checkbox("Animate", &animate))
+		{
+			fire.bAnimate = animate ? 1 : 0;
+			changed = true;
+		}
+
+		Separator(); TextDisabled("Shape (box space: bottom = fire bed)");
+		changed |= SliderFloat("Base Radius", &fire.BaseRadius, 0.05f, 1.0f);
+		changed |= SliderFloat("Tip Radius Scale", &fire.TipRadiusScale, 0.0f, 1.0f);
+		changed |= SliderFloat("Taper Power", &fire.TaperPower, 0.05f, 4.0f);
+		changed |= SliderFloat("Flame Height", &fire.FlameHeight, 0.05f, 1.0f);
+		changed |= SliderFloat("Turbulence (sway)", &fire.Turbulence, 0.0f, 1.0f);
+
+		Separator(); TextDisabled("Erosion noise (4D Perlin FBM)");
+		changed |= DragFloat("Noise Frequency [1/m]", &fire.NoiseFrequency, 0.02f, 0.05f, 32.0f);
+		changed |= SliderInt("Noise Octaves", &fire.NoiseOctaves, 1, 5);
+		changed |= SliderFloat("Noise Strength", &fire.NoiseStrength, 0.0f, 3.0f);
+		changed |= SliderFloat("Height Erosion", &fire.HeightErosion, 0.0f, 6.0f);
+
+		Separator(); TextDisabled("Motion");
+		changed |= DragFloat("Rise Speed [m/s]", &fire.RiseSpeed, 0.02f, 0.0f, 20.0f);
+		changed |= DragFloat("Evolution Speed [1/s]", &fire.EvolutionSpeed, 0.02f, 0.0f, 20.0f);
+
+		Separator(); TextDisabled("Heat / soot / smoke");
+		changed |= SliderFloat("Heat Gain", &fire.HeatGain, 0.0f, 6.0f);
+		changed |= SliderFloat("Flame Opacity", &fire.FlameOpacity, 0.0f, 3.0f);
+		changed |= SliderFloat("Smoke Density", &fire.SmokeDensity, 0.0f, 2.0f);
+		changed |= SliderFloat("Smoke Start", &fire.SmokeStart, 0.0f, 1.0f);
+
+		if (changed)
+		{
+			Component->SetFireParams(fire);
+		}
+		TreePop();
+	}
+
+	// ---- 雲の形 (密度ベイクの入力) ----
+	if (!bFireSource && TreeNodeEx("Cloud Shape (procedural density)", ImGuiTreeNodeFlags_DefaultOpen))
+	{
+		FProceduralCloudParams cloud = Component->GetCloudParams();
+		bool changed = false;
+
+		int seed = (int)cloud.Seed;
+		if (InputInt("Seed", &seed))
+		{
+			cloud.Seed = (unsigned int)(seed < 0 ? 0 : seed);
+			changed = true;
+		}
+		SameLine();
+		if (Button("Randomize"))
+		{
+			cloud.Seed = cloud.Seed * 747796405u + 2891336453u;
+			cloud.Seed = (cloud.Seed >> 8) & 0xFFFFu;
+			changed = true;
+		}
+
+		changed |= SliderInt("Puffs", &cloud.NumPuffs, 1, (int)FProceduralCloudParams::MaxPuffs);
+		changed |= DragFloatRange2("Puff Radius Min / Max", &cloud.PuffRadiusMin, &cloud.PuffRadiusMax, 0.005f, 0.05f, 1.0f);
+		changed |= SliderFloat("Spread", &cloud.Spread, 0.0f, 1.0f);
+		changed |= SliderFloat("Tower Height", &cloud.TowerHeight, 0.0f, 1.0f);
+		changed |= SliderFloat("Bottom Height", &cloud.BottomHeight, -1.0f, 0.5f);
+		changed |= SliderFloat("Bottom Softness", &cloud.BottomSoftness, 0.001f, 0.3f);
+		changed |= SliderFloat("Smooth Union", &cloud.SmoothUnion, 0.001f, 0.4f);
+		changed |= SliderFloat("Edge Softness", &cloud.EdgeSoftness, 0.002f, 0.3f);
+
+		Separator(); TextDisabled("Billow (Worley / Perlin)");
+		changed |= DragFloat("Billow Frequency", &cloud.BillowFrequency, 0.02f, 0.1f, 32.0f);
+		changed |= SliderFloat("Billow Strength", &cloud.BillowStrength, 0.0f, 0.3f);
+		changed |= SliderInt("Billow Octaves", &cloud.BillowOctaves, 1, 5);
+		changed |= SliderFloat("Billow Perlin Mix", &cloud.BillowPerlinMix, 0.0f, 1.0f);
+
+		Separator(); TextDisabled("Detail erosion (Worley)");
+		changed |= DragFloat("Detail Frequency", &cloud.DetailFrequency, 0.05f, 0.1f, 64.0f);
+		changed |= SliderFloat("Detail Strength", &cloud.DetailStrength, 0.0f, 0.15f);
+		changed |= SliderInt("Detail Octaves", &cloud.DetailOctaves, 1, 4);
+
+		changed |= SliderFloat("Density Variation", &cloud.DensityVariation, 0.0f, 1.0f);
+
+		if (changed)
+		{
+			Component->SetCloudParams(cloud);
+		}
+		TreePop();
+	}
+
+	// ---- マテリアル (Volume ドメイン) ----
+	if (TreeNodeEx("Material (Volume domain)", ImGuiTreeNodeFlags_DefaultOpen))
+	{
+		FHeterogeneousVolumeMaterial material = Component->GetVolumeMaterial();
+		bool changed = false;
+
+		changed |= ColorEdit3("Albedo", &material.Albedo.x, ImGuiColorEditFlags_Float);
+		changed |= DragFloat("Extinction [1/m]", &material.Extinction, 0.01f, 0.0f, 100.0f);
+		changed |= ColorEdit3("Emissive Color [/m]", &material.Emissive.x, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR);
+
+		// 黒体放射: 密度ボリュームの熱 (炎のソースだけが持つ) を温度へ写して発光させる
+		Separator(); TextDisabled("Blackbody emission (heat channel -> temperature)");
+		changed |= DragFloatRange2("Temperature Min / Max [K]", &material.BlackbodyTemperatureMin, &material.BlackbodyTemperatureMax,
+			5.0f, 300.0f, 12000.0f, "%.0f");
+		changed |= DragFloat("Blackbody Intensity [/m]", &material.BlackbodyIntensity, 0.1f, 0.0f, 10000.0f);
+
+		Separator(); TextDisabled("Phase function (dual-lobe HG)");
+		changed |= SliderFloat("Phase G Forward", &material.PhaseGForward, 0.0f, 0.95f);
+		changed |= SliderFloat("Phase G Backward", &material.PhaseGBackward, -0.95f, 0.0f);
+		changed |= SliderFloat("Forward Lobe Weight", &material.PhaseForwardWeight, 0.0f, 1.0f);
+
+		Separator(); TextDisabled("Multiple scattering (octaves)");
+		changed |= SliderInt("Octaves", &material.MultiScatteringOctaves, 1, 4);
+		changed |= SliderFloat("Contribution", &material.MultiScatteringContribution, 0.0f, 1.0f);
+		changed |= SliderFloat("Occlusion", &material.MultiScatteringOcclusion, 0.0f, 1.0f);
+		changed |= SliderFloat("Eccentricity", &material.MultiScatteringEccentricity, 0.0f, 1.0f);
+
+		Separator(); TextDisabled("Lighting");
+		changed |= DragFloat("Directional Light Intensity Scale", &material.DirectionalLightIntensityScale, 0.01f, 0.0f, 100.0f);
+		changed |= DragFloat("Ambient Intensity (Sky/IBL)", &material.AmbientIntensity, 0.01f, 0.0f, 100.0f);
+		changed |= SliderFloat("Ambient Occlusion Scale", &material.AmbientOcclusionScale, 0.0f, 2.0f);
+		changed |= SliderFloat("Ground Bounce", &material.GroundBounce, 0.0f, 1.0f);
+
+		if (changed)
+		{
+			Component->SetVolumeMaterial(material);
+		}
+		TreePop();
+	}
+
+	// ---- レンダラ設定 (r.HeterogeneousVolumes.*) ----
+	FHeterogeneousVolumeRenderer* renderer = m_SceneRenderer ? m_SceneRenderer->GetHeterogeneousVolumeRenderer() : nullptr;
+	if (renderer && TreeNodeEx("Renderer", 0))
+	{
+		FHeterogeneousVolumeRenderer::Params& params = renderer->GetParams();
+		const FHeterogeneousVolumeRenderer::Stats& stats = renderer->GetStats();
+
+		Text("Volumes drawn : %u", stats.NumVolumes);
+		Text("Volume Memory : %.1f MB (density R16F + lighting cache RGBA16F)",
+			(double)stats.VolumeMemoryBytes / (1024.0 * 1024.0));
+		Text("Density bakes : %u (this frame %u)", stats.TotalDensityBakes, stats.NumDensityBakes);
+		Text("Lighting cache updates : %u (this frame %u)", stats.TotalLightingCacheUpdates, stats.NumLightingCacheUpdates);
+
+		Checkbox("Enable", &params.bEnable);
+		Checkbox("Jitter", &params.bJitter);
+		SliderInt("Max Step Count", &params.MaxStepCount, 8, 512);
+		SliderInt("Max Shadow Step Count", &params.MaxShadowStepCount, 4, 128);
+		SliderInt("Ambient Step Count", &params.AmbientStepCount, 2, 32);
+		Checkbox("Indirect Lighting (Sky)", &params.bIndirectLighting);
+		Checkbox("Apply Height Fog / Volumetric Fog", &params.bApplyFog);
+
+		TreePop();
+	}
+}
+
+// ------------------------------------------------------------
+//  焚き火 (ACampfire): ライトのゆらぎ。炎は C1 (Heterogeneous Volume)、
+//  明かりは C2 (Point Light) のコンポーネントを選んで編集する
+// ------------------------------------------------------------
+void ImGuiManager::DrawCampfireSection(ACampfire* Campfire)
+{
+	if (!Campfire)
+		return;
+
+	if (!CollapsingHeader("Campfire", ImGuiTreeNodeFlags_DefaultOpen))
+		return;
+
+	TextDisabled("C0 = wood + stones, C1 = flame (Heterogeneous Volume), C2 = light.");
+
+	float flickerAmount = Campfire->GetFlickerAmount();
+	if (SliderFloat("Light Flicker Amount", &flickerAmount, 0.0f, 0.95f))
+	{
+		Campfire->SetFlickerAmount(flickerAmount);
+	}
+
+	float flickerSpeed = Campfire->GetFlickerSpeed();
+	if (DragFloat("Light Flicker Speed [rad/s]", &flickerSpeed, 0.05f, 0.0f, 60.0f))
+	{
+		Campfire->SetFlickerSpeed(flickerSpeed);
+	}
+}
+
 void ImGuiManager::DrawExponentialHeightFogActorSection(AExponentialHeightFog* Fog)
 {
 	if (!Fog)

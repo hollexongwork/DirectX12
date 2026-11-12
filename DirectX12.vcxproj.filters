@@ -280,6 +280,18 @@
     <ClCompile Include="ExponentialHeightFogComponent.cpp">
       <Filter>ソース ファイル\GameObject\Component</Filter>
     </ClCompile>
+    <ClCompile Include="Campfire.cpp">
+      <Filter>ソース ファイル\GameObject</Filter>
+    </ClCompile>
+    <ClCompile Include="HeterogeneousVolume.cpp">
+      <Filter>ソース ファイル\GameObject</Filter>
+    </ClCompile>
+    <ClCompile Include="HeterogeneousVolumeComponent.cpp">
+      <Filter>ソース ファイル\GameObject\Component</Filter>
+    </ClCompile>
+    <ClCompile Include="HeterogeneousVolumes.cpp">
+      <Filter>ソース ファイル\System\Render\Fog</Filter>
+    </ClCompile>
     <ClCompile Include="FogRendering.cpp">
       <Filter>ソース ファイル\System\Render\Fog</Filter>
     </ClCompile>
@@ -584,6 +596,18 @@
     </ClInclude>
     <ClInclude Include="ExponentialHeightFogComponent.h">
       <Filter>ソース ファイル\GameObject\Component</Filter>
+    </ClInclude>
+    <ClInclude Include="Campfire.h">
+      <Filter>ソース ファイル\GameObject</Filter>
+    </ClInclude>
+    <ClInclude Include="HeterogeneousVolume.h">
+      <Filter>ソース ファイル\GameObject</Filter>
+    </ClInclude>
+    <ClInclude Include="HeterogeneousVolumeComponent.h">
+      <Filter>ソース ファイル\GameObject\Component</Filter>
+    </ClInclude>
+    <ClInclude Include="HeterogeneousVolumes.h">
+      <Filter>ソース ファイル\System\Render\Fog</Filter>
     </ClInclude>
     <ClInclude Include="FogRendering.h">
       <Filter>ソース ファイル\System\Render\Fog</Filter>
@@ -960,6 +984,21 @@
       <Filter>Shader\Fog</Filter>
     </FxCompile>
     <FxCompile Include="Shader\VolumetricFogCommon.hlsl">
+      <Filter>Shader\Fog</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\HeterogeneousVolumeCommon.hlsl">
+      <Filter>Shader\Fog</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\HeterogeneousVolumeCloudBake_CS.hlsl">
+      <Filter>Shader\Fog</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\HeterogeneousVolumeFireBake_CS.hlsl">
+      <Filter>Shader\Fog</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\HeterogeneousVolumeLightingCache_CS.hlsl">
+      <Filter>Shader\Fog</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\HeterogeneousVolumePS.hlsl">
       <Filter>Shader\Fog</Filter>
     </FxCompile>
     <FxCompile Include="Shader\VolumetricFogGridCommon.hlsl">

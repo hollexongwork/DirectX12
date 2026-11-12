@@ -19,6 +19,9 @@
 //                       した [-1, 1]
 //    FbmPerlinNoise   : マテリアル関数の本体。ノイズ空間の Pos から
 //                       2D / 3D / 4D を選んで 0..1 で返す
+//    Worley3D         : セルラーノイズの F1 距離 (27 セル探索)
+//    worleyFbm        : 反転 Worley (1 - F1) のオクターブ合成。丸い塊 (ビロー)。
+//                       雲の密度ベイク (HeterogeneousVolumeCloudBake_CS) が使う
 //
 //  単位: Pos はノイズ空間 (格子 1 セル = 1.0)。呼び出し側がワールド座標に
 //  Scale [1/m] を掛ける。Evolution は無次元の 4 軸目。
@@ -183,6 +186,54 @@ struct FBMNoise
             sum += amp * Perlin4D(p + float4(17.13, 31.71, 47.37, 59.93) * k);
             norm += amp;
             p *= lacunarity; // w にも倍率を掛ける -> 細かい成分ほど速く変化
+            amp *= gain;
+        }
+        return sum / max(norm, 1e-5);
+    }
+
+    // ---- Worley (セルラー) ----
+    // セル内の特徴点 (0..1)^3
+    float3 CellPoint3(int3 c)
+    {
+        uint h0 = Hash3(c);
+        uint h1 = PcgHash(h0);
+        uint h2 = PcgHash(h1);
+        return float3(h0 & 0xFFFFu, h1 & 0xFFFFu, h2 & 0xFFFFu) * (1.0 / 65535.0);
+    }
+
+    // F1 距離 (最近傍の特徴点までの距離)。0 .. ~1 (セル 1 辺 = 1.0)
+    float Worley3D(float3 p)
+    {
+        float3 pi = floor(p);
+        float3 f = p - pi;
+        int3 i = int3(pi);
+
+        float d2 = 1.0e9;
+        for (int z = -1; z <= 1; z++)
+        {
+            for (int y = -1; y <= 1; y++)
+            {
+                for (int x = -1; x <= 1; x++)
+                {
+                    int3 o = int3(x, y, z);
+                    float3 r = float3(o) + CellPoint3(i + o) - f;
+                    d2 = min(d2, dot(r, r));
+                }
+            }
+        }
+        return sqrt(d2);
+    }
+
+    // 反転 Worley (1 - F1) の FBM。特徴点で高く、セル境界で低い = 丸い塊 (ビロー)。0..1
+    float worleyFbm(float3 p, int octaves, float lacunarity, float gain)
+    {
+        float sum = 0.0, amp = 0.5, norm = 0.0;
+        [loop]
+        for (int k = 0; k < octaves; k++)
+        {
+            sum += amp * saturate(1.0 - Worley3D(p + float3(17.13, 31.71, 47.37) * k));
+            norm += amp;
+            p *= lacunarity;
             amp *= gain;
         }
         return sum / max(norm, 1e-5);

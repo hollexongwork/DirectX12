@@ -11,6 +11,7 @@
 #include "SystemTextures.h"
 #include "LumenScene.h"
 #include "FogRendering.h"
+#include "HeterogeneousVolumes.h"
 #include "IBLBaker.h"
 #include "AutoExposure.h"
 #include "ColorGradingLUTBaker.h"
@@ -84,6 +85,11 @@ FSceneRenderer::FSceneRenderer(RenderManager* RHI)
 	// (ミップ = ぼかし段階) を割り当てる (InitIBL 済み)。
 	m_FogRenderer = std::make_unique<FFogSceneRenderer>(m_RHI);
 	m_FogRenderer->Init();
+
+	// Heterogeneous Volumes (コンピュート RS / PSO / 定数リング。ボリュームの
+	// テクスチャは可視になった時に遅延生成する)
+	m_HeterogeneousVolumeRenderer = std::make_unique<FHeterogeneousVolumeRenderer>(m_RHI);
+	m_HeterogeneousVolumeRenderer->Init();
 	if (m_IBLBaker)
 	{
 		m_FogRenderer->SetInscatteringColorCubemap(
@@ -876,6 +882,7 @@ void FSceneRenderer::RenderBasePass(FScene* Scene, const FSceneView& View)
 	// (Translucent / Additive は RenderTranslucency が後→前ソートで描く)。
 	const std::vector<FPrimitiveSceneInfo>& primitives = Scene->GetPrimitives();
 	m_VoxelizeVolumeElements.clear();
+	m_HeterogeneousVolumes.clear();
 	for (size_t i = 0; i < primitives.size(); ++i)
 	{
 		if (m_PrimitiveVisibilityMap[i] == 0)
@@ -888,6 +895,12 @@ void FSceneRenderer::RenderBasePass(FScene* Scene, const FSceneView& View)
 		if (relevance.bHasVolumeMaterialDomain)
 		{
 			primitives[i].Proxy->GatherVoxelizeVolumeElements(m_VoxelizeVolumeElements);
+		}
+
+		// Heterogeneous Volume (レイマーチで直接描く。RenderLighting の RenderHeterogeneousVolumes)
+		if (const FHeterogeneousVolumeData* heterogeneousVolume = primitives[i].Proxy->GetHeterogeneousVolumeData())
+		{
+			m_HeterogeneousVolumes.push_back(heterogeneousVolume);
 		}
 
 		if (!relevance.HasOpaqueRelevance())
@@ -1161,6 +1174,17 @@ void FSceneRenderer::RenderLighting()
 		m_FogRenderer->ComputeVolumetricFog(fogInputs);
 	}
 
+	//======================================================
+	// Heterogeneous Volumes : 密度ベイク + ライティングキャッシュ (コンピュート)
+	//  形 / 解像度が変わったボリュームの密度と、密度 / ライト方向 / 変換が
+	//  変わったボリュームのライティングキャッシュだけを更新する (変化が無い
+	//  フレームは何もしない)。合成はフォグパスの直後。
+	//======================================================
+	if (m_HeterogeneousVolumeRenderer)
+	{
+		m_HeterogeneousVolumeRenderer->PrepareVolumes(m_HeterogeneousVolumes, m_ViewConstant, Time::GetTime());
+	}
+
 	// G-Buffer: RENDER_TARGET -> 読み取り (PIXEL | NON_PIXEL)。
 	// デファードパス (ピクセル) に加え、Lumen のスクリーンプローブ /
 	// 反射コンピュートパスも法線 / ラフネスを読むため複合状態にする。
@@ -1282,6 +1306,24 @@ void FSceneRenderer::RenderLighting()
 	if (m_FogRenderer)
 	{
 		m_FogRenderer->RenderFog(m_ScreenQuad.get(), m_SceneTextures.DepthSRVIndex);
+	}
+
+	//======================================================
+	// Heterogeneous Volumes Pass (RenderHeterogeneousVolumes)
+	//  SceneColor が RENDER_TARGET のまま、可視ボリュームを後→前に
+	//  レイマーチして One / SrcAlpha で合成する。シーン深度 (t3) の手前で
+	//  打ち切り、ボリュームの平均深度でフォグ (b7 / t33 / t34) を掛ける。
+	//  IBL (t6) はデファードパスのバインドを積み直しておく。
+	//======================================================
+	if (m_HeterogeneousVolumeRenderer && !m_HeterogeneousVolumes.empty())
+	{
+		BindForwardLightingResources();
+		if (m_FogRenderer)
+		{
+			m_FogRenderer->BindFogResources();
+		}
+		m_HeterogeneousVolumeRenderer->RenderHeterogeneousVolumes(
+			m_HeterogeneousVolumes, m_ViewConstant, m_ScreenQuad.get(), m_SceneTextures.DepthSRVIndex);
 	}
 
 	//======================================================

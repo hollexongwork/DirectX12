@@ -35,6 +35,7 @@ using namespace DirectX;
 class RenderManager;
 class UPrimitiveComponent;
 class FBXModel;
+struct FHeterogeneousVolumeData;	// HeterogeneousVolumeComponent.h
 
 // ============================================================
 //  FPrimitiveViewRelevance (最小形)
@@ -205,6 +206,12 @@ public:
 	// DrawResponsiveAA が何か描くか (Responsive の Translucent / Additive サブセットを持つか)。
 	// 1 つも無いフレームはマスクのクリアもせず、TAA は Responsive 無効 (ダミー) で走る
 	virtual bool HasResponsiveAATranslucency(bool bForceAll) const { return false; }
+
+	// Heterogeneous Volume (FHeterogeneousVolumeRenderer) へ渡すデータ
+	// (FPrimitiveSceneProxy::IsHeterogeneousVolume + IHeterogeneousVolumeInterface 相当)。
+	// 非 null を返すプロキシは、可視なら毎フレーム RenderHeterogeneousVolumes で
+	// レイマーチされる。既定は nullptr (FHeterogeneousVolumeSceneProxy だけが返す)
+	virtual const FHeterogeneousVolumeData* GetHeterogeneousVolumeData() const { return nullptr; }
 
 	// Volumetric Fog のボクセル化 (FVolumetricFog::VoxelizeFogVolumePrimitives) へ
 	// Material Domain = Volume のスロットを積む (GetDynamicMeshElements の Volume 版)。

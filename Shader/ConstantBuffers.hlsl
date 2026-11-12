@@ -91,6 +91,10 @@ cbuffer PrimitiveConstantBuffer : register(b1)
 //    RefractionMethod = REFRACTION_METHOD_* (RefractionCommon.hlsl)。
 //    RefractionData.x = IOR / 法線強度, xy = 2D オフセット [pixel]。
 // -------------------------------------------------------------
+// Volume ドメイン (Heterogeneous Volume) のシェーダは b2 を自前のマテリアル定数
+// (HeterogeneousVolumePS.hlsl の HeterogeneousVolumeConstantBuffer) に差し替えるため、
+// OVERRIDE_MATERIAL_CONSTANT_BUFFER を定義してこの宣言を外す。
+#ifndef OVERRIDE_MATERIAL_CONSTANT_BUFFER
 cbuffer MaterialConstantBuffer : register(b2)
 {
     struct MATERIAL
@@ -137,6 +141,7 @@ cbuffer MaterialConstantBuffer : register(b2)
         float2 _padSubstrate;
     } Material;
 };
+#endif // OVERRIDE_MATERIAL_CONSTANT_BUFFER
 
 // -------------------------------------------------------------
 //  b3 : ForwardLightData (FForwardLightData 相当, 112 B)

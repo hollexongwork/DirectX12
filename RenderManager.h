@@ -16,7 +16,7 @@
 //    - ルートシグネチャ + PSO キャッシュ
 //    - リソース生成 (RT / テクスチャ / VB / IB) とバインド API
 //  ※ CONSTANT_TYPE / TEXTURE_TYPE の enum 値は HLSL レジスタと
-//    1:1 対応 (b0..b7 / t0..t40)。順序変更・挿入は禁止。
+//    1:1 対応 (b0..b7 / t0..t42)。順序変更・挿入は禁止。
 //    新規リソースは COUNT の直前に追加すること。
 // ============================================================
 
@@ -488,8 +488,12 @@ public:
 		BONE_MATRICES,          // t39 今フレームの ReferenceToLocal (FSkeletalMeshObjectGPUSkin)
 		PREVIOUS_BONE_MATRICES, // t40 前フレームの ReferenceToLocal (ベロシティパス)
 
+		// ---- Heterogeneous Volumes (HeterogeneousVolumes.h / HeterogeneousVolumePS.hlsl) ----
+		HETEROGENEOUS_VOLUME_DENSITY,        // t41 (Texture3D<float>: 密度ボリューム 0..1)
+		HETEROGENEOUS_VOLUME_LIGHTING_CACHE, // t42 (Texture3D<float4>: 太陽 / 上空 / 真下の光学的長さ [m])
+
 		// ---- Count ----
-		COUNT,             // = 49 (b0..b7 + t0..t40。ルートシグネチャ 49 DWORD)
+		COUNT,             // = 51 (b0..b7 + t0..t42。ルートシグネチャ 51 DWORD)
 	};
 
 	// ------------------------------------------------------------

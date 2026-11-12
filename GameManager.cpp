@@ -20,6 +20,8 @@
 #include "Manny.h"
 #include "ProceduralSkeletalMesh.h"
 #include "ProceduralMeshGenerator.h"
+#include "HeterogeneousVolume.h"
+#include "Campfire.h"
 
 GameManager* GameManager::m_Instance = nullptr;
 
@@ -249,6 +251,36 @@ GameManager::GameManager(HWND hWnd, const wchar_t* CmdLine)
 		mat.VolumeParams.NoiseOffsetSpeed = { 0.3f, 0.05f, 0.15f, 0.2f };	// OffsetSpeed [m/s] / EvolutionSpeed
 		mat.VolumeParams.NoiseParams = { 3.0f, 2.0f, 4.0f, 1.0f };			// Octaves / Lacunarity / 4D (Evolution) / UseNoise
 		mesh->MarkRenderStateDirty();	// GetMaterial() 直接書き換えの反映
+	}
+
+	// ---- Heterogeneous Volume のデモ: 単体の積雲 (AHeterogeneousVolume) ----
+	// 密度はプロシージャル (球群 + Worley / Perlin) をコンピュートで Texture3D へベイクし、
+	// 太陽 + 天空光でレイマーチする。アクターのスケール = 半幅 [m] (16 x 7 x 11 m の雲)。
+	// ※ 新しいアクターは [Actor.N] の添字を保つため末尾にスポーンする
+	{
+		AHeterogeneousVolume* cloud = m_World.SpawnActor<AHeterogeneousVolume>();
+		cloud->SetActorLabel("Cloud");
+		cloud->SetActorLocation({ 3.0f, 14.0f, 14.0f });
+		cloud->SetActorScale3D({ 8.0f, 3.5f, 5.5f });
+
+		UHeterogeneousVolumeComponent* volume = cloud->GetHeterogeneousVolumeComponent();
+		volume->SetVolumeResolution({ 256, 128, 192 });	// 6 cm ボクセル (密度 12 MB + キャッシュ 6 MB)
+
+		// このシーンの太陽 (0.5 lux) は空のドーム (無光のテクスチャ) に対して暗く、物理どおりだと
+		// 雲が空より暗い灰色になる。日なたが空より明るく見えるよう雲の側で太陽光を持ち上げる
+		FHeterogeneousVolumeMaterial material = volume->GetVolumeMaterial();
+		material.DirectionalLightIntensityScale = 10.0f;
+		volume->SetVolumeMaterial(material);
+	}
+
+	// ---- 焚き火 (ACampfire): 薪 + 石 / Heterogeneous Volume の炎 / ゆらぐポイントライト ----
+	// 炎は密度 + 熱を毎フレームコンピュートでベイクし、熱を黒体放射で光らせる。
+	// テーブルの +Z 側、地面の上に置く
+	// ※ 新しいアクターは [Actor.N] の添字を保つため末尾にスポーンする
+	{
+		ACampfire* campfire = m_World.SpawnActor<ACampfire>();
+		campfire->SetActorLabel("Campfire");
+		campfire->SetActorLocation({ 4.0f, 0.0f, 6.5f });
 	}
 }
 

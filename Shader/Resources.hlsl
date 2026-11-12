@@ -131,6 +131,14 @@ Texture2D<float4> TemporalAADebugTexture : register(t36);
 Texture2D<float4> LTCMatTexture : register(t37); // LTC の逆行列の 4 成分
 Texture2D<float2> LTCAmpTexture : register(t38); // x = ローブの大きさ, y = フレネル項
 
+// ---- Heterogeneous Volumes (t41-t42, HeterogeneousVolumes.h / HeterogeneousVolumePS.hlsl) ----
+// t41: 密度ボリューム (r = 密度 0..1, g = 熱 0..1。プロシージャル雲 / 炎のベイク結果 =
+//      Sparse Volume Texture の代わり)。雲は R16F (g は 0 が返る)、炎は RG16F
+// t42: ライティングキャッシュ (r = 太陽方向, g = 上空コーン, b = 真下 の光学的長さ ∫density ds [m])
+// どちらも s1 (線形クランプ) でトライリニア採光する。
+Texture3D<float2> HeterogeneousVolumeDensity : register(t41);
+Texture3D<float4> HeterogeneousVolumeLightingCache : register(t42);
+
 // ---- サンプラー ----
 SamplerState Sampler : register(s0); // ANISOTROPIC, WRAP
 SamplerState Sampler2 : register(s1); // LINEAR, CLAMP

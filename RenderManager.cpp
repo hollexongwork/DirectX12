@@ -590,7 +590,7 @@ void RenderManager::InitRootSignature()
 	const unsigned int CBV_COUNT = (unsigned int)CONSTANT_TYPE::FOG + 1; // VIEW/PRIMITIVE/MATERIAL/FORWARD_LIGHT/POST_PROCESS/SHADOW/LUMEN/FOG
 
 	// ルートパラメータは全てデスクリプタテーブル (1 DWORD ずつ) なので
-	// 上限 64 DWORD に対して b0..b7 + t0..t40 = 49 DWORD
+	// 上限 64 DWORD に対して b0..b7 + t0..t42 = 51 DWORD
 	static_assert((unsigned int)TEXTURE_TYPE::COUNT <= 64,
 		"root signature exceeds 64 DWORDs (CONSTANT_TYPE + TEXTURE_TYPE)");
 
@@ -714,6 +714,21 @@ void RenderManager::InitPipelines()
 	m_PipelineState["HeightFog"] =
 		CreatePipeline("Shader/cso/DeferredVS.cso", "Shader/cso/HeightFogPS.cso", hdr, _countof(hdr),
 			0, 0.0f, EBlendStatePreset::HeightFog, ECullModePreset::Back, EDepthStatePreset::None);
+
+	// ---- Heterogeneous Volume パス (HeterogeneousVolumes.h) ----
+	// フォグパスの直後に、ボリュームの OBB をフルスクリーンクアッド + シザーで
+	// レイマーチして HDR SceneColor へ合成する。ブレンドはフォグと同じ
+	//   SceneColor' = Src.rgb (インスキャッタ) + SceneColor * Src.a (透過率)
+	// .cso 欠落時は登録しない (FHeterogeneousVolumeRenderer が HasPipelineState で確かめる)
+	{
+		ComPtr<ID3D12PipelineState> heterogeneousVolume =
+			CreatePipeline("Shader/cso/DeferredVS.cso", "Shader/cso/HeterogeneousVolumePS.cso", hdr, _countof(hdr),
+				0, 0.0f, EBlendStatePreset::HeightFog, ECullModePreset::Back, EDepthStatePreset::None, true);
+		if (heterogeneousVolume)
+		{
+			m_PipelineState["HeterogeneousVolume"] = heterogeneousVolume;
+		}
+	}
 
 	// Tonemap pass: HDR SceneColor (+bloom) -> Post chain -> SDR back buffer
 	m_PipelineState["PostProcessTonemap"] =
