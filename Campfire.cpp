@@ -129,6 +129,10 @@ ACampfire::ACampfire()
 	//  C0 (Root): 薪 + 石
 	// ------------------------------------------------------------
 	m_WoodComponent = CreateDefaultSubobject<UStaticMeshComponent>();
+
+	// 既定の配置: テーブルの +Z 側、地面の上 (アクターの位置 = 火床の中心)。
+	// SetActorLocation は Root に書くので、Root (薪) を作った後に呼ぶこと
+	SetActorLocation({ 4.0f, 0.0f, 6.5f });
 	m_WoodComponent->SetProceduralMesh("CampfireWoodAndStones_v1", BuildCampfireMesh());
 	m_WoodComponent->SetNumMaterialSlots(2);
 

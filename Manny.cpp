@@ -10,7 +10,8 @@ AManny::AManny()
 	// ---- 既定メッシュ (FAssetManager のキャッシュで共有) ----
 	mesh->SetSkeletalMesh(MeshPath);
 
-	// ---- 既定トランスフォーム: cm / Z-up -> m / Y-up, 正面 -Z ----
+	// ---- 既定トランスフォーム: cm / Z-up -> m / Y-up, 正面 -Z。テーブルの -Z 側に置く ----
+	SetActorLocation({ -8.5f, 0.0f, -8.0f });
 	SetActorRotation({ XMConvertToRadians(90.0f), XMConvertToRadians(180.0f), 0.0f });
 	SetActorScale3D({ ImportUniformScale, ImportUniformScale, ImportUniformScale });
 

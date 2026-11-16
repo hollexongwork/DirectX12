@@ -26,6 +26,13 @@
 #include "Tree.h"
 #include "Campfire.h"
 #include "PointLightComponent.h"
+#include "DirectionalLight.h"
+#include "PointLight.h"
+#include "SpotLight.h"
+#include "RectLight.h"
+#include "StaticMeshActor.h"
+#include "SkeletalMeshActor.h"
+#include "HeterogeneousVolume.h"
 
 #include <filesystem>
 #include <cmath>
@@ -37,6 +44,29 @@
 
 // 保存先
 static const char* CONFIG_PATH = "Saved/Config/EngineSettings.ini";
+
+// ------------------------------------------------------------
+//  INI の [Actor.N] の Class とスポーン中のアクターが対応するか。
+//  同名に加え、シーンの物体を専用クラスへ移す前の INI (2026-11-16 以前) との
+//  互換のため、保存されたクラスが基底クラス名 (AStaticMeshActor / ADirectionalLight ...)
+//  で、今のアクターがその派生なら受け入れる。コンポーネントの構成は派生でも
+//  同じ (基底のコンストラクタが作る) なので、保存値をそのまま適用できる
+// ------------------------------------------------------------
+static bool IsSavedActorClassCompatible(const std::string& SavedClass, AActor* Actor)
+{
+	if (SavedClass == UWorld::GetClassDisplayName(Actor))
+		return true;
+
+	if (SavedClass == "AStaticMeshActor")      return dynamic_cast<AStaticMeshActor*>(Actor) != nullptr;
+	if (SavedClass == "ASkeletalMeshActor")    return dynamic_cast<ASkeletalMeshActor*>(Actor) != nullptr;
+	if (SavedClass == "AHeterogeneousVolume")  return dynamic_cast<AHeterogeneousVolume*>(Actor) != nullptr;
+	if (SavedClass == "AExponentialHeightFog") return dynamic_cast<AExponentialHeightFog*>(Actor) != nullptr;
+	if (SavedClass == "ADirectionalLight")     return dynamic_cast<ADirectionalLight*>(Actor) != nullptr;
+	if (SavedClass == "APointLight")           return dynamic_cast<APointLight*>(Actor) != nullptr;
+	if (SavedClass == "ASpotLight")            return dynamic_cast<ASpotLight*>(Actor) != nullptr;
+	if (SavedClass == "ARectLight")            return dynamic_cast<ARectLight*>(Actor) != nullptr;
+	return false;
+}
 
 const char* SettingsManager::GetConfigPath()
 {
@@ -236,10 +266,11 @@ void SettingsManager::LoadAndApply()
 
 			AActor* actor = actors[i].get();
 
-			// クラス名の一致チェック (レベル構成が変わった後の安全弁)
+			// クラス名の一致チェック (レベル構成が変わった後の安全弁。
+			// 専用クラス化する前の基底クラス名で保存されたセクションも受け入れる)
 			std::string savedClass;
 			ini.GetString(section, "Class", savedClass);
-			if (savedClass != UWorld::GetClassDisplayName(actor))
+			if (!IsSavedActorClassCompatible(savedClass, actor))
 				continue;
 
 			// 現在値をベースに、INI に在るキーだけ上書きして適用

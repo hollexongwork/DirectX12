@@ -104,14 +104,26 @@
     <Filter Include="ソース ファイル\System\Render\Fog">
       <UniqueIdentifier>{350b32e1-24d0-428f-a68f-667588bd1092}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Shader\Fog">
-      <UniqueIdentifier>{afa09335-21ba-49fc-9863-1c49dc14de87}</UniqueIdentifier>
-    </Filter>
     <Filter Include="ソース ファイル\System\Render\Texture">
       <UniqueIdentifier>{b37d8b45-f2fe-4c70-90c4-68682280eab2}</UniqueIdentifier>
     </Filter>
     <Filter Include="ソース ファイル\System\Manager">
       <UniqueIdentifier>{5bdd6fbf-f951-469d-8956-23f1d1653144}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Shader\Volume">
+      <UniqueIdentifier>{afa09335-21ba-49fc-9863-1c49dc14de87}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Shader\Volume\Fog">
+      <UniqueIdentifier>{6b7a6806-42c3-41a2-a91b-728731ef4dd9}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Shader\Volume\Fog\Common">
+      <UniqueIdentifier>{a5b3bfb4-4cc2-46d0-8fb1-d8c99f5560da}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Shader\Volume\Heterogeneous">
+      <UniqueIdentifier>{c45096bb-3b89-4bec-a29a-d63b0a63e173}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Shader\Volume\Heterogeneous\Common">
+      <UniqueIdentifier>{acb30745-3d22-484d-bc71-8abc54c2e075}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
@@ -405,6 +417,39 @@
     </ClCompile>
     <ClCompile Include="Manny.cpp">
       <Filter>ソース ファイル\GameObject\StaticObject</Filter>
+    </ClCompile>
+    <ClCompile Include="SunLight.cpp">
+      <Filter>ソース ファイル\GameObject\Lights</Filter>
+    </ClCompile>
+    <ClCompile Include="BulbLight.cpp">
+      <Filter>ソース ファイル\GameObject\Lights</Filter>
+    </ClCompile>
+    <ClCompile Include="DownLight.cpp">
+      <Filter>ソース ファイル\GameObject\Lights</Filter>
+    </ClCompile>
+    <ClCompile Include="PanelLight.cpp">
+      <Filter>ソース ファイル\GameObject\Lights</Filter>
+    </ClCompile>
+    <ClCompile Include="Table.cpp">
+      <Filter>ソース ファイル\GameObject\StaticObject</Filter>
+    </ClCompile>
+    <ClCompile Include="Lion.cpp">
+      <Filter>ソース ファイル\GameObject\StaticObject</Filter>
+    </ClCompile>
+    <ClCompile Include="Horse.cpp">
+      <Filter>ソース ファイル\GameObject\StaticObject</Filter>
+    </ClCompile>
+    <ClCompile Include="ProceduralChain.cpp">
+      <Filter>ソース ファイル\GameObject\StaticObject</Filter>
+    </ClCompile>
+    <ClCompile Include="VolumetricHeightFog.cpp">
+      <Filter>ソース ファイル\GameObject</Filter>
+    </ClCompile>
+    <ClCompile Include="FogVolume.cpp">
+      <Filter>ソース ファイル\GameObject</Filter>
+    </ClCompile>
+    <ClCompile Include="Cloud.cpp">
+      <Filter>ソース ファイル\GameObject</Filter>
     </ClCompile>
     <ClCompile Include="Cat.cpp">
       <Filter>ソース ファイル\GameObject\StaticObject</Filter>
@@ -759,6 +804,39 @@
     <ClInclude Include="Manny.h">
       <Filter>ソース ファイル\GameObject\StaticObject</Filter>
     </ClInclude>
+    <ClInclude Include="SunLight.h">
+      <Filter>ソース ファイル\GameObject\Lights</Filter>
+    </ClInclude>
+    <ClInclude Include="BulbLight.h">
+      <Filter>ソース ファイル\GameObject\Lights</Filter>
+    </ClInclude>
+    <ClInclude Include="DownLight.h">
+      <Filter>ソース ファイル\GameObject\Lights</Filter>
+    </ClInclude>
+    <ClInclude Include="PanelLight.h">
+      <Filter>ソース ファイル\GameObject\Lights</Filter>
+    </ClInclude>
+    <ClInclude Include="Table.h">
+      <Filter>ソース ファイル\GameObject\StaticObject</Filter>
+    </ClInclude>
+    <ClInclude Include="Lion.h">
+      <Filter>ソース ファイル\GameObject\StaticObject</Filter>
+    </ClInclude>
+    <ClInclude Include="Horse.h">
+      <Filter>ソース ファイル\GameObject\StaticObject</Filter>
+    </ClInclude>
+    <ClInclude Include="ProceduralChain.h">
+      <Filter>ソース ファイル\GameObject\StaticObject</Filter>
+    </ClInclude>
+    <ClInclude Include="VolumetricHeightFog.h">
+      <Filter>ソース ファイル\GameObject</Filter>
+    </ClInclude>
+    <ClInclude Include="FogVolume.h">
+      <Filter>ソース ファイル\GameObject</Filter>
+    </ClInclude>
+    <ClInclude Include="Cloud.h">
+      <Filter>ソース ファイル\GameObject</Filter>
+    </ClInclude>
     <ClInclude Include="Cat.h">
       <Filter>ソース ファイル\GameObject\StaticObject</Filter>
     </ClInclude>
@@ -974,59 +1052,11 @@
     <FxCompile Include="Shader\LumenTracingHardware.hlsl">
       <Filter>Shader\Lumen</Filter>
     </FxCompile>
-    <FxCompile Include="Shader\HeightFogPS.hlsl">
-      <Filter>Shader\Fog</Filter>
-    </FxCompile>
     <FxCompile Include="Shader\ShadowProjectionCommon.hlsl">
       <Filter>Shader\Shadow</Filter>
     </FxCompile>
-    <FxCompile Include="Shader\VolumetricFogAttributes_CS.hlsl">
-      <Filter>Shader\Fog</Filter>
-    </FxCompile>
-    <FxCompile Include="Shader\VolumetricFogCommon.hlsl">
-      <Filter>Shader\Fog</Filter>
-    </FxCompile>
-    <FxCompile Include="Shader\HeterogeneousVolumeCommon.hlsl">
-      <Filter>Shader\Fog</Filter>
-    </FxCompile>
-    <FxCompile Include="Shader\HeterogeneousVolumeCloudBake_CS.hlsl">
-      <Filter>Shader\Fog</Filter>
-    </FxCompile>
-    <FxCompile Include="Shader\HeterogeneousVolumeFireBake_CS.hlsl">
-      <Filter>Shader\Fog</Filter>
-    </FxCompile>
-    <FxCompile Include="Shader\HeterogeneousVolumeLightingCache_CS.hlsl">
-      <Filter>Shader\Fog</Filter>
-    </FxCompile>
-    <FxCompile Include="Shader\HeterogeneousVolumePS.hlsl">
-      <Filter>Shader\Fog</Filter>
-    </FxCompile>
-    <FxCompile Include="Shader\VolumetricFogGridCommon.hlsl">
-      <Filter>Shader\Fog</Filter>
-    </FxCompile>
-    <FxCompile Include="Shader\VolumetricFogVoxelizationCommon.hlsl">
-      <Filter>Shader\Fog</Filter>
-    </FxCompile>
-    <FxCompile Include="Shader\VolumetricFogVoxelizationVS.hlsl">
-      <Filter>Shader\Fog</Filter>
-    </FxCompile>
-    <FxCompile Include="Shader\VolumetricFogVoxelizationGS.hlsl">
-      <Filter>Shader\Fog</Filter>
-    </FxCompile>
-    <FxCompile Include="Shader\VolumetricFogVoxelizationPS.hlsl">
-      <Filter>Shader\Fog</Filter>
-    </FxCompile>
     <FxCompile Include="Shader\Noise.hlsl">
       <Filter>Shader\Header</Filter>
-    </FxCompile>
-    <FxCompile Include="Shader\VolumetricFogIntegration_CS.hlsl">
-      <Filter>Shader\Fog</Filter>
-    </FxCompile>
-    <FxCompile Include="Shader\VolumetricFogLightScattering_CS.hlsl">
-      <Filter>Shader\Fog</Filter>
-    </FxCompile>
-    <FxCompile Include="Shader\HeightFogCommon.hlsl">
-      <Filter>Shader\Fog</Filter>
     </FxCompile>
     <FxCompile Include="Shader\PostProcessUpscale_Nearest_PS.hlsl">
       <Filter>Shader\PostProcess</Filter>
@@ -1165,6 +1195,54 @@
     </FxCompile>
     <FxCompile Include="Shader\ForwardLightingCommon.hlsl">
       <Filter>Shader\Light</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\HeightFogCommon.hlsl">
+      <Filter>Shader\Volume\Fog\Common</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\VolumetricFogCommon.hlsl">
+      <Filter>Shader\Volume\Fog\Common</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\VolumetricFogGridCommon.hlsl">
+      <Filter>Shader\Volume\Fog\Common</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\VolumetricFogVoxelizationCommon.hlsl">
+      <Filter>Shader\Volume\Fog\Common</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\HeightFogPS.hlsl">
+      <Filter>Shader\Volume\Fog</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\VolumetricFogAttributes_CS.hlsl">
+      <Filter>Shader\Volume\Fog</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\VolumetricFogIntegration_CS.hlsl">
+      <Filter>Shader\Volume\Fog</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\VolumetricFogLightScattering_CS.hlsl">
+      <Filter>Shader\Volume\Fog</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\VolumetricFogVoxelizationGS.hlsl">
+      <Filter>Shader\Volume\Fog</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\VolumetricFogVoxelizationPS.hlsl">
+      <Filter>Shader\Volume\Fog</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\VolumetricFogVoxelizationVS.hlsl">
+      <Filter>Shader\Volume\Fog</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\HeterogeneousVolumeCloudBake_CS.hlsl">
+      <Filter>Shader\Volume\Heterogeneous</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\HeterogeneousVolumeFireBake_CS.hlsl">
+      <Filter>Shader\Volume\Heterogeneous</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\HeterogeneousVolumeLightingCache_CS.hlsl">
+      <Filter>Shader\Volume\Heterogeneous</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\HeterogeneousVolumePS.hlsl">
+      <Filter>Shader\Volume\Heterogeneous</Filter>
+    </FxCompile>
+    <FxCompile Include="Shader\HeterogeneousVolumeCommon.hlsl">
+      <Filter>Shader\Volume\Heterogeneous\Common</Filter>
     </FxCompile>
   </ItemGroup>
 </Project>

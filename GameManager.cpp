@@ -1,26 +1,25 @@
 ﻿#include "Main.h"
 #include "GameManager.h"
 #include "Input.h"
-
 #include "Camera.h"
 #include "Sky.h"
 #include "Field.h"
-#include "StaticMeshActor.h"
 #include "Polygon2D.h"
 #include "PostProcessVolume.h"
-#include "DirectionalLight.h"
-#include "PointLight.h"
-#include "SpotLight.h"
-#include "RectLight.h"
-#include "ExponentialHeightFog.h"
-
+#include "SunLight.h"
+#include "BulbLight.h"
+#include "DownLight.h"
+#include "PanelLight.h"
+#include "VolumetricHeightFog.h"
+#include "Table.h"
 #include "Cat.h"
+#include "Lion.h"
+#include "Horse.h"
 #include "Tree.h"
-#include "SkeletalMeshActor.h"
+#include "ProceduralChain.h"
 #include "Manny.h"
-#include "ProceduralSkeletalMesh.h"
-#include "ProceduralMeshGenerator.h"
-#include "HeterogeneousVolume.h"
+#include "FogVolume.h"
+#include "Cloud.h"
 #include "Campfire.h"
 
 GameManager* GameManager::m_Instance = nullptr;
@@ -31,257 +30,38 @@ GameManager::GameManager(HWND hWnd, const wchar_t* CmdLine)
 	, m_InputManager(hWnd)
 	, m_TestDriver(CmdLine)
 {
-	// ---- レベルロード相当: 初期アクターのスポーン ----
-	// (スポーン順 = FScene への登録順 = ベースパスの描画順)
-	m_World.SpawnActor<APostProcessVolume>();	// グローバルポスプロ (bUnbound)
+	// ---- レベルロード相当: 初期アクターのスポーン (登録のみ) ----
+	// 各アクターのメッシュ / マテリアル / ライトの値 / 既定の配置は、それぞれの
+	// 専用クラスのコンストラクタが持つ。ここはシーンに何を置くかの一覧だけ。
+	//
+	// スポーン順 = FScene への登録順 = ベースパスの描画順 = INI の [Actor.N] の添字。
+	// SettingsManager は [Actor.N] を添字とクラス名で対応付けるので、
+	// 既存の行の順序は変えず、新しいアクターは末尾に足すこと
+	m_World.SpawnActor<APostProcessVolume>();		// [0]  グローバルポスプロ (bUnbound)
 
-	// ---- ライト (ALight アクター + ULightComponent) ----
-	{
-		// ディレクショナル: 旧 FScene 既定値 (方向 (3,5,-3) / 強度 3) と同じ見た目。
-		// 既定は 10 lux , Details の Light セクションで調整できる
-		ADirectionalLight* sun = m_World.SpawnActor<ADirectionalLight>();
-		sun->SetActorRotation(ULightComponentBase::DirectionToRotator({ -3.0f, -5.0f, 3.0f }));	// 発光方向 = 旧 LightDirection の逆
-		sun->GetLightComponent()->SetIntensity(3.0f);	// lux
+	m_World.SpawnActor<ASunLight>();				// [1]  太陽 (3 lux)
+	m_World.SpawnActor<ABulbLight>();				// [2]  暖色の電球 (800 lm)
+	m_World.SpawnActor<ADownLight>();				// [3]  真上からのダウンライト (2000 lm)
+	m_World.SpawnActor<APanelLight>();				// [4]  寒色のパネルライト (1500 lm)
 
-		// ポイント: 暖色の電球 (800 lm ≒ 60W 白熱球)
-		APointLight* pointLight = m_World.SpawnActor<APointLight>();
-		pointLight->SetActorLocation({ -2.5f, 5.0f, -2.0f });
-		pointLight->GetPointLightComponent()->SetIntensity(800.0f);		// lm
-		pointLight->GetPointLightComponent()->SetSourceRadius(0.05f);
-		pointLight->GetPointLightComponent()->SetUseTemperature(true);
-		pointLight->GetPointLightComponent()->SetTemperature(3000.0f);	// 電球色
+	m_World.SpawnActor<ACameraActor>();				// [5]
+	m_World.SpawnActor<ASky>();						// [6]
+	m_World.SpawnActor<AField>();					// [7]
 
-		// スポット: 真上からのダウンライト
-		ASpotLight* spotLight = m_World.SpawnActor<ASpotLight>();
-		spotLight->SetActorLocation({ 2.0f, 8.0f, 1.0f });	// 向きはコンストラクタ既定 (真下)
-		spotLight->GetSpotLightComponent()->SetIntensity(2000.0f);		// lm
-		spotLight->GetSpotLightComponent()->SetOuterConeAngle(30.0f);
-		spotLight->GetSpotLightComponent()->SetInnerConeAngle(15.0f);
+	m_World.SpawnActor<ATable>();					// [8]  ピクニックテーブル
+	m_World.SpawnActor<ACat>();						// [9]  猫の石像
+	m_World.SpawnActor<ALion>();					// [10] ライオンの頭像
+	m_World.SpawnActor<AHorse>();					// [11] 馬の像
 
-		// レクト: 寒色のパネルライト (-Z を向けてシーン中央へ)
-		ARectLight* rectLight = m_World.SpawnActor<ARectLight>();
-		rectLight->SetActorLocation({ 0.0f, 5.0f, 4.0f });
-		rectLight->SetActorRotation({ XMConvertToRadians(15.0f), XMConvertToRadians(180.0f), 0.0f });
-		rectLight->GetRectLightComponent()->SetIntensity(1500.0f);		// lm
-		rectLight->GetRectLightComponent()->SetSourceWidth(1.5f);
-		rectLight->GetRectLightComponent()->SetSourceHeight(1.0f);
-		rectLight->GetRectLightComponent()->SetUseTemperature(true);
-		rectLight->GetRectLightComponent()->SetTemperature(9000.0f);	// 寒色
-	}
+	m_World.SpawnActor<AVolumetricHeightFog>();		// [12] 高さフォグ + Volumetric Fog
+	m_World.SpawnActor<ATree>();					// [13] プロシージャルツリー
+	m_World.SpawnActor<AProceduralChain>();			// [14] プロシージャルなチェーンのリグ (GPU スキニング)
+	m_World.SpawnActor<AManny>();					// [15] マネキン
+	m_World.SpawnActor<AFogVolume>();				// [16] Volume マテリアルの霧 (Volumetric Fog へボクセル化)
+	m_World.SpawnActor<ACloud>();					// [17] Heterogeneous Volume の積雲
+	m_World.SpawnActor<ACampfire>();				// [18] 焚き火 (Heterogeneous Volume の炎 + ライト)
 
-	m_World.SpawnActor<ACameraActor>();
-	m_World.SpawnActor<ASky>();
-	m_World.SpawnActor<AField>();
-
-	// ---- スタティックメッシュ配置 (AStaticMeshActor) ----
-	{
-		// 旧 ACat / AHorse / ATable が設定していた共通マテリアル値
-		auto SetDefaultLitMaterial = [](Material& material)
-			{
-				material.Params.BaseColor = { 0.5f, 0.0f, 0.5f, 1.0f };
-				material.Params.EmissionColor = { 0.0f, 0.0f, 0.0f, 0.0f };
-				material.Params.Metallic = 0.0f;
-				material.Params.Specular = 0.0f;
-				material.Params.Roughness = 1.0f;
-				material.Params.NormalWeight = 1.0f;
-				material.Params.Unlit = FALSE;
-			};
-
-		// テーブル (旧 ATable)
-		AStaticMeshActor* table = m_World.SpawnActor<AStaticMeshActor>();
-		table->SetActorLabel("Table");
-		{
-			UStaticMeshComponent* mesh = table->GetStaticMeshComponent();
-			mesh->SetStaticMesh("Asset/Model/wooden_picnic_table_4k.fbx");
-			mesh->SetNumMaterialSlots(2);
-
-			table->SetActorLocation({ 0.0f, 0.0f, 0.0f });
-			table->SetActorRotation({ XMConvertToRadians(90.0f), XMConvertToRadians(90.0f), 0.0f });
-			table->SetActorScale3D({ 5.0f, 5.0f, 5.0f });
-
-			mesh->SetBaseColorTexture(0, "Asset/Texture/wooden_picnic_table_bottom_diff_4k.dds");
-			mesh->SetNormalTexture(0, "Asset/Texture/wooden_picnic_table_bottom_nor_dx_4k.dds");
-			mesh->SetARMTexture(0, "Asset/Texture/wooden_picnic_table_bottom_arm_4k.dds");
-
-			mesh->SetBaseColorTexture(1, "Asset/Texture/wooden_picnic_table_top_diff_4k.dds");
-			mesh->SetNormalTexture(1, "Asset/Texture/wooden_picnic_table_top_nor_dx_4k.dds");
-			mesh->SetARMTexture(1, "Asset/Texture/wooden_picnic_table_top_arm_4k.dds");
-
-			for (unsigned int i = 0; i < 2; ++i)
-			{
-				SetDefaultLitMaterial(mesh->GetMaterial(i));
-			}
-			mesh->MarkRenderStateDirty();	// GetMaterial() 直接書き換えの反映
-		}
-
-		// 猫の石像 (ACat)
-		ACat* cat = m_World.SpawnActor<ACat>();
-		cat->SetActorLabel("Cat");
-		cat->SetActorLocation({ -1.0f, 3.75f, 0.0f });
-		cat->SetActorRotation({ 1.57f, 0.0f, 0.0f });
-		cat->SetActorScale3D({ 7.0f, 7.0f, 7.0f });
-
-		// ライオンの頭像 (旧 ALion)
-		AStaticMeshActor* lion = m_World.SpawnActor<AStaticMeshActor>();
-		lion->SetActorLabel("Lion");
-		{
-			UStaticMeshComponent* mesh = lion->GetStaticMeshComponent();
-			mesh->SetStaticMesh("Asset/Model/lion_head_4k.fbx");
-
-			lion->SetActorLocation({ 2.0f, 3.75f, 1.0f });
-			lion->SetActorRotation({ XMConvertToRadians(90.0f), 0.0f, 0.0f });
-			lion->SetActorScale3D({ 7.0f, 7.0f, 7.0f });
-
-			mesh->SetBaseColorTexture(0, "Asset/Texture/lion_head_diff_4k.dds");
-			mesh->SetNormalTexture(0, "Asset/Texture/lion_head_nor_dx_4k.dds");
-			mesh->SetARMTexture(0, "Asset/Texture/lion_head_arm_4k.dds");
-
-			// マテリアルはスロット既定値 (旧 ALion と同じくデフォルトのまま)
-		}
-
-		// 馬の像 (旧 AHorse)
-		AStaticMeshActor* horse = m_World.SpawnActor<AStaticMeshActor>();
-		horse->SetActorLabel("Horse");
-		{
-			UStaticMeshComponent* mesh = horse->GetStaticMeshComponent();
-			mesh->SetStaticMesh("Asset/Model/horse_statue_01_4k.fbx");
-
-			horse->SetActorLocation({ -1.0f, 3.7f, 0.0f });
-			horse->SetActorRotation({ 1.57f, 0.0f, 0.0f });
-			horse->SetActorScale3D({ 10.0f, 10.0f, 10.0f });
-
-			mesh->SetBaseColorTexture(0, "Asset/Texture/horse_statue_01_diff_4k.dds");
-			mesh->SetNormalTexture(0, "Asset/Texture/horse_statue_01_nor_dx_4k.dds");
-			mesh->SetARMTexture(0, "Asset/Texture/horse_statue_01_arm_4k.dds");
-
-			SetDefaultLitMaterial(mesh->GetMaterial(0));
-			mesh->MarkRenderStateDirty();	// GetMaterial() 直接書き換えの反映
-		}
-	}
-
-	//m_World.SpawnActor<APolygon2D>();	// 2D オーバーレイ (使う場合は必ず最後にスポーン)
-
-	// ---- Exponential Height Fog (AExponentialHeightFog) ----
-	{
-		AExponentialHeightFog* fog = m_World.SpawnActor<AExponentialHeightFog>();
-		fog->SetActorLocation({ 0.0f, 0.0f, 0.0f });
-		fog->GetComponent()->SetVolumetricFog(true);
-	}
-
-	// ---- プロシージャルツリー (ATree) ----
-	{
-		ATree* tree = m_World.SpawnActor<ATree>();
-		tree->SetActorLabel("Tree");
-		tree->SetActorLocation({ 7.0f, 0.0f, 6.0f });
-	}
-
-	// ---- スケルタルメッシュ (ASkeletalMeshActor) ----
-	// リグ付きアセットがリポジトリに無いので、プロシージャルなチェーンのリグ
-	// (FProceduralSkeletalMeshBuilder) と波打つアニメーションをアセットとして登録し、
-	// UE と同じ単一ノード再生 (PlayAnimation) で動かす。既存の [Actor.N] 添字を
-	// ずらさないよう最後にスポーンする
-	{
-		FProceduralSkeletalChainParams chain;
-		FSkeletalMeshImportData importData;
-		FProceduralSkeletalMeshBuilder::BuildChain(chain, importData);
-
-		std::shared_ptr<USkeletalMesh> mesh = FAssetManager::GetInstance()->CreateSkeletalMesh("ProceduralChain", importData);
-		std::shared_ptr<UAnimSequence> wave = FProceduralSkeletalMeshBuilder::CreateWaveSequence(mesh->GetSkeleton(), chain);
-		std::shared_ptr<UAnimSequence> idle = FProceduralSkeletalMeshBuilder::CreateIdleSequence(mesh->GetSkeleton(), chain);
-		FAssetManager::GetInstance()->RegisterAnimSequence("ProceduralChain#Wave", wave);
-		FAssetManager::GetInstance()->RegisterAnimSequence("ProceduralChain#Idle", idle);
-
-		ASkeletalMeshActor* skeletal = m_World.SpawnActor<ASkeletalMeshActor>();
-		skeletal->SetActorLabel("Skeletal");
-		skeletal->SetActorLocation({ -6.0f, 0.0f, -8.0f });
-
-		USkeletalMeshComponent* component = skeletal->GetSkeletalMeshComponent();
-		component->SetSkeletalMesh(mesh);
-		component->SetBaseColorTexture(0, "Asset/Texture/lion_head_diff_4k.dds");
-		component->SetNormalTexture(0, "Asset/Texture/lion_head_nor_dx_4k.dds");
-		component->SetARMTexture(0, "Asset/Texture/lion_head_arm_4k.dds");
-		{
-			Material& material = component->GetMaterial(0);
-			material.Params.BaseColor = { 0.85f, 0.6f, 0.35f, 1.0f };
-			material.Params.Metallic = 0.0f;
-			material.Params.Specular = 0.5f;
-			material.Params.Roughness = 0.7f;
-			component->MarkRenderStateDirty();
-		}
-		component->PlayAnimation(wave, true);
-	}
-
-	// ---- マネキン ----
-	{
-		AManny* manny = m_World.SpawnActor<AManny>();
-		manny->SetActorLabel("Manny");
-		manny->SetActorLocation({ -8.5f, 0.0f, -8.0f });
-	}
-
-	// ---- ボリュームマテリアルのデモ (Material Domain = Volume) ----
-	// 単位ボックスのスタティックメッシュに Volume マテリアルを載せる。メッシュ自体は
-	// どのサーフェスパスにも描かれず、境界 (OBB) が Volumetric Fog へボクセル化される
-	// (UE のサンプル M_VolumetricFog 相当: FogColor / Noise x Opacity x Hardness)。
-	// ※ 新しいアクターは [Actor.N] の添字を保つため末尾にスポーンする
-	{
-		AStaticMeshActor* fogVolume = m_World.SpawnActor<AStaticMeshActor>();
-		fogVolume->SetActorLabel("FogVolume");
-
-		UStaticMeshComponent* mesh = fogVolume->GetStaticMeshComponent();
-		FProceduralMeshSection box = FProceduralMeshBuilder::CreateBox({ 1.0f, 1.0f, 1.0f });
-		box.bAffectDistanceField = false;	// 媒質なので SDF には入れない
-		mesh->SetProceduralMesh("FogVolumeUnitBox", FProceduralMeshData::FromSection(box));
-		mesh->SetCastShadow(false);
-		mesh->SetAffectDistanceFieldLighting(false);
-
-		// テーブルの天板 (y = 3.7 m) の上に漂う 9 x 1.8 x 4.4 m の霧の塊
-		fogVolume->SetActorLocation({ 0.0f, 4.6f, 0.0f });
-		fogVolume->SetActorScale3D({ 4.5f, 0.9f, 2.2f });
-
-		Material& mat = mesh->GetMaterial(0);
-		mat.SetMaterialDomain(EMaterialDomain::MD_Volume);
-		mat.SetVolumeShape(EVolumeShape::Box);
-		mat.VolumeParams.Albedo = { 1.0f, 1.0f, 1.0f, 1.0f };
-		mat.VolumeParams.Emissive = { 0.0f, 0.0f, 0.0f, 0.0f };
-		// グラフの既定 (Octaves 3 / Lacunarity 2 / Gain 0.5 / x1.5 / Power 5)。
-		// ノイズ格子 (1 / Scale) は霧の厚み (1.8 m) と同程度にする。視線が体積を通る間に
-		// 何周期も平均されると模様が消えるため
-		mat.VolumeParams.ExtinctionParams = { 4.0f, 1.5f, 5.0f, 0.3f };		// Extinction / Multiply / Power / EdgeFalloff
-		mat.VolumeParams.NoiseScale = { 0.5f, 0.5f, 0.5f, 0.5f };			// Scale [1/m] (格子 2 m) / Gain
-		mat.VolumeParams.NoiseOffsetSpeed = { 0.3f, 0.05f, 0.15f, 0.2f };	// OffsetSpeed [m/s] / EvolutionSpeed
-		mat.VolumeParams.NoiseParams = { 3.0f, 2.0f, 4.0f, 1.0f };			// Octaves / Lacunarity / 4D (Evolution) / UseNoise
-		mesh->MarkRenderStateDirty();	// GetMaterial() 直接書き換えの反映
-	}
-
-	// ---- Heterogeneous Volume のデモ: 単体の積雲 (AHeterogeneousVolume) ----
-	// 密度はプロシージャル (球群 + Worley / Perlin) をコンピュートで Texture3D へベイクし、
-	// 太陽 + 天空光でレイマーチする。アクターのスケール = 半幅 [m] (16 x 7 x 11 m の雲)。
-	// ※ 新しいアクターは [Actor.N] の添字を保つため末尾にスポーンする
-	{
-		AHeterogeneousVolume* cloud = m_World.SpawnActor<AHeterogeneousVolume>();
-		cloud->SetActorLabel("Cloud");
-		cloud->SetActorLocation({ 3.0f, 14.0f, 14.0f });
-		cloud->SetActorScale3D({ 8.0f, 3.5f, 5.5f });
-
-		UHeterogeneousVolumeComponent* volume = cloud->GetHeterogeneousVolumeComponent();
-		volume->SetVolumeResolution({ 256, 128, 192 });	// 6 cm ボクセル (密度 12 MB + キャッシュ 6 MB)
-
-		// このシーンの太陽 (0.5 lux) は空のドーム (無光のテクスチャ) に対して暗く、物理どおりだと
-		// 雲が空より暗い灰色になる。日なたが空より明るく見えるよう雲の側で太陽光を持ち上げる
-		FHeterogeneousVolumeMaterial material = volume->GetVolumeMaterial();
-		material.DirectionalLightIntensityScale = 10.0f;
-		volume->SetVolumeMaterial(material);
-	}
-
-	// ---- 焚き火 (ACampfire): 薪 + 石 / Heterogeneous Volume の炎 / ゆらぐポイントライト ----
-	// 炎は密度 + 熱を毎フレームコンピュートでベイクし、熱を黒体放射で光らせる。
-	// テーブルの +Z 側、地面の上に置く
-	// ※ 新しいアクターは [Actor.N] の添字を保つため末尾にスポーンする
-	{
-		ACampfire* campfire = m_World.SpawnActor<ACampfire>();
-		campfire->SetActorLabel("Campfire");
-		campfire->SetActorLocation({ 4.0f, 0.0f, 6.5f });
-	}
+	//m_World.SpawnActor<APolygon2D>();				// 2D オーバーレイ (使う場合は必ず最後にスポーン)
 }
 
 GameManager::~GameManager()

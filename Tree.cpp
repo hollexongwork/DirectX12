@@ -31,6 +31,9 @@ ATree::ATree()
 	// 再生成は Tick で行う (AStaticMeshActor は Tick 不要にしているので戻す)
 	bCanEverTick = true;
 
+	// 既定の配置 (テーブルの +X +Z 側。テーブルの足元 ±8 x ±3.5 m の外)
+	SetActorLocation({ 7.0f, 0.0f, 6.0f });
+
 	UStaticMeshComponent* mesh = GetStaticMeshComponent();
 	mesh->SetNumMaterialSlots(NumMaterialSlots);
 
