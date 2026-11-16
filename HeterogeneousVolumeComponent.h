@@ -80,7 +80,7 @@ struct FProceduralCloudParams
 
 // ------------------------------------------------------------
 //  EHeterogeneousVolumeSource
-//  密度ボリュームの作り方 (UE の Sparse Volume Texture アセットの代わり)
+//  密度ボリュームの作り方 (Sparse Volume Texture アセットの代わり)
 // ------------------------------------------------------------
 enum class EHeterogeneousVolumeSource : int
 {
@@ -200,7 +200,7 @@ class UHeterogeneousVolumeComponent : public UPrimitiveComponent
 {
 private:
 	// ---- UHeterogeneousVolumeComponent の同名プロパティ ----
-	XMUINT3 m_VolumeResolution = { 192, 128, 192 };	// 密度ボリュームの解像度 (UE 既定 128^3)
+	XMUINT3 m_VolumeResolution = { 192, 128, 192 };	// 密度ボリュームの解像度 (既定 128^3)
 	float   m_StepFactor = 1.0f;					// レイマーチのステップ = 最小ボクセル幅 x StepFactor
 	float   m_ShadowStepFactor = 2.0f;				// ライティングキャッシュのステップ = ボクセル幅 x ShadowStepFactor
 	float   m_ShadowBiasFactor = 0.5f;				// シャドウレイの開始オフセット = ボクセル幅 x ShadowBiasFactor
