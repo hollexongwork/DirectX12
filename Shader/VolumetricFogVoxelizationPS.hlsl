@@ -14,7 +14,6 @@
 //                    散乱パスのスカイ項を Σσt(1-AO) / Σσt で減衰させる (VBufferB.a)
 //  サンプル位置が境界 (OBB / 球) の外なら discard。
 //  加算ブレンド (One / One) なので複数の媒質が重なると係数が足し合わさる
-//  (UE と同じ)。
 //
 //  ノイズ (マテリアル関数 "Fbm Perlin noise", Noise.hlsl):
 //    Position  = (AbsoluteWorldPosition + OffsetSpeed x Time) x Scale
